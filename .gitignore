@@ -179,3 +179,44 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# ==================================================
+# VALORIA VISION - DONNEES SENSIBLES ET PERSONNELLES
+# ==================================================
+
+# Bases de données locales
+data/
+user_data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Sauvegardes
+backups/
+backup/
+*.bak
+
+# Imports et exports financiers
+imports/
+exports/
+bank_files/
+*.qif
+*.ofx
+
+# Secrets et identifiants
+.env
+.env.*
+secrets/
+credentials.json
+token.json
+*.key
+*.pem
+
+# Journaux pouvant contenir des données
+logs/
+*.log
+
+# Configurations locales
+config.local.*
+settings.local.*
