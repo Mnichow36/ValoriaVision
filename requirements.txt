@@ -1,0 +1,3 @@
+# Valoria Vision — installation verrouillée
+# Ne pas remettre de versions ouvertes du type >= ici.
+-r requirements-lock.txt
