@@ -1,0 +1,42 @@
+name: Fonctionnalité / amélioration
+description: Proposer une évolution fonctionnelle ou UX
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: module
+    attributes:
+      label: Module concerné
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: Besoin utilisateur
+      placeholder: En tant que..., je souhaite..., afin de...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Critères d'acceptation
+      placeholder: |
+        - [ ] Critère 1
+        - [ ] Critère 2
+    validations:
+      required: true
+  - type: input
+    id: epic
+    attributes:
+      label: Epic parente ou issue liée
+  - type: input
+    id: target
+    attributes:
+      label: Version cible proposée

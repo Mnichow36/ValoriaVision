@@ -1,0 +1,59 @@
+name: Bug / anomalie
+description: Signaler un dysfonctionnement reproductible
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: V0.6.6-R7.1
+    validations:
+      required: true
+  - type: input
+    id: module
+    attributes:
+      label: Module concerné
+      placeholder: Comptes, Transactions, Rapprochements...
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Anomalie observée
+      description: Décrire factuellement le comportement constaté.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Étapes de reproduction
+      placeholder: |
+        1. Ouvrir...
+        2. Cliquer...
+        3. Constater...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Résultat attendu
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priorité proposée
+      options:
+        - P0 - Bloquant ou données menacées
+        - P1 - Fonction importante dégradée
+        - P2 - Réserve UX ou amélioration importante
+        - P3 - Idée ou optimisation future
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Preuves et remarques
+      description: Ajouter captures ou journaux sans donnée sensible.
