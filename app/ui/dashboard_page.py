@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWi
 
 from app.database import Database
 from app.services.business_rules import is_current_expense, is_true_income
-from app.theme import euro
+from app.theme import euro, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader
 from app.ui.plotly_components import PlotlyFigureCard, empty_figure, go
 

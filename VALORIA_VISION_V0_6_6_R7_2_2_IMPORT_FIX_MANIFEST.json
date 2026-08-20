@@ -1,0 +1,27 @@
+{
+  "version": "V0.6.6-R7.2.2",
+  "title": "Import Fix — stabilisation Transactions / Import bancaire",
+  "base": "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_1_INSTALL_FIX.zip",
+  "created_at": "2026-08-17T22:11:00+02:00",
+  "scope": [
+    "R7.2-ANO-001 contrôle du compte bancaire source SG",
+    "R7.2-ANO-002 enrichissement des libellés carte SG",
+    "R7.2-ANO-003 montants affichés avec 2 décimales",
+    "R7.2-ANO-004 dates affichées en JJ/MM/AAAA",
+    "R7.2-ANO-005 filtre Transactions Du/Au"
+  ],
+  "tests": {
+    "python_compile": "OK",
+    "csv_sg_real_valid_operations": 314,
+    "csv_sg_real_rejected_lines": 0,
+    "detected_account_identifiers_include": ["0389000050384255", "00050384255"],
+    "amount_format": "-26,58 €",
+    "date_format": "19/06/2026"
+  },
+  "security": {
+    "real_bank_csv_included": false,
+    "venv_included": false,
+    "sqlite_db_included": false,
+    "vault_or_keys_included": false
+  }
+}

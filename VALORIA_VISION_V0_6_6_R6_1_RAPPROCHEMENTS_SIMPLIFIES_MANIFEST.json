@@ -1,0 +1,20 @@
+{
+  "version": "V0.6.6-R6.1",
+  "title": "Rapprochements simplifiés",
+  "created_at": "2026-07-10T22:35:09",
+  "base": "ValoriaVision_INSTALLABLE_V0_6_6_R6_RAPPROCHEMENTS.zip",
+  "changes": [
+    "Nouvel écran Rapprochements en deux fenêtres verticales",
+    "À gauche : transactions bancaires importées",
+    "À droite : récurrences / occurrences prévisionnelles",
+    "Cases à cocher pour rapprocher manuellement une transaction et une occurrence",
+    "KPI/statuts cliquables dans un panneau vertical à droite",
+    "Conservation du service de rapprochement et du rapprochement automatique après import"
+  ],
+  "not_changed": [
+    "Moteur Plotly",
+    "Dashboard R5.1",
+    "installateur verrouillé",
+    "data/runtime/plotly.min.js"
+  ]
+}

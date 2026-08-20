@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.database import Database
-from app.theme import euro
+from app.theme import euro, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 
 
@@ -191,7 +191,7 @@ class AccountsPage(QWidget):
             balance = QLabel(euro(current_balance))
             balance.setStyleSheet(f"font-size:24px; font-weight: bold; color:{'#16A34A' if current_balance >= 0 else '#DC2626'};")
             meta = QLabel(
-                f"Solde initial : {euro(initial_balance)} au {initial_date}<br>"
+                f"Solde initial : {euro(initial_balance)} au {format_date_fr(initial_date)}<br>"
                 f"Identifiant : {row['identifier'] or '—'}"
             )
             meta.setWordWrap(True)
@@ -260,7 +260,7 @@ class AccountsPage(QWidget):
                 euro(initial_balance),
                 initial_date,
                 euro(current_balance),
-                row["calculated_date"],
+                format_date_fr(row["calculated_date"]),
                 "…",
             ]
             for col, value in enumerate(values):
@@ -367,9 +367,9 @@ class AccountsPage(QWidget):
             f"Type : {row['account_type']}<br>"
             f"Identifiant : {row['identifier']}<br><br>"
             f"<b>Solde initial</b><br>"
-            f"{euro(initial_balance)} au {initial_date}<br><br>"
+            f"{euro(initial_balance)} au {format_date_fr(initial_date)}<br><br>"
             f"<b>Solde actuel calculé</b><br>"
-            f"{euro(row['calculated_balance'])} au {row['calculated_date']}<br>"
+            f"{euro(row['calculated_balance'])} au {format_date_fr(row['calculated_date'])}<br>"
             f"Mouvements après solde initial : {euro(movement)}<br><br>"
             f"<b>Règle métier</b><br>"
             f"Solde à une date = solde initial + transactions entre la date initiale et la date observée.<br><br>"
@@ -420,7 +420,7 @@ class BalanceReferenceDialog(QDialog):
         info = QLabel(
             f"<b>{account_row['name']}</b><br>"
             f"Solde actuel calculé : {euro(account_row['calculated_balance'])}<br>"
-            f"Ancien solde initial : {euro(account_row['effective_initial_balance'])} au {account_row['effective_initial_date']}"
+            f"Ancien solde initial : {euro(account_row['effective_initial_balance'])} au {format_date_fr(account_row['effective_initial_date'])}"
         )
         info.setWordWrap(True)
         info.setStyleSheet("color:#475569;")

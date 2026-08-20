@@ -1,0 +1,9 @@
+﻿Zone;Données sensibles;Table / fichier;Risque;Mesure V0.6.0;Mesure suivante;Criticité
+Comptes bancaires;Banque, nom compte, type, identifiant bancaire/IBAN, solde initial, solde calculé;accounts, account_balance_history;Exposition des soldes et identifiants si la base est copiée;Cartographie + vérification masquage UI;Chiffrement base + masquage strict;Critique
+Transactions;Date, libellé, montant, catégorie, compte, statut, lot import;transactions;Reconstitution de la vie financière;Cartographie + règle de logs nettoyés;Chiffrement base;Critique
+Imports bancaires;Fichiers CSV/QIF, lots d’import, erreurs, identifiants;import_batches, fichiers importés;Fichiers importés exploitables hors application;Documenter emplacement et cycle de vie;Archivage/suppression contrôlée + chiffrement;Haute
+Patrimoine;Actifs, passifs, valorisations, immobilier, placements, crédits;assets, asset_values, portfolio_snapshots;Exposition du patrimoine net;Inventaire tables/champs;Chiffrement base + accès applicatif;Critique
+Prévisionnel / récurrences;Loyers, salaires, échéances, assurances, crédits;recurring_items;Projection des revenus/charges;Inventaire;Chiffrement base + verrouillage session;Haute
+Sauvegardes;Copie complète ou partielle de la base;data/backups, exports;Sauvegardes lisibles si copiées;Inventaire;Sauvegardes chiffrées .vvb;Critique
+Paramètres;Préférences, chemins backups, futur hash mot de passe;settings;Fuite chemins ou secrets futurs;Identifier clés sensibles;Keyring/coffre OS;Haute
+Logs / console;Tracebacks, chemins locaux, potentiels libellés/fichiers;console, futurs logs;Exposition dans les traces;Règle logs sans solde/IBAN/token/libellé sensible;Journalisation minimale;Moyenne

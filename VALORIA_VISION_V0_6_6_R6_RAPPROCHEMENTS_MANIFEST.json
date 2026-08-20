@@ -1,0 +1,23 @@
+{
+  "version": "V0.6.6-R6",
+  "title": "Rapprochement prévisionnel / réalisé",
+  "created_at": "2026-07-10T22:14:13",
+  "base": "ValoriaVision_INSTALLABLE_V0_6_6_R5_1.zip",
+  "source_spec": "ValoriaVision_CDC_Rapprochement_Previsionnel_Reel (1).pdf",
+  "scope": [
+    "Table forecast_occurrences",
+    "ForecastReconciliationService",
+    "Génération des occurrences depuis les récurrences",
+    "Rapprochement automatique après import bancaire",
+    "Scoring compte/sens/montant/date/libellé/catégorie",
+    "Statuts Prévue / Rapprochée automatiquement / À vérifier / En retard / Ignorée / Annulée",
+    "Écran Rapprochements avec filtres et actions confirmer/refuser/ignorer",
+    "Protection anti double comptage dans forecast_events pour les récurrences rapprochées"
+  ],
+  "not_changed": [
+    "app/ui/plotly_runtime.py",
+    "app/ui/plotly_components.py",
+    "data/runtime/plotly.min.js",
+    "Dashboard R5.1 conservé"
+  ]
+}

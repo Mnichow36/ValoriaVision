@@ -14,7 +14,7 @@ def normalize_currency(code: str | None) -> str:
     return value if value in SUPPORTED_CURRENCIES else "EUR"
 
 
-def format_money(value: float, currency: str = "EUR", show_cents: bool = False) -> str:
+def format_money(value: float, currency: str = "EUR", show_cents: bool = True) -> str:
     """Format money without enabling FX conversion yet.
 
     V0.6.0 prepares multi-currency display. Amounts remain stored as entered.

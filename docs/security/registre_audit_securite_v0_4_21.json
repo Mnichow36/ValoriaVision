@@ -1,0 +1,8 @@
+{
+  "version": "V0.6.0",
+  "title": "Gel socle & audit sécurité",
+  "date": "2026-07-07",
+  "base_reference": "V0.6.0 validée",
+  "next_version": "V0.6.0 — Chiffrement base & sauvegardes",
+  "decision": "NO-GO bêta privée avec données réelles tant que base, sauvegardes et accès applicatif ne sont pas sécurisés"
+}

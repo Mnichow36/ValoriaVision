@@ -1,0 +1,5 @@
+﻿Option;Principe;Avantages;Limites;Décision V0.6.0
+SQLCipher;Base SQLite chiffrée;Protection forte fichier DB;Dépendances/binaires Windows à gérer;Option cible à étudier
+Enveloppe chiffrée;Déchiffrer temporairement puis rechiffrer;Plus simple à prototyper;Risque fichier temporaire/crash;Option de secours
+Chiffrement champ par champ;Chiffrer certains champs dans SQLite;Contrôle fin;Complexité forte;Non recommandé MVP
+Pas de chiffrement;SQLite en clair;Simple;Incompatible données réelles;Rejeté

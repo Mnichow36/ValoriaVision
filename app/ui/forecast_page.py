@@ -482,7 +482,7 @@ class ForecastPage(QWidget):
         self.build()
 
     def build(self) -> None:
-        add_btn = primary_button("+ Ajouter une récurrence")
+        add_btn = primary_button("+ Ajouter événement / récurrence")
         add_btn.clicked.connect(self.open_add_recurring_dialog)
 
         self.analysis_btn = QPushButton("Analyse de la période")
@@ -524,10 +524,10 @@ class ForecastPage(QWidget):
         self.horizon.currentIndexChanged.connect(self.refresh)
 
         self.scenario = QComboBox()
-        self.scenario.addItems(["Prudent", "Réaliste", "Optimiste"])
-        self.scenario.setMinimumWidth(150)
-        self.scenario.setMinimumContentsLength(9)
+        self.scenario.setMinimumWidth(180)
+        self.scenario.setMinimumContentsLength(14)
         self.scenario.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.scenario.addItems(["Prudent", "Réaliste", "Optimiste"])
         self.scenario.setCurrentText("Réaliste")
         self.scenario.currentIndexChanged.connect(self.refresh)
 
@@ -657,6 +657,41 @@ class ForecastPage(QWidget):
         super().showEvent(event)
         self.refresh()
 
+
+    def refresh_scenario_options(self) -> None:
+        if not hasattr(self, "scenario"):
+            return
+        previous = self.scenario.currentText()
+        self.scenario.blockSignals(True)
+        self.scenario.clear()
+        for name in ["Prudent", "Réaliste", "Optimiste"]:
+            self.scenario.addItem(name)
+        try:
+            with self.db.connect() as conn:
+                rows = list(
+                    conn.execute(
+                        """
+                        SELECT name
+                        FROM scenarios
+                        WHERE deleted_at IS NULL
+                          AND is_active = 1
+                          AND is_reference = 0
+                        ORDER BY updated_at DESC, name
+                        """
+                    )
+                )
+            for row in rows:
+                name = row["name"]
+                if self.scenario.findText(name) < 0:
+                    self.scenario.addItem(name)
+        except Exception:
+            pass
+        idx = self.scenario.findText(previous)
+        self.scenario.setCurrentIndex(idx if idx >= 0 else self.scenario.findText("Réaliste"))
+        self.scenario.blockSignals(False)
+
+
+
     def refresh_account_filter_options(self) -> None:
         """Refresh account selector from SQLite without recreating the page.
 
@@ -692,6 +727,8 @@ class ForecastPage(QWidget):
             return
         if hasattr(self, "account_filter"):
             self.refresh_account_filter_options()
+        if hasattr(self, "scenario"):
+            self.refresh_scenario_options()
         start = self.start_date.date().toString("yyyy-MM-dd")
         days = int(self.horizon.currentText().split()[0])
         scenario = self.scenario.currentText()
@@ -807,7 +844,7 @@ class ForecastPage(QWidget):
         self.info_layout.addWidget(block)
 
     def tooltip_for_day(self, day: dict) -> str:
-        header = f"<b>{day['date']}</b><br>Solde : {euro(day['balance'])}<br>"
+        header = f"<b>{format_date_fr(day['date'])}</b><br>Solde : {euro(day['balance'])}<br>"
         if not day["events"]:
             return header + "<span style='color:#64748B'>Aucune opération ce jour.</span>"
         lines = []
@@ -945,7 +982,7 @@ class DayOperationsDialog(QDialog):
         super().__init__(parent)
         self.page = parent
         self.day = day
-        self.setWindowTitle(f"Opérations du {day['date']}")
+        self.setWindowTitle(f"Opérations du {format_date_fr(day['date'])}")
         self.resize(980, 540)
         self.setMinimumSize(820, 460)
         self.build()
@@ -954,7 +991,7 @@ class DayOperationsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 20)
 
-        title = QLabel(f"Opérations du {self.day['date']}")
+        title = QLabel(f"Opérations du {format_date_fr(self.day['date'])}")
         title.setStyleSheet("font-size:22px; font-weight: bold;")
         layout.addWidget(title)
 
@@ -1037,7 +1074,7 @@ class RecurringDialog(QDialog):
     def __init__(self, accounts, parent=None, row=None, categories: list[str] | None = None) -> None:
         super().__init__(parent)
         self.row = row
-        self.setWindowTitle("Modifier une récurrence" if row else "Ajouter une récurrence")
+        self.setWindowTitle("Modifier un événement prévisionnel" if row else "Ajouter un événement prévisionnel")
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -1057,7 +1094,7 @@ class RecurringDialog(QDialog):
         self.amount.setDecimals(2)
         self.amount.setSuffix(" €")
         self.frequency = QComboBox()
-        self.frequency.addItems(["Mensuel", "Hebdomadaire", "Trimestriel", "Annuel"])
+        self.frequency.addItems(["Ponctuel", "Mensuel", "Hebdomadaire", "Trimestriel", "Annuel"])
         self.next_date = QDateEdit(QDate.currentDate())
         self.next_date.setCalendarPopup(True)
         self.scenario = QComboBox()
@@ -1074,7 +1111,7 @@ class RecurringDialog(QDialog):
             form.addRow(label, widget)
         layout.addLayout(form)
 
-        help_label = QLabel("Saisissez un montant positif : le sens Recette/Dépense de la catégorie appliquera automatiquement le signe.")
+        help_label = QLabel("Choisissez Ponctuel pour une opération unique, ou une fréquence pour une récurrence. Le sens de la catégorie applique le signe.")
         help_label.setStyleSheet("color:#64748B;")
         layout.addWidget(help_label)
 
@@ -1198,7 +1235,7 @@ class RecurringListDialog(QDialog):
                 row["category"] or "Autre",
                 euro(float(row["amount"] or 0)),
                 row["frequency"],
-                row["next_date"],
+                format_date_fr(row["next_date"]),
                 row["scenario"],
                 row["status"],
             ]

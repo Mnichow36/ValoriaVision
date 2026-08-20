@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPushButton,
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
@@ -25,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.database import Database
-from app.theme import euro
+from app.theme import euro, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 from app.ui.plotly_components import PlotlyFigureCard, empty_figure, go
 
@@ -166,6 +168,21 @@ class AssetsPage(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 14, 0, 0)
+        layout.setSpacing(10)
+
+        actions = QHBoxLayout()
+        edit_btn = secondary_button("Modifier")
+        delete_btn = secondary_button("Supprimer")
+        history_btn = secondary_button("Voir historique")
+        edit_btn.clicked.connect(lambda checked=False, m=mode: self.edit_selected_asset(m))
+        delete_btn.clicked.connect(lambda checked=False, m=mode: self.delete_selected_asset(m))
+        history_btn.clicked.connect(lambda checked=False, m=mode: self.show_selected_asset_history(m))
+        actions.addWidget(edit_btn)
+        actions.addWidget(delete_btn)
+        actions.addWidget(history_btn)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
         table = self.create_table()
         if mode == "Actifs":
             self.assets_table = table
@@ -207,6 +224,7 @@ class AssetsPage(QWidget):
 
         history_btn = secondary_button("Voir historique")
         history_btn.setMinimumHeight(42)
+        history_btn.clicked.connect(self.show_global_history)
         self.summary_layout.addWidget(history_btn, alignment=Qt.AlignRight)
         return self.summary_card
 
@@ -473,11 +491,117 @@ class AssetsPage(QWidget):
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                if col == 0:
+                    item.setData(Qt.UserRole, int(row["id"]))
                 if col in {3, 4, 5}:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if col == 3:
                     item.setForeground(Qt.red if row["value"] < 0 else Qt.darkGreen)
                 table.setItem(row_index, col, item)
+
+
+    def selected_asset_id(self, mode: str | None = None) -> int | None:
+        table = None
+        if mode == "Actifs":
+            table = getattr(self, "assets_table", None)
+        elif mode == "Passifs":
+            table = getattr(self, "passifs_table", None)
+        else:
+            current = self.tabs.currentWidget() if hasattr(self, "tabs") else None
+            table = current if isinstance(current, QTableWidget) else None
+        if table is None or table.currentRow() < 0:
+            return None
+        item = table.item(table.currentRow(), 0)
+        return int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
+
+    def edit_selected_asset(self, mode: str | None = None) -> None:
+        asset_id = self.selected_asset_id(mode)
+        if not asset_id:
+            QMessageBox.information(self, "Patrimoine", "Sélectionnez un élément patrimonial.")
+            return
+        row = self.db.get_asset(asset_id)
+        if not row:
+            QMessageBox.warning(self, "Patrimoine", "Élément patrimonial introuvable.")
+            return
+        dialog = AssetDialog(self, row=row)
+        if dialog.exec() == QDialog.Accepted:
+            self.db.update_asset(asset_id, dialog.data())
+            self.refresh()
+
+    def delete_selected_asset(self, mode: str | None = None) -> None:
+        asset_id = self.selected_asset_id(mode)
+        if not asset_id:
+            QMessageBox.information(self, "Patrimoine", "Sélectionnez un élément patrimonial.")
+            return
+        row = self.db.get_asset(asset_id)
+        if not row:
+            return
+        answer = QMessageBox.question(self, "Supprimer", f"Supprimer « {row['name']} » du patrimoine ?")
+        if answer == QMessageBox.Yes:
+            self.db.delete_asset(asset_id)
+            self.refresh()
+
+    def show_selected_asset_history(self, mode: str | None = None) -> None:
+        asset_id = self.selected_asset_id(mode)
+        if not asset_id:
+            QMessageBox.information(self, "Historique", "Sélectionnez un élément patrimonial.")
+            return
+        self.show_asset_history(asset_id)
+
+    def show_asset_history(self, asset_id: int) -> None:
+        row = self.db.get_asset(asset_id)
+        history = self.db.asset_history(asset_id)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Historique — {row['name'] if row else 'Patrimoine'}")
+        dialog.resize(720, 420)
+        layout = QVBoxLayout(dialog)
+        title = QLabel(f"Historique de valorisation — {row['name'] if row else ''}")
+        title.setStyleSheet("font-size:20px; font-weight:bold;")
+        layout.addWidget(title)
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["Date", "Valeur", "Source", "Commentaire", "Créé le"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setRowCount(len(history))
+        for r, h in enumerate(history):
+            values = [format_date_fr(h["valuation_date"]), euro(float(h["value"] or 0)), h["source"], h["comment"] or "", str(h["created_at"] or "")[:16]]
+            for c, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                if c == 1:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(r, c, item)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def show_global_history(self) -> None:
+        evolution = self.db.patrimonio_evolution()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Historique global du patrimoine")
+        dialog.resize(680, 420)
+        layout = QVBoxLayout(dialog)
+        title = QLabel("Historique global du patrimoine net")
+        title.setStyleSheet("font-size:20px; font-weight:bold;")
+        layout.addWidget(title)
+        table = QTableWidget(0, 2)
+        table.setHorizontalHeaderLabels(["Date", "Patrimoine net"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setRowCount(len(evolution))
+        for r, row in enumerate(evolution):
+            table.setItem(r, 0, QTableWidgetItem(format_date_fr(row["date"])))
+            value_item = QTableWidgetItem(euro(float(row["value"] or 0)))
+            value_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            table.setItem(r, 1, value_item)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
 
     def open_add_dialog(self) -> None:
         dialog = AssetDialog(self)
@@ -493,10 +617,11 @@ class AssetsPage(QWidget):
 
 
 class AssetDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, row=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Ajouter un élément patrimonial")
-        self.setMinimumWidth(500)
+        self.row = row
+        self.setWindowTitle("Modifier un élément patrimonial" if row else "Ajouter un élément patrimonial")
+        self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.name = QLineEdit()
@@ -514,15 +639,17 @@ class AssetDialog(QDialog):
             "Crédit immobilier",
             "Crédit consommation",
             "Dette fiscale",
+            "Autres passifs",
             "Autres actifs",
         ])
         self.asset_type = QLineEdit()
         self.value = QDoubleSpinBox()
-        self.value.setRange(-100000000, 100000000)
+        self.value.setRange(0, 100000000)
         self.value.setDecimals(2)
         self.value.setSuffix(" €")
         self.valuation_date = QDateEdit(QDate.currentDate())
         self.valuation_date.setCalendarPopup(True)
+        self.valuation_date.setDisplayFormat("dd/MM/yyyy")
         self.valuation_mode = QComboBox()
         self.valuation_mode.addItems(["Manuelle", "Importée", "Calculée", "Historique"])
         self.status = QComboBox()
@@ -541,10 +668,37 @@ class AssetDialog(QDialog):
         ]:
             form.addRow(label, widget)
         layout.addLayout(form)
+        hint = QLabel("Pour les crédits, dettes et passifs, saisissez un montant positif : Valoria l’enregistrera automatiquement en passif.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#64748B;")
+        layout.addWidget(hint)
+
+        if row is not None:
+            self.populate(row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def populate(self, row) -> None:
+        self.name.setText(row["name"] or "")
+        if row["category"]:
+            idx = self.category.findText(row["category"])
+            if idx < 0:
+                self.category.addItem(row["category"])
+                idx = self.category.findText(row["category"])
+            self.category.setCurrentIndex(idx)
+        self.asset_type.setText(row["asset_type"] or "")
+        self.value.setValue(abs(float(row["value"] or 0)))
+        try:
+            y, m, d = [int(v) for v in str(row["valuation_date"]).split("-")]
+            self.valuation_date.setDate(QDate(y, m, d))
+        except Exception:
+            self.valuation_date.setDate(QDate.currentDate())
+        self.valuation_mode.setCurrentText(row["valuation_mode"] or "Manuelle")
+        self.status.setCurrentText(row["status"] or "Actif")
+        self.comment.setPlainText(row["comment"] or "")
 
     def data(self) -> dict:
         return {
@@ -557,3 +711,5 @@ class AssetDialog(QDialog):
             "comment": self.comment.toPlainText().strip(),
             "status": self.status.currentText(),
         }
+
+

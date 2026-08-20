@@ -1,0 +1,8 @@
+﻿Chemin / zone;Type;Contenu;Sensibilité;Décision V0.6.0;Action suivante
+app/database.py;Code;Accès SQLite, schéma, migrations;Technique;Référence à préserver;Préparer couche chiffrement
+app/services/business_rules.py;Code;Règles soldes, revenus, dépenses;Métier;Référence métier;Tests non-régression
+data/valoria_vision.db;Donnée;Base SQLite locale;Critique;Fichier à protéger;Chiffrement V0.6.0
+data/backups/;Donnée;Sauvegardes;Critique;Fichiers à protéger;Sauvegardes chiffrées V0.6.0
+data/import_test_500_transactions.csv;Test;Jeu de test performance;Non réel;Conserver en test;Ne pas inclure de données réelles
+docs/security/;Documentation;Audit sécurité;Pilotage;Nouveau dossier;Compléter à chaque phase
+exports futurs;Donnée;PDF/Excel rapports;Critique;À encadrer;Exports chiffrables ou avertissement

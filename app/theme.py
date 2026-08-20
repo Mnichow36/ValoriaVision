@@ -1,4 +1,6 @@
 from pathlib import Path
+from datetime import date, datetime
+from typing import Any
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 COMBO_ARROW = (ASSET_DIR / "chevron_down.svg").as_posix()
@@ -206,9 +208,33 @@ QTabBar::tab:selected {{
 
 
 def euro(value: float) -> str:
-    return f"{value:,.0f} €".replace(",", " ")
+    """Format money for user-facing screens using French cents."""
+    return f"{float(value or 0):,.2f} €".replace(",", " ").replace(".", ",")
 
 
 def euro_precise(value: float) -> str:
     """Display an exact amount with cents for audit/diagnostic screens."""
-    return f"{float(value or 0):,.2f} €".replace(",", " ").replace(".", ",")
+    return euro(value)
+
+
+def format_date_fr(value: Any) -> str:
+    """Return a French date label while keeping ISO dates internally."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().strftime("%d/%m/%Y")
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text[:19] if "%H" in fmt else text[:10], fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+    return text
+
+
+def qdate_to_iso(qdate: Any) -> str:
+    return qdate.toString("yyyy-MM-dd") if hasattr(qdate, "toString") else str(qdate or "")

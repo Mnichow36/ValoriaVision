@@ -1,0 +1,43 @@
+{
+  "version": "V0.6.6-R5",
+  "title": "Base consolidée normalement installable",
+  "created_at": "2026-07-10T14:25:46",
+  "source_base_graphics": "ValoriaVision_MVP_V0_6_6.zip",
+  "source_features": "ValoriaVision_MVP_V0_6_8_1.zip",
+  "included_recoveries": [
+    "R1 paramètres",
+    "R2 catégories / palette couleurs",
+    "R3 scénarios personnalisés",
+    "R4 règles de catégorisation automatique",
+    "R4 annulation imports corrigée",
+    "R5 dashboard validé"
+  ],
+  "preserved_graphics": [
+    "app/ui/plotly_runtime.py from V0.6.6",
+    "app/ui/plotly_components.py from V0.6.6",
+    "data/runtime/plotly.min.js included"
+  ],
+  "removed_sensitive": [
+    "data/secure/valoria_vision.vvdb",
+    "data/security/valoria_local_dev.key",
+    "data/backups/valoria_vision_invalid_vault_20260708_223618.vvdb",
+    "data/valoria_vision.db"
+  ],
+  "install_files": [
+    "install.bat",
+    "run.bat",
+    "requirements-lock.txt",
+    "diagnostic_installation.bat"
+  ],
+  "core_locked_versions": {
+    "PySide6": "6.11.1",
+    "PySide6_Addons": "6.11.1",
+    "PySide6_Essentials": "6.11.1",
+    "shiboken6": "6.11.1",
+    "plotly": "6.8.0",
+    "cryptography": "49.0.0",
+    "keyring": "25.7.0",
+    "openpyxl": "3.1.5",
+    "pyinstaller": "6.21.0"
+  }
+}

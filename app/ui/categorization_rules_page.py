@@ -182,9 +182,12 @@ class CategorizationRulesPage(QWidget):
         subtitle.setStyleSheet("color:#64748B;")
         text_box.addWidget(title)
         text_box.addWidget(subtitle)
+        apply_btn = secondary_button("Appliquer règles auto")
+        apply_btn.clicked.connect(self.apply_rules_manually)
         add_btn = primary_button("+ Nouvelle règle")
         add_btn.clicked.connect(self.add_rule)
         header_layout.addLayout(text_box, 1)
+        header_layout.addWidget(apply_btn)
         header_layout.addWidget(add_btn)
         self.layout.addWidget(header)
 
@@ -245,6 +248,41 @@ class CategorizationRulesPage(QWidget):
             action_layout.addWidget(toggle_btn)
             action_layout.addWidget(delete_btn)
             self.table.setCellWidget(r, 8, actions)
+
+
+    def apply_rules_manually(self) -> None:
+        with self.db.connect() as conn:
+            rows = list(
+                conn.execute(
+                    """
+                    SELECT id
+                    FROM transactions
+                    WHERE category IS NULL
+                       OR category = ''
+                       OR category = 'À catégoriser'
+                       OR status = 'À catégoriser'
+                       OR categorization_status = 'to_categorize'
+                    ORDER BY tx_date DESC, id DESC
+                    LIMIT 500
+                    """
+                )
+            )
+        if not rows:
+            QMessageBox.information(self, "Règles automatiques", "Aucune transaction à catégoriser.")
+            return
+        ids = [int(row["id"]) for row in rows]
+        summary = self.service.apply_rules_to_transactions(ids, force=True)
+        QMessageBox.information(
+            self,
+            "Règles automatiques",
+            f"Transactions traitées : {summary['processed']}\\n"
+            f"Catégorisées automatiquement : {summary['auto']}\\n"
+            f"À vérifier : {summary['to_review']}\\n"
+            f"À catégoriser : {summary['to_categorize']}\\n"
+            f"Ignorées : {summary['skipped']}"
+        )
+        self.refresh()
+
 
     def selected_rule_id(self) -> int | None:
         row = self.table.currentRow()

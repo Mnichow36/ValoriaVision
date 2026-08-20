@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self.db = db
         self.auth = AuthService(db)
         self.is_locked = False
-        self.setWindowTitle("Valoria Vision — MVP V0.6.6-R6.1")
+        self.setWindowTitle("Valoria Vision — MVP V0.6.6-R7.2.2.1")
         self.resize(1600, 980)
         self.setMinimumSize(1280, 820)
         self.setStyleSheet(APP_STYLESHEET)
@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lock_btn)
 
         layout.addStretch(1)
-        version = QLabel("Prototype V0.6.6-R6.1 — Rapprochements simplifiés")
+        version = QLabel("Prototype V0.6.6-R7.2.2.1 — Import fix + démarrage corrigé")
         version.setStyleSheet("color: #8FAADC; font-size: 11px;")
         layout.addWidget(version)
 

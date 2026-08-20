@@ -1,3 +1,29 @@
+# Valoria Vision V0.6.6-R7.2.2
+
+Version corrective majeure dédiée à la fiabilisation de la chaîne :
+
+**import bancaire réel → transactions → prévisionnel → rapprochement**
+
+## Démarrage
+
+1. Lancer `install.bat`.
+2. Lancer `run.bat`.
+3. Pour tester le parseur Société Générale anonymisé :
+
+```bat
+python tools\test_r7_2_import_sg.py
+```
+
+## Documents R7.2
+
+- `CHANGELOG_R7_2.md`
+- `docs/technique/RAPPORT_MODIFICATIONS_V0_6_6_R7_2_1.md`
+- `docs/technique/RAPPORT_TESTS_TECHNIQUES_V0_6_6_R7_2_1.md`
+- `docs/technique/LISTE_FICHIERS_MODIFIES_V0_6_6_R7_2_1.md`
+- `docs/technique/POINTS_OUVERTS_V0_6_6_R7_2_1.md`
+
+---
+
 # Valoria Vision MVP V0.6.6
 
 ## V0.6.6 — Catégories avec sens Recette / Dépense

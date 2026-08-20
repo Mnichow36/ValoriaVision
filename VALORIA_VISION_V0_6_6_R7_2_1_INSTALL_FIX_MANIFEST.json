@@ -1,0 +1,15 @@
+{
+  "version": "V0.6.6-R7.2.1",
+  "title": "Correctif installation pip sans modification métier",
+  "created_at": "2026-08-17T16:19:40",
+  "base": "ValoriaVision_INSTALLABLE_V0_6_6_R7_2.zip",
+  "changes": [
+    "install.bat utilise python -m pip",
+    "pip retiré de requirements-lock.txt",
+    "ajout reparer_installation_pip.bat",
+    "aucun changement métier R7.2"
+  ],
+  "removed_from_requirements_lock": [
+    "pip==26.1.2"
+  ]
+}

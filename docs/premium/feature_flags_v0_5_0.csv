@@ -1,0 +1,7 @@
+flag;active;description
+premium.enabled;0;Activation générale Premium
+premium.multi_currency;0;Multi-devises préparatoire
+premium.multi_language;0;Multi-langues préparatoire
+premium.open_banking;0;Open Banking futur
+premium.cloud_sync;0;Synchronisation cloud future
+premium.multi_profile;0;Multi-profils / foyer futur

@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo Diagnostic Valoria Vision V0.6.6-R6.1
+echo Diagnostic Valoria Vision V0.6.6-R7.2.2.1.1
 echo ============================================================
 echo.
 

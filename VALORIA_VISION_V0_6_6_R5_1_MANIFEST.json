@@ -1,0 +1,39 @@
+{
+  "version": "V0.6.6-R5.1",
+  "title": "Correctif messages console Qt / stylesheets",
+  "created_at": "2026-07-10T21:38:14",
+  "base": "ValoriaVision_INSTALLABLE_V0_6_6_R5.zip",
+  "purpose": "Supprimer/réduire les avertissements console QFont::setPointSize et Could not parse stylesheet",
+  "changes": [
+    "Remplacement des font-weight numériques non standard par font-weight: bold/normal",
+    "Suppression des line-height dans les stylesheets Qt",
+    "Conservation du moteur graphique Plotly validé",
+    "Aucune modification des données, du schéma métier ou de .venv"
+  ],
+  "changed_files": [
+    "app/main_window.py",
+    "app/theme.py",
+    "app/ui/accounts_page.py",
+    "app/ui/assets_page.py",
+    "app/ui/auth_dialog.py",
+    "app/ui/budgets_page.py",
+    "app/ui/categorization_rules_page.py",
+    "app/ui/charts_lab_page.py",
+    "app/ui/dashboard_page.py",
+    "app/ui/forecast_page.py",
+    "app/ui/plotly_components.py",
+    "app/ui/scenarios_page.py",
+    "app/ui/settings_page.py",
+    "app/ui/transactions_page.py",
+    "app/widgets.py",
+    "diagnostic_installation.bat",
+    "install.bat"
+  ],
+  "not_changed": [
+    "app/ui/plotly_runtime.py",
+    "app/ui/plotly_components.py",
+    "data/runtime/plotly.min.js",
+    "app/database.py",
+    ".venv absent dans archive installable"
+  ]
+}

@@ -286,6 +286,37 @@ class CategorizationRuleService:
             )
         return {"status": self.STATUS_TO_CATEGORIZE, "rule_id": None, "category": None}
 
+
+    def apply_rules_to_transactions(self, transaction_ids: list[int], force: bool = True) -> dict:
+        summary = {
+            "processed": 0,
+            "auto": 0,
+            "to_review": 0,
+            "to_categorize": 0,
+            "skipped": 0,
+            "rules_used": set(),
+        }
+        for transaction_id in transaction_ids:
+            summary["processed"] += 1
+            result = self.categorize_transaction(int(transaction_id), force=force)
+            status = result["status"]
+            if status == self.STATUS_AUTO:
+                summary["auto"] += 1
+                if result.get("rule_id"):
+                    summary["rules_used"].add(result["rule_id"])
+            elif status == self.STATUS_REVIEW:
+                summary["to_review"] += 1
+                if result.get("rule_id"):
+                    summary["rules_used"].add(result["rule_id"])
+            elif status == self.STATUS_TO_CATEGORIZE:
+                summary["to_categorize"] += 1
+            else:
+                summary["skipped"] += 1
+        summary["rules_used"] = len(summary["rules_used"])
+        self.db.seal_database_to_encrypted_vault()
+        return summary
+
+
     def apply_rules_to_import_batch(self, import_batch_id: int) -> dict:
         summary = {
             "auto": 0,

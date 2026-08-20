@@ -1,0 +1,9 @@
+﻿ID;Risque;Impact;Probabilité;Niveau;Mesure immédiate;Phase cible
+SEC-001;Base SQLite lisible hors application;Très élevé;Élevée;Critique;Décision de chiffrement locale;V0.6.0
+SEC-002;Sauvegardes en clair;Très élevé;Élevée;Critique;Extension dédiée et chiffrement backups;V0.6.0
+SEC-003;Absence de mot de passe applicatif;Élevé;Élevée;Critique;Définir écran de déverrouillage;V0.6.0
+SEC-004;IBAN/identifiants trop visibles;Moyen;Moyenne;Haute;Masquage UI;V0.6.0/V0.6.0
+SEC-005;Fichiers imports conservés en clair;Élevé;Moyenne;Haute;Documenter cycle de vie;V0.6.0
+SEC-006;Logs trop bavards;Moyen;Moyenne;Moyenne;Règle logs nettoyés;V0.6.0
+SEC-007;Futur token Open Banking stocké en clair;Très élevé;Moyenne;Critique;Coffre OS/keyring obligatoire;V0.6.0/Post V1
+SEC-008;Données et code mélangés;Élevé;Élevée;Critique;Choisir dossier utilisateur dédié;V0.6.0

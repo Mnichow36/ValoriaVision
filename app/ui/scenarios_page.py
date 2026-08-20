@@ -32,7 +32,7 @@ from app.database import Database
 from app.services.scenario_service import ScenarioService
 from app.services.scenario_event_service import ScenarioEventService
 from app.services.scenario_simulation_service import ScenarioSimulationService
-from app.theme import euro
+from app.theme import euro, format_date_fr
 from app.ui.plotly_components import PlotlyFigureCard, empty_figure, go
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 
@@ -72,11 +72,23 @@ class ScenarioDialog(QDialog):
 
         if row:
             self.populate(row)
+        self.update_duration_state()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+
+    def update_duration_state(self) -> None:
+        is_once = self.frequency.currentData() == "once"
+        self.duration.setEnabled(not is_once)
+        if is_once:
+            self.duration.setValue(0)
+            self.duration.setToolTip("Non applicable pour un événement Une fois.")
+        else:
+            self.duration.setToolTip("Nombre de mois pendant lesquels l’événement se répète.")
+
 
     def populate(self, row) -> None:
         self.name.setText(row["name"] or "")
@@ -137,6 +149,7 @@ class ScenarioEventDialog(QDialog):
         self.duration = QSpinBox()
         self.duration.setRange(0, 600)
         self.duration.setSuffix(" mois")
+        self.frequency.currentIndexChanged.connect(self.update_duration_state)
         self.account = QComboBox()
         self.account.addItem("Aucun compte spécifique", None)
         for acc in self.db.list_accounts():
@@ -159,11 +172,23 @@ class ScenarioEventDialog(QDialog):
 
         if row:
             self.populate(row)
+        self.update_duration_state()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+
+    def update_duration_state(self) -> None:
+        is_once = self.frequency.currentData() == "once"
+        self.duration.setEnabled(not is_once)
+        if is_once:
+            self.duration.setValue(0)
+            self.duration.setToolTip("Non applicable pour un événement Une fois.")
+        else:
+            self.duration.setToolTip("Nombre de mois pendant lesquels l’événement se répète.")
+
 
     def populate(self, row) -> None:
         index = self.event_type.findData(row["event_type"])
@@ -193,7 +218,7 @@ class ScenarioEventDialog(QDialog):
             "amount": float(self.amount.value()),
             "currency_code": "EUR",
             "frequency": self.frequency.currentData(),
-            "duration_months": int(self.duration.value()) or None,
+            "duration_months": None if self.frequency.currentData() == "once" else (int(self.duration.value()) or None),
             "account_id": self.account.currentData(),
             "is_active": True,
         }

@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.database import Database
-from app.theme import euro_precise
+from app.theme import euro_precise, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 from app.ui.charts_lab_page import PlotlyChartsLab
 from app.ui.categorization_rules_page import CategorizationRulesPage
@@ -546,7 +546,7 @@ class SettingsPage(QWidget):
         layout.addWidget(self.summary_card(
             "Prévisionnel",
             [
-                ("Date de départ", self.report["forecast_start_date"]),
+                ("Date de départ", format_date_fr(self.report["forecast_start_date"])),
                 ("Point bas J+30", euro_precise(self.report["forecast_min_balance"])),
                 ("Alerte", self.report["forecast_alert"]),
             ],
@@ -873,7 +873,7 @@ class SettingsPage(QWidget):
             f"Dépenses Dashboard : {euro_precise(self.report['dashboard_expenses'])}\n"
             f"Dépenses Transactions : {euro_precise(self.report['month_expenses_from_transactions'])}\n"
             f"Écart dépenses : {euro_precise(self.report['expenses_gap'])}\n\n"
-            f"Prévisionnel — date de départ : {self.report['forecast_start_date']}\n"
+            f"Prévisionnel — date de départ : {format_date_fr(self.report['forecast_start_date'])}\n"
             f"Point bas J+30 : {euro_precise(self.report['forecast_min_balance'])}\n"
             f"Alerte : {self.report['forecast_alert']}\n"
         )

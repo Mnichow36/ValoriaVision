@@ -17,7 +17,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
 DB_PATH = DATA_DIR / "valoria_vision.db"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 
 
 @dataclass
@@ -248,6 +248,11 @@ class Database:
                 categorized_by TEXT,
                 categorization_rule_id INTEGER,
                 categorized_at TEXT,
+                currency TEXT NOT NULL DEFAULT 'EUR',
+                source_line INTEGER,
+                source_profile TEXT,
+                raw_payload TEXT,
+                source_identifier TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT,
                 FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
@@ -263,6 +268,10 @@ class Database:
                 error_count INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'Importé',
                 canceled_at TEXT,
+                parser_profile TEXT,
+                source_fingerprint TEXT,
+                diagnostic_summary TEXT,
+                header_line INTEGER,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
@@ -523,6 +532,7 @@ class Database:
         self.apply_scenarios_foundation(conn)
         self.apply_forecast_reconciliation_foundation(conn)
         self.apply_premium_foundation(conn)
+        self.apply_r7_2_foundation(conn)
 
     def ensure_columns(self, conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -834,6 +844,43 @@ class Database:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_status ON forecast_occurrences(status, expected_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_actual_tx ON forecast_occurrences(actual_transaction_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_account_date ON forecast_occurrences(account_id, expected_date)")
+
+
+    def apply_r7_2_foundation(self, conn: sqlite3.Connection) -> None:
+        """V0.6.6-R7.2 — import traceability and reconciliation status cleanup."""
+        self.ensure_columns(conn, "transactions", {
+            "source_line": "INTEGER",
+            "source_profile": "TEXT",
+            "raw_payload": "TEXT",
+            "source_identifier": "TEXT",
+            "currency": "TEXT NOT NULL DEFAULT 'EUR'",
+        })
+        self.ensure_columns(conn, "import_batches", {
+            "parser_profile": "TEXT",
+            "source_fingerprint": "TEXT",
+            "diagnostic_summary": "TEXT",
+            "header_line": "INTEGER",
+        })
+        self.ensure_columns(conn, "forecast_occurrences", {
+            "match_type": "TEXT",
+        })
+        # R7.2: the ambiguous status planned_confirmed is not accepted.
+        # If an occurrence has no real transaction, it returns to planned/overdue.
+        # If it already has a linked transaction, it is a genuine manual reconciliation.
+        conn.execute("""
+            UPDATE forecast_occurrences
+            SET status = CASE
+                    WHEN actual_transaction_id IS NOT NULL THEN 'confirmed'
+                    WHEN expected_date < DATE('now') THEN 'overdue'
+                    ELSE 'planned'
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'planned_confirmed'
+        """)
+        conn.execute("UPDATE forecast_occurrences SET match_type = 'automatic' WHERE status = 'auto_matched' AND (match_type IS NULL OR match_type = '')")
+        conn.execute("UPDATE forecast_occurrences SET match_type = 'manual' WHERE status = 'confirmed' AND (match_type IS NULL OR match_type = '')")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_reconciliation_source ON transactions(source, account_id, tx_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_match_type ON forecast_occurrences(match_type, status)")
 
 
     def apply_premium_foundation(self, conn: sqlite3.Connection) -> None:
@@ -1712,7 +1759,7 @@ class Database:
                 )
             )
 
-    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None) -> bool:
+    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None) -> bool:
         if source == "Manuel":
             amount = self.normalize_amount_for_category(category, amount)
         tx_type = "Crédit" if amount >= 0 else "Débit"
@@ -1733,13 +1780,109 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
-                                         categorization_status, categorized_by, categorization_rule_id, categorized_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                                         categorization_status, categorized_by, categorization_rule_id, categorized_at,
+                                         currency, source_line, source_profile, raw_payload, source_identifier)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                 """,
                 (account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
-                 categorization_status, categorized_by, categorized_at),
+                 categorization_status, categorized_by, categorized_at,
+                 currency or 'EUR', source_line, source_profile, raw_payload, source_identifier),
             )
             return True
+
+
+    def get_transaction(self, transaction_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT t.*, a.name AS account_name, a.bank AS bank
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                WHERE t.id = ?
+                """,
+                (transaction_id,),
+            ).fetchone()
+
+    def update_transaction(self, transaction_id: int, data: dict) -> None:
+        """Update all editable fields of an existing transaction.
+
+        R7.1 fixes issue #2: transaction edition is no longer limited to the
+        category. Updating the amount/date/account recalculates the signature,
+        type and downstream dashboards/budgets because they read from
+        transactions dynamically.
+        """
+        row = self.get_transaction(transaction_id)
+        if not row:
+            raise ValueError("Transaction introuvable.")
+
+        payload = {
+            "account_id": data.get("account_id", row["account_id"]),
+            "tx_date": data.get("tx_date", row["tx_date"]),
+            "label": (data.get("label") or row["label"] or "Opération").strip(),
+            "category": data.get("category", row["category"]),
+            "amount": float(data.get("amount", row["amount"]) or 0),
+            "status": data.get("status", row["status"] or "Validée"),
+            "source": data.get("source", row["source"] or "Manuel"),
+        }
+        if payload["source"] == "Manuel":
+            payload["amount"] = self.normalize_amount_for_category(payload["category"], payload["amount"])
+        payload["tx_type"] = "Crédit" if payload["amount"] >= 0 else "Débit"
+        if not payload["category"]:
+            payload["status"] = "À catégoriser"
+        payload["signature"] = self.make_signature(
+            int(payload["account_id"]),
+            str(payload["tx_date"]),
+            str(payload["label"]),
+            float(payload["amount"]),
+        )
+
+        categorization_status = "manual" if payload["category"] else "to_categorize"
+        categorized_by = "manual" if payload["category"] else None
+
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE transactions
+                SET account_id = :account_id,
+                    tx_date = :tx_date,
+                    label = :label,
+                    category = :category,
+                    amount = :amount,
+                    tx_type = :tx_type,
+                    status = :status,
+                    source = :source,
+                    signature = :signature,
+                    categorization_status = :categorization_status,
+                    categorized_by = :categorized_by,
+                    categorization_rule_id = NULL,
+                    categorized_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :transaction_id
+                """,
+                {
+                    **payload,
+                    "categorization_status": categorization_status,
+                    "categorized_by": categorized_by,
+                    "transaction_id": transaction_id,
+                },
+            )
+            conn.execute(
+                """
+                UPDATE forecast_occurrences
+                SET actual_date = :tx_date,
+                    actual_amount = :amount,
+                    amount_delta = ROUND(:amount - expected_amount, 2),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE actual_transaction_id = :transaction_id
+                """,
+                {
+                    "tx_date": payload["tx_date"],
+                    "amount": payload["amount"],
+                    "transaction_id": transaction_id,
+                },
+            )
+        self.seal_database_to_encrypted_vault()
+
 
     def update_transaction_category(self, transaction_id: int, category: str | None) -> None:
         status = "Validée" if category else "À catégoriser"
@@ -1809,15 +1952,37 @@ class Database:
             return 0
         placeholders = ",".join("?" for _ in transaction_ids)
         with self.connect() as conn:
+            conn.execute(f"DELETE FROM categorization_rule_logs WHERE transaction_id IN ({placeholders})", transaction_ids)
+            conn.execute(
+                f"""
+                UPDATE forecast_occurrences
+                SET actual_transaction_id = NULL,
+                    actual_date = NULL,
+                    actual_amount = NULL,
+                    amount_delta = NULL,
+                    match_confidence = NULL,
+                    match_reason = NULL,
+                    status = CASE
+                        WHEN expected_date < date('now') THEN 'overdue'
+                        ELSE 'planned'
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE actual_transaction_id IN ({placeholders})
+                """,
+                transaction_ids,
+            )
             cur = conn.execute(f"DELETE FROM transactions WHERE id IN ({placeholders})", transaction_ids)
             return int(cur.rowcount or 0)
 
 
-    def create_import_batch(self, file_name: str, account_id: int) -> int:
+    def create_import_batch(self, file_name: str, account_id: int, *, parser_profile: str | None = None, source_fingerprint: str | None = None, diagnostic_summary: str | None = None, header_line: int | None = None) -> int:
         with self.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO import_batches(file_name, account_id) VALUES (?, ?)",
-                (file_name, account_id),
+                """
+                INSERT INTO import_batches(file_name, account_id, parser_profile, source_fingerprint, diagnostic_summary, header_line)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (file_name, account_id, parser_profile, source_fingerprint, diagnostic_summary, header_line),
             )
             return int(cur.lastrowid)
 
@@ -2022,22 +2187,103 @@ class Database:
         with self.connect() as conn:
             return list(conn.execute("SELECT * FROM assets ORDER BY value DESC"))
 
+
+    @staticmethod
+    def normalize_asset_payload(data: dict) -> dict:
+        payload = dict(data)
+        category = str(payload.get("category") or "")
+        asset_type = str(payload.get("asset_type") or "")
+        value = float(payload.get("value") or 0)
+        passive_keywords = ("crédit", "credit", "dette", "passif", "emprunt", "prêt", "pret")
+        if any(word in category.lower() or word in asset_type.lower() for word in passive_keywords):
+            value = -abs(value)
+        payload["value"] = value
+        return payload
+
+
     def add_asset(self, data: dict) -> None:
+        payload = self.normalize_asset_payload(data)
         with self.connect() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO assets(name, category, asset_type, value, valuation_date, valuation_mode, comment, status)
                 VALUES (:name, :category, :asset_type, :value, :valuation_date, :valuation_mode, :comment, :status)
                 """,
-                data,
+                payload,
             )
             asset_id = int(cur.lastrowid)
             conn.execute(
                 "INSERT INTO asset_values(asset_id, valuation_date, value, source, comment) VALUES (?, ?, ?, ?, ?)",
-                (asset_id, data["valuation_date"], data["value"], data["valuation_mode"], data.get("comment", "")),
+                (asset_id, payload["valuation_date"], payload["value"], payload["valuation_mode"], payload.get("comment", "")),
+            )
+        self.seal_database_to_encrypted_vault()
+
+
+
+    def get_asset(self, asset_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+
+    def update_asset(self, asset_id: int, data: dict) -> None:
+        row = self.get_asset(asset_id)
+        if not row:
+            raise ValueError("Élément patrimonial introuvable.")
+        merged = {key: row[key] for key in row.keys()}
+        merged.update(data)
+        payload = self.normalize_asset_payload(merged)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE assets
+                SET name = :name,
+                    category = :category,
+                    asset_type = :asset_type,
+                    value = :value,
+                    valuation_date = :valuation_date,
+                    valuation_mode = :valuation_mode,
+                    comment = :comment,
+                    status = :status,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :asset_id
+                """,
+                {"asset_id": asset_id, **payload},
+            )
+            conn.execute(
+                "INSERT INTO asset_values(asset_id, valuation_date, value, source, comment) VALUES (?, ?, ?, ?, ?)",
+                (asset_id, payload["valuation_date"], payload["value"], payload["valuation_mode"], payload.get("comment", "")),
+            )
+        self.seal_database_to_encrypted_vault()
+
+    def delete_asset(self, asset_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM asset_values WHERE asset_id = ?", (asset_id,))
+            conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+        self.seal_database_to_encrypted_vault()
+
+    def asset_history(self, asset_id: int) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return list(
+                conn.execute(
+                    """
+                    SELECT valuation_date, value, source, comment, created_at
+                    FROM asset_values
+                    WHERE asset_id = ?
+                    ORDER BY valuation_date DESC, id DESC
+                    """,
+                    (asset_id,),
+                )
             )
 
+
     def update_asset_value(self, asset_id: int, value: float, valuation_date: str, source: str = "Manuelle", comment: str = "") -> None:
+        row = self.get_asset(asset_id)
+        if row:
+            payload = self.normalize_asset_payload({
+                "category": row["category"],
+                "asset_type": row["asset_type"],
+                "value": value,
+            })
+            value = payload["value"]
         with self.connect() as conn:
             conn.execute(
                 "UPDATE assets SET value = ?, valuation_date = ?, valuation_mode = ?, comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -2047,6 +2293,8 @@ class Database:
                 "INSERT INTO asset_values(asset_id, valuation_date, value, source, comment) VALUES (?, ?, ?, ?, ?)",
                 (asset_id, valuation_date, value, source, comment),
             )
+        self.seal_database_to_encrypted_vault()
+
 
     def asset_summary(self) -> dict[str, float]:
         with self.connect() as conn:
@@ -2196,6 +2444,8 @@ class Database:
 
     @staticmethod
     def add_period(source: date, frequency: str) -> date:
+        if frequency in {"Ponctuel", "Une fois", "Ponctuel / une seule fois"}:
+            return source + timedelta(days=36500)
         if frequency == "Hebdomadaire":
             return source + timedelta(days=7)
         if frequency == "Trimestriel":
@@ -2267,7 +2517,7 @@ class Database:
             ):
                 status = occurrence["status"]
                 has_real = occurrence["actual_transaction_id"] is not None
-                if status in {"auto_matched", "confirmed", "ignored", "cancelled"} or (status == "to_review" and has_real):
+                if status in {"auto_matched", "ignored", "cancelled"} or (status in {"confirmed", "to_review"} and has_real):
                     suppressed_occurrences.add((int(occurrence["source_id"]), occurrence["expected_date"]))
 
         for item in self.list_recurring_items(active_only=True):
@@ -2299,6 +2549,83 @@ class Database:
                         "scenario": item["scenario"],
                     })
                 next_date = self.add_period(next_date, item["frequency"])
+
+
+        # R7.1: connect personalized scenarios to the forecast engine.
+        # Built-in prudent/realistic/optimistic recurrence filtering is kept.
+        # If the selected scenario matches a custom scenario name, its events
+        # are added on top of the reference forecast.
+        scenario_name = str(scenario or "").strip()
+        built_in_scenarios = {"Prudent", "Réaliste", "Optimiste"}
+        if scenario_name and scenario_name not in built_in_scenarios:
+            credit_types = {"cash_in", "recurring_income", "loan_start", "asset_sale"}
+            debit_types = {"cash_out", "recurring_expense", "loan_payment", "liability_repayment", "investment", "asset_purchase"}
+            recurring_frequencies = {
+                "once": "Ponctuel",
+                "monthly": "Mensuel",
+                "yearly": "Annuel",
+            }
+            with self.connect() as conn:
+                scenario_row = conn.execute(
+                    "SELECT id, name FROM scenarios WHERE name = ? AND deleted_at IS NULL AND is_active = 1 ORDER BY id LIMIT 1",
+                    (scenario_name,),
+                ).fetchone()
+                scenario_events = []
+                if scenario_row:
+                    scenario_events = list(
+                        conn.execute(
+                            """
+                            SELECT e.*, a.name AS account_name
+                            FROM scenario_events e
+                            LEFT JOIN accounts a ON a.id = e.account_id
+                            WHERE e.scenario_id = ?
+                              AND e.deleted_at IS NULL
+                              AND e.is_active = 1
+                            ORDER BY e.event_date, e.id
+                            """,
+                            (scenario_row["id"],),
+                        )
+                    )
+            for event in scenario_events:
+                if account_id is not None and event["account_id"] is not None and event["account_id"] != account_id:
+                    continue
+                current = datetime.strptime(event["event_date"], "%Y-%m-%d").date()
+                event_end = datetime.strptime(event["end_date"], "%Y-%m-%d").date() if event["end_date"] else end
+                frequency = event["frequency"] or "once"
+                duration = int(event["duration_months"] or 0)
+                if duration and frequency == "monthly":
+                    month = current.month - 1 + max(0, duration - 1)
+                    year = current.year + month // 12
+                    month = month % 12 + 1
+                    limited_end = date(year, month, min(current.day, 28))
+                    event_end = min(event_end, limited_end)
+                while current <= end and current <= event_end:
+                    if current > start:
+                        raw_amount = abs(float(event["amount"] or 0))
+                        if event["event_type"] in credit_types:
+                            amount = raw_amount
+                        elif event["event_type"] in debit_types:
+                            amount = -raw_amount
+                        else:
+                            amount = float(event["amount"] or 0)
+                        events.append({
+                            "date": current.isoformat(),
+                            "name": event["label"],
+                            "category": "Scénario",
+                            "amount": amount,
+                            "source": "Scénario",
+                            "account": event["account_name"] or "Compte scénario",
+                            "account_id": event["account_id"],
+                            "recurring_id": None,
+                            "scenario": scenario_name,
+                        })
+                    if frequency == "monthly":
+                        current = self.add_period(current, "Mensuel")
+                    elif frequency == "yearly":
+                        current = self.add_period(current, "Annuel")
+                    else:
+                        break
+
 
         return sorted(events, key=lambda event: (event["date"], event["amount"]))
 

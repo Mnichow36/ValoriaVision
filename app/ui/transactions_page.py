@@ -36,7 +36,8 @@ from app.services.business_rules import is_uncategorized_transaction
 from app.services.categorization_rule_service import CategorizationRuleService
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.imports.import_service import BankImportService, ImportedTransaction
-from app.theme import euro
+from app.imports.csv_parser import payload_to_json
+from app.theme import euro, format_date_fr, qdate_to_iso
 from app.widgets import Card, PageHeader, StepLabel, primary_button, secondary_button
 
 
@@ -135,8 +136,13 @@ class ImportPreviewDialog(QDialog):
         duplicate_count = sum(1 for flag in self.duplicate_flags if flag)
         credits = sum(tx.amount for tx in self.rows if tx.amount > 0)
         debits = sum(tx.amount for tx in self.rows if tx.amount < 0)
+        analysis = getattr(getattr(self, "parent", lambda: None)(), "import_service", None)
+        last_analysis = getattr(analysis, "last_analysis", None)
+        errors = len(getattr(last_analysis, "rejected_lines", []) or []) if last_analysis else 0
+        profile = getattr(getattr(last_analysis, "diagnostic", None), "profile_name", "") if last_analysis else ""
+        profile_text = f"   •   Profil : {profile}" if profile else ""
         return (
-            f"Nouvelles : {new_count}   •   Doublons : {duplicate_count}   •   Erreurs : 0   |   "
+            f"Nouvelles : {new_count}   •   Doublons : {duplicate_count}   •   Erreurs : {errors}{profile_text}   |   "
             f"Crédits : {euro(credits)}   •   Débits : {euro(abs(debits))}   •   Solde net : {euro(credits + debits)}"
         )
 
@@ -148,7 +154,7 @@ class ImportPreviewDialog(QDialog):
             debit = euro(abs(tx.amount)) if tx.amount < 0 else ""
             credit = euro(tx.amount) if tx.amount > 0 else ""
             status = "Doublon" if is_duplicate else "Nouveau"
-            values = ["", tx.tx_date, tx.label, debit, credit, euro(tx.amount), tx.category or "À proposer", status]
+            values = ["", format_date_fr(tx.tx_date), tx.label, debit, credit, euro(tx.amount), tx.category or "À proposer", status]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 if col == 0:
@@ -185,20 +191,22 @@ class ImportPreviewDialog(QDialog):
 
 
 class TransactionDialog(QDialog):
-    def __init__(self, accounts, categories: list[str] | None = None, parent=None) -> None:
+    def __init__(self, accounts, categories: list[str] | None = None, parent=None, row=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Nouvelle transaction")
-        self.setMinimumWidth(460)
+        self.row = row
+        self.setWindowTitle("Modifier la transaction" if row else "Nouvelle transaction")
+        self.setMinimumWidth(520)
         self.accounts = accounts
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
         self.account = QComboBox()
-        for row in accounts:
-            self.account.addItem(f"{row['name']} — {row['bank']}", row["id"])
+        for account_row in accounts:
+            self.account.addItem(f"{account_row['name']} — {account_row['bank']}", account_row["id"])
 
         self.date = QDateEdit(QDate.currentDate())
         self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("dd/MM/yyyy")
 
         self.label = QLineEdit()
         self.label.setPlaceholderText("Libellé de l'opération")
@@ -211,24 +219,49 @@ class TransactionDialog(QDialog):
         self.amount.setDecimals(2)
         self.amount.setSuffix(" €")
 
+        self.status = QComboBox()
+        self.status.addItems(["Validée", "À catégoriser", "Catégorisée automatiquement", "À vérifier"])
+
         for label, widget in [
             ("Compte", self.account),
             ("Date", self.date),
             ("Libellé", self.label),
             ("Catégorie", self.category),
             ("Montant", self.amount),
+            ("Statut", self.status),
         ]:
             form.addRow(label, widget)
 
         layout.addLayout(form)
-        help_label = QLabel("Saisissez un montant positif : le sens Recette/Dépense de la catégorie appliquera automatiquement le signe.")
+        help_label = QLabel("Tous les champs sont modifiables. Saisissez un montant positif : le sens Recette/Dépense de la catégorie applique automatiquement le signe pour les transactions manuelles.")
         help_label.setWordWrap(True)
         help_label.setStyleSheet("color:#64748B;")
         layout.addWidget(help_label)
+
+        if row is not None:
+            self.populate(row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def populate(self, row) -> None:
+        self.account.setCurrentIndex(max(0, self.account.findData(row["account_id"])))
+        try:
+            y, m, d = [int(v) for v in str(row["tx_date"]).split("-")]
+            self.date.setDate(QDate(y, m, d))
+        except Exception:
+            self.date.setDate(QDate.currentDate())
+        self.label.setText(row["label"] or "")
+        if row["category"]:
+            index = self.category.findText(row["category"])
+            if index < 0:
+                self.category.addItem(row["category"])
+                index = self.category.findText(row["category"])
+            self.category.setCurrentIndex(index)
+        self.amount.setValue(abs(float(row["amount"] or 0)))
+        self.status.setCurrentText(row["status"] or "Validée")
 
     def data(self) -> dict:
         return {
@@ -237,6 +270,7 @@ class TransactionDialog(QDialog):
             "label": self.label.text().strip() or "Nouvelle opération",
             "category": self.category.currentText() or None,
             "amount": float(self.amount.value()),
+            "status": self.status.currentText(),
         }
 
 
@@ -311,22 +345,37 @@ class TransactionsPage(QWidget):
         self.category_filter.setMinimumContentsLength(18)
         self.refresh_category_filter_options()
         self.category_filter.currentIndexChanged.connect(self.refresh_table_only)
-        self.period_filter = QComboBox()
-        self.period_filter.setMinimumWidth(240)
-        self.period_filter.setMinimumContentsLength(18)
-        self.period_filter.addItems(["Toutes périodes", "01/06/2026 - 23/06/2026", "30 derniers jours", "Mois courant", "Année courante"])
-        self.period_filter.currentIndexChanged.connect(self.refresh_table_only)
+        self.period_filter_active = False
+        period_from_label = QLabel("Du")
+        period_from_label.setStyleSheet("color:#64748B; font-weight:bold;")
+        self.period_from = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.period_from.setCalendarPopup(True)
+        self.period_from.setDisplayFormat("dd/MM/yyyy")
+        self.period_from.setMinimumWidth(130)
+        self.period_from.dateChanged.connect(self.activate_period_filter)
+        period_to_label = QLabel("Au")
+        period_to_label.setStyleSheet("color:#64748B; font-weight:bold;")
+        self.period_to = QDateEdit(QDate.currentDate())
+        self.period_to.setCalendarPopup(True)
+        self.period_to.setDisplayFormat("dd/MM/yyyy")
+        self.period_to.setMinimumWidth(130)
+        self.period_to.dateChanged.connect(self.activate_period_filter)
+        self.period_reset_btn = secondary_button("Toutes dates")
+        self.period_reset_btn.clicked.connect(self.reset_period_filter)
         self.search_input = QLineEdit()
         self.search_input.setMinimumWidth(300)
         self.search_input.setPlaceholderText("Rechercher une opération, un libellé...")
         self.search_input.textChanged.connect(self.refresh_table_only)
         filters_btn = secondary_button("Filtres")
-        for widget in [self.account_filter, self.category_filter, self.period_filter, self.search_input, filters_btn]:
+        for widget in [
+            self.account_filter, self.category_filter,
+            period_from_label, self.period_from, period_to_label, self.period_to, self.period_reset_btn,
+            self.search_input, filters_btn
+        ]:
             filter_layout.addWidget(widget)
         filter_layout.setStretch(0, 2)
         filter_layout.setStretch(1, 1)
-        filter_layout.setStretch(2, 1)
-        filter_layout.setStretch(3, 3)
+        filter_layout.setStretch(7, 3)
         return filters
 
     def build_transactions_area(self) -> QWidget:
@@ -342,6 +391,8 @@ class TransactionsPage(QWidget):
         bulk_layout.setSpacing(10)
         self.selection_label = QLabel("0 transaction sélectionnée")
         self.selection_label.setStyleSheet("font-weight: bold; color:#0F172A;")
+        edit_btn = secondary_button("Modifier")
+        edit_btn.clicked.connect(self.open_edit_transaction_dialog)
         categorize_btn = secondary_button("Catégoriser")
         categorize_btn.clicked.connect(self.bulk_change_category)
         validate_btn = secondary_button("Marquer validée")
@@ -354,7 +405,7 @@ class TransactionsPage(QWidget):
         clear_btn.clicked.connect(self.clear_all_checks)
         bulk_layout.addWidget(self.selection_label)
         bulk_layout.addStretch(1)
-        for btn in [categorize_btn, validate_btn, pending_btn, delete_btn, clear_btn]:
+        for btn in [edit_btn, categorize_btn, validate_btn, pending_btn, delete_btn, clear_btn]:
             bulk_layout.addWidget(btn)
         layout.addWidget(self.bulk_bar)
         layout.addWidget(self.tabs)
@@ -552,33 +603,22 @@ class TransactionsPage(QWidget):
             f"Affichage de {len(rows)} opérations  •  Débits : {euro(abs(total_debits))}  •  Crédits : {euro(total_credits)}  •  Solde période : {euro(total_credits + total_debits)}"
         )
 
+    def activate_period_filter(self) -> None:
+        self.period_filter_active = True
+        self.refresh_table_only()
+
+    def reset_period_filter(self) -> None:
+        self.period_filter_active = False
+        self.refresh_table_only()
+
     def selected_period_range(self, rows=None) -> tuple[str | None, str | None]:
-        period = self.period_filter.currentText() if hasattr(self, "period_filter") else "Toutes périodes"
-        if period == "Toutes périodes":
+        if not getattr(self, "period_filter_active", False):
             return None, None
-        if " - " in period:
-            try:
-                start_label, end_label = period.split(" - ", 1)
-                start = datetime.strptime(start_label.strip(), "%d/%m/%Y").date().isoformat()
-                end = datetime.strptime(end_label.strip(), "%d/%m/%Y").date().isoformat()
-                return start, end
-            except ValueError:
-                return None, None
-        current_month = self.db.get_setting("current_month", "2026-06")
-        if period == "Mois courant":
-            return f"{current_month}-01", f"{current_month}-31"
-        if period == "Année courante":
-            year = current_month[:4]
-            return f"{year}-01-01", f"{year}-12-31"
-        if period == "30 derniers jours":
-            tx_dates = [str(row["tx_date"]) for row in rows or [] if row["tx_date"]]
-            if tx_dates:
-                end_date = datetime.strptime(max(tx_dates), "%Y-%m-%d").date()
-            else:
-                end_date = datetime.strptime(f"{current_month}-30", "%Y-%m-%d").date()
-            start_date = end_date - timedelta(days=30)
-            return start_date.isoformat(), end_date.isoformat()
-        return None, None
+        start = qdate_to_iso(self.period_from.date()) if hasattr(self, "period_from") else None
+        end = qdate_to_iso(self.period_to.date()) if hasattr(self, "period_to") else None
+        if start and end and start > end:
+            start, end = end, start
+        return start, end
 
     def apply_period_filter(self, rows):
         start, end = self.selected_period_range(rows)
@@ -632,7 +672,7 @@ class TransactionsPage(QWidget):
             amount = float(row["amount"] or 0)
             values = [
                 "",
-                row["next_date"],
+                format_date_fr(row["next_date"]),
                 row["account_name"] or "Compte",
                 row["name"],
                 row["category"] or "Prévisionnel",
@@ -664,7 +704,7 @@ class TransactionsPage(QWidget):
             status = row["status"]
             values = [
                 "",
-                row["tx_date"],
+                format_date_fr(row["tx_date"]),
                 row["account_name"],
                 row["label"],
                 row["category"] or "À catégoriser",
@@ -694,7 +734,7 @@ class TransactionsPage(QWidget):
     def selected_transaction_ids(self) -> list[int]:
         ids: list[int] = []
         seen: set[int] = set()
-        for table in [self.table_all, self.table_uncat, self.table_recurring]:
+        for table in [self.table_all, self.table_uncat]:
             for row_index in range(table.rowCount()):
                 item = table.item(row_index, 0)
                 if item and item.checkState() == Qt.Checked:
@@ -733,7 +773,7 @@ class TransactionsPage(QWidget):
         self.update_bulk_bar()
 
     def clear_all_checks(self) -> None:
-        for table in [self.table_all, self.table_uncat, self.table_recurring]:
+        for table in [self.table_all, self.table_uncat]:
             table.blockSignals(True)
             for row_index in range(table.rowCount()):
                 item = table.item(row_index, 0)
@@ -750,17 +790,24 @@ class TransactionsPage(QWidget):
                 item.setCheckState(Qt.Checked)
 
         menu = QMenu(self)
+        action_edit = menu.addAction("Modifier cette transaction")
         action_category = menu.addAction("Modifier la catégorie de la sélection")
+        action_apply_rules = menu.addAction("Appliquer les règles automatiques à la sélection")
         action_create_rule = menu.addAction("Créer une règle depuis cette transaction")
         action_valid = menu.addAction("Marquer comme validée")
         action_pending = menu.addAction("Marquer à catégoriser")
         menu.addSeparator()
         action_delete = menu.addAction("Supprimer la sélection")
         if len(self.selected_transaction_ids()) != 1:
+            action_edit.setEnabled(False)
             action_create_rule.setEnabled(False)
         selected = menu.exec(table.viewport().mapToGlobal(pos))
-        if selected == action_category:
+        if selected == action_edit:
+            self.open_edit_transaction_dialog()
+        elif selected == action_category:
             self.bulk_change_category()
+        elif selected == action_apply_rules:
+            self.apply_rules_to_selected()
         elif selected == action_create_rule:
             self.create_rule_from_selected_transaction()
         elif selected == action_valid:
@@ -885,6 +932,49 @@ class TransactionsPage(QWidget):
             )
             self.refresh()
 
+
+    def open_edit_transaction_dialog(self) -> None:
+        ids = self.selected_transaction_ids()
+        if not ids:
+            table = self.tabs.currentWidget()
+            if isinstance(table, QTableWidget) and table.currentRow() >= 0:
+                item = table.item(table.currentRow(), 0)
+                tx_id = item.data(Qt.UserRole) if item else None
+                ids = [int(tx_id)] if tx_id else []
+        if len(ids) != 1:
+            QMessageBox.information(self, "Modifier", "Sélectionnez une seule transaction à modifier.")
+            return
+        row = self.db.get_transaction(ids[0])
+        if not row:
+            QMessageBox.warning(self, "Modifier", "Transaction introuvable.")
+            return
+        dialog = TransactionDialog(self.db.list_accounts(), self.db.category_names(), self, row=row)
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                self.db.update_transaction(ids[0], dialog.data())
+                QMessageBox.information(self, "Modifier", "Transaction mise à jour.")
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Modifier", str(exc))
+
+    def apply_rules_to_selected(self) -> None:
+        ids = self.selected_transaction_ids()
+        if not ids:
+            QMessageBox.information(self, "Règles automatiques", "Cochez au moins une transaction.")
+            return
+        summary = CategorizationRuleService(self.db).apply_rules_to_transactions(ids, force=True)
+        QMessageBox.information(
+            self,
+            "Règles automatiques",
+            f"Transactions traitées : {summary['processed']}\\n"
+            f"Catégorisées automatiquement : {summary['auto']}\\n"
+            f"À vérifier : {summary['to_review']}\\n"
+            f"À catégoriser : {summary['to_categorize']}\\n"
+            f"Ignorées : {summary['skipped']}"
+        )
+        self.refresh()
+
+
     def delete_selected_transaction(self) -> None:
         ids = self.selected_transaction_ids()
         if not ids:
@@ -898,6 +988,74 @@ class TransactionsPage(QWidget):
             return
         self.bulk_delete_transactions(ids)
 
+    def detected_source_identifiers(self) -> list[str]:
+        analysis = getattr(self.import_service, "last_analysis", None)
+        diagnostic = getattr(analysis, "diagnostic", None)
+        return list(getattr(diagnostic, "source_account_identifiers", []) or [])
+
+    @staticmethod
+    def identifier_digits(value: str | None) -> str:
+        import re
+        return re.sub(r"\D+", "", str(value or ""))
+
+    def account_matches_detected_identifier(self, account, detected_identifiers: list[str]) -> bool:
+        account_digits = self.identifier_digits(account["identifier"] if "identifier" in account.keys() else "")
+        if len(account_digits) < 6:
+            return False
+        for detected in detected_identifiers:
+            detected_digits = self.identifier_digits(detected)
+            if len(detected_digits) < 8:
+                continue
+            if account_digits == detected_digits:
+                return True
+            if detected_digits.endswith(account_digits) and len(account_digits) >= 6:
+                return True
+            if account_digits.endswith(detected_digits) and len(detected_digits) >= 6:
+                return True
+        return False
+
+    def matching_accounts_for_import(self) -> list:
+        detected = self.detected_source_identifiers()
+        if not detected:
+            return []
+        return [account for account in self.accounts if self.account_matches_detected_identifier(account, detected)]
+
+    def auto_select_detected_account(self) -> None:
+        matches = self.matching_accounts_for_import()
+        if len(matches) == 1:
+            index = self.import_account_combo.findData(matches[0]["id"])
+            if index >= 0:
+                self.import_account_combo.setCurrentIndex(index)
+
+    def import_account_consistency(self) -> tuple[bool, str]:
+        detected = self.detected_source_identifiers()
+        if not detected:
+            return True, ""
+        account_id = self.import_account_combo.currentData()
+        selected = next((a for a in self.accounts if a["id"] == account_id), None)
+        matches = self.matching_accounts_for_import()
+        shown = ", ".join(detected[:3])
+        if selected and self.account_matches_detected_identifier(selected, detected):
+            return True, f"Compte source détecté : {shown}. Compte cible cohérent."
+        if matches:
+            labels = ", ".join(f"{row['name']} — {row['bank']}" for row in matches[:3])
+            return False, (
+                f"Import bloqué : le fichier semble appartenir au compte {shown}.\n"
+                f"Compte Valoria correspondant détecté : {labels}.\n"
+                "Sélectionnez ce compte avant l'import."
+            )
+        return False, (
+            f"Import bloqué : le fichier contient l'identifiant de compte {shown},\n"
+            "mais aucun compte Valoria ne possède cet identifiant.\n"
+            "Créez ou mettez à jour le compte correspondant avant l'import."
+        )
+
+    def ensure_import_account_consistency(self) -> bool:
+        ok, message = self.import_account_consistency()
+        if not ok:
+            QMessageBox.warning(self, "Compte bancaire incohérent", message)
+        return ok
+
     def choose_file(self) -> None:
         self.open_import_panel()
         path, _ = QFileDialog.getOpenFileName(
@@ -908,14 +1066,27 @@ class TransactionsPage(QWidget):
         )
         if not path:
             return
+        self.current_import_path = Path(path)
+        self.preview_rows = []
+        self.import_status.setText(f"Fichier : {self.current_import_path.name}\nAnalyse en cours...")
+        self.import_summary.setText("Nouvelles : 0\nDoublons : 0\nErreurs : 0")
+        self.preview_detail_btn.setEnabled(False)
+        if hasattr(self, "validate_import_btn"):
+            self.validate_import_btn.setEnabled(False)
         try:
-            self.preview_rows = self.import_service.parse(path)
-            self.current_import_path = Path(path)
+            analysis = self.import_service.analyze(path)
+            self.preview_rows = analysis.valid_transactions
+            self.auto_select_detected_account()
             self.refresh_import_analysis()
-            self.preview_detail_btn.setEnabled(True)
-            if hasattr(self, "validate_import_btn"):
-                self.validate_import_btn.setEnabled(True)
+            if analysis.valid_transactions:
+                self.preview_detail_btn.setEnabled(True)
+                if hasattr(self, "validate_import_btn"):
+                    self.validate_import_btn.setEnabled(True)
+            else:
+                QMessageBox.warning(self, "Analyse du fichier", analysis.diagnostic.short_message())
         except Exception as exc:
+            # R7.2: the selected file remains visible even when analysis fails.
+            self.import_status.setText(f"Fichier : {self.current_import_path.name}\nAnalyse impossible : {exc}")
             QMessageBox.critical(self, "Import impossible", str(exc))
 
     def duplicate_flags(self) -> list[bool]:
@@ -925,25 +1096,31 @@ class TransactionsPage(QWidget):
         return [self.db.transaction_exists(account_id, tx.tx_date, tx.label, tx.amount) for tx in self.preview_rows]
 
     def refresh_import_analysis(self) -> None:
-        if not hasattr(self, "import_status") or not self.preview_rows:
+        if not hasattr(self, "import_status"):
             return
-        flags = self.duplicate_flags()
+        analysis = getattr(self.import_service, "last_analysis", None)
+        flags = self.duplicate_flags() if self.preview_rows else []
         duplicate_count = sum(1 for flag in flags if flag)
         new_count = len(self.preview_rows) - duplicate_count
+        error_count = len(getattr(analysis, "rejected_lines", []) or []) if analysis else 0
         file_name = self.current_import_path.name if self.current_import_path else "fichier sélectionné"
+        diagnostic_text = analysis.diagnostic.short_message() if analysis else "Analyse terminée."
+        account_ok, account_message = self.import_account_consistency()
+        account_line = f"\n{account_message}" if account_message else ""
         self.import_status.setText(
             f"Fichier : {file_name}\n"
             f"Opérations détectées : {len(self.preview_rows)}\n"
+            f"{diagnostic_text}{account_line}\n"
             "Contrôlez les lignes avec l’aperçu détaillé avant validation."
         )
         self.import_summary.setText(
             f"Nouvelles : {new_count}\n"
             f"Doublons : {duplicate_count}\n"
-            "Erreurs : 0"
+            f"Erreurs : {error_count}"
         )
-        self.preview_detail_btn.setEnabled(True)
+        self.preview_detail_btn.setEnabled(bool(self.preview_rows))
         if hasattr(self, "validate_import_btn"):
-            self.validate_import_btn.setEnabled(True)
+            self.validate_import_btn.setEnabled(bool(self.preview_rows and new_count >= 0 and account_ok))
 
     def open_preview_dialog(self) -> None:
         if not self.preview_rows:
@@ -952,6 +1129,8 @@ class TransactionsPage(QWidget):
         account_id = self.import_account_combo.currentData()
         if not account_id:
             QMessageBox.warning(self, "Compte manquant", "Sélectionnez un compte bancaire.")
+            return
+        if not self.ensure_import_account_consistency():
             return
         account_label = self.import_account_combo.currentText()
         file_name = self.current_import_path.name if self.current_import_path else "import"
@@ -973,6 +1152,8 @@ class TransactionsPage(QWidget):
         account_id = self.import_account_combo.currentData()
         if not account_id:
             QMessageBox.warning(self, "Compte manquant", "Sélectionnez un compte bancaire.")
+            return
+        if not self.ensure_import_account_consistency():
             return
 
         flags = self.duplicate_flags()
@@ -1004,16 +1185,34 @@ class TransactionsPage(QWidget):
         if not account_id:
             QMessageBox.warning(self, "Compte manquant", "Sélectionnez un compte bancaire.")
             return
-        batch_id = self.db.create_import_batch(getattr(self, "current_import_path", Path("import")).name, account_id)
+        if not self.ensure_import_account_consistency():
+            return
+        analysis = getattr(self.import_service, "last_analysis", None)
+        diagnostic = getattr(analysis, "diagnostic", None)
+        batch_id = self.db.create_import_batch(
+            getattr(self, "current_import_path", Path("import")).name,
+            account_id,
+            parser_profile=getattr(diagnostic, "profile_name", None),
+            diagnostic_summary=diagnostic.short_message() if diagnostic else None,
+            header_line=getattr(diagnostic, "header_line", None),
+        )
         imported = 0
         duplicates = 0
+        errors = len(getattr(analysis, "rejected_lines", []) or []) if analysis else 0
         for tx in selected_rows:
-            ok = self.db.insert_transaction(account_id, tx.tx_date, tx.label, tx.category, tx.amount, "Import bancaire", batch_id)
+            ok = self.db.insert_transaction(
+                account_id, tx.tx_date, tx.label, tx.category, tx.amount, "Import bancaire", batch_id,
+                currency=tx.currency or "EUR",
+                source_line=tx.source_line,
+                source_profile=tx.source_profile,
+                raw_payload=payload_to_json(tx.raw_payload),
+                source_identifier=tx.source_identifier,
+            )
             if ok:
                 imported += 1
             else:
                 duplicates += 1
-        self.db.update_import_batch(batch_id, imported, duplicates, 0)
+        self.db.update_import_batch(batch_id, imported, duplicates, errors)
         categorization_summary = CategorizationRuleService(self.db).apply_rules_to_import_batch(batch_id)
         reconciliation_summary = ForecastReconciliationService(self.db).reconcile_import_batch(batch_id)
         QMessageBox.information(
@@ -1038,7 +1237,7 @@ class TransactionsPage(QWidget):
             f"À catégoriser : {categorization_summary['to_categorize']}\n"
             f"Rapprochés : {reconciliation_summary['auto']}\n"
             f"Rapp. à vérifier : {reconciliation_summary['to_review']}\n"
-            "Erreurs : 0"
+            f"Erreurs : {errors}"
         )
         self.preview_detail_btn.setEnabled(False)
         if hasattr(self, "validate_import_btn"):

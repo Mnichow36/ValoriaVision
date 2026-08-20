@@ -17,7 +17,6 @@ more-itertools==11.1.0
 narwhals==2.23.0
 packaging==26.2
 pefile==2024.8.26
-pip==26.1.2
 pycparser==3.0
 pyinstaller-hooks-contrib==2026.6
 pywin32-ctypes==0.2.3
