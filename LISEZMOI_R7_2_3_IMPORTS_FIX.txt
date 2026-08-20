@@ -1,0 +1,63 @@
+VALORIA VISION — V0.6.6-R7.2.3 IMPORTS FIX
+================================================
+
+Version intermédiaire de recette ciblée sur les imports bancaires et les transactions.
+
+Objectif de cette version
+-------------------------
+Cette version sert à tester spécifiquement :
+
+1. L'import Société Générale CSV.
+2. La détection du compte bancaire source.
+3. La prévention des faux doublons, notamment l'anomalie #53.
+4. L'enrichissement des libellés de cartes.
+5. L'audit technique des lignes d'import.
+6. La cohérence entre aperçu et import réel.
+7. L'impact des imports sur Transactions.
+8. La non-régression des règles de catégorisation automatique.
+
+Ce que cette version ne couvre pas encore complètement
+------------------------------------------------------
+Cette version ne constitue pas encore la livraison complète CDC R7.2.
+
+Les rapprochements N↔N, les groupes de rapprochement, l'historique complet, les transitions avancées de statut et le rollback complet de migration seront traités dans les lots suivants.
+
+Installation / lancement
+------------------------
+Si vous utilisez l'archive produite par GitHub Actions :
+
+1. Décompresser l'archive ZIP dans un dossier neuf.
+2. Ouvrir le dossier Valoria Vision.
+3. Lancer Valoria Vision.exe.
+
+Sécurité des données
+--------------------
+Ne jamais versionner ni partager :
+
+- data/valoria_vision.db
+- data/secure/
+- data/security/
+- data/backups/
+- fichiers .vvdb
+- fichiers .key
+- relevés bancaires réels non anonymisés
+
+Recette conseillée
+------------------
+Tester en priorité :
+
+1. Démarrage application.
+2. Création ou vérification des comptes avec identifiants bancaires.
+3. Import du fichier Société Générale.
+4. Contrôle du compte cible.
+5. Vérification des doublons.
+6. Vérification que deux opérations similaires mais réellement distinctes ne sont pas fusionnées.
+7. Vérification des libellés enrichis.
+8. Annulation du dernier import.
+9. Vérification des transactions affichées.
+
+Statut
+------
+Version intermédiaire de recette.
+
+Ne pas fusionner dans main avant validation fonctionnelle.
