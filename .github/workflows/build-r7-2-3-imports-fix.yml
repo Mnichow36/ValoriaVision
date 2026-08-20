@@ -1,0 +1,44 @@
+name: Build R7.2.3 Imports Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/r7.2-cdc-v1.1-imports-rapprochements
+    paths:
+      - 'app/**'
+      - 'tools/**'
+      - 'main.py'
+      - 'requirements-lock.txt'
+      - 'build_exe.bat'
+      - 'LISEZMOI_R7_2_3_IMPORTS_FIX.txt'
+      - 'RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md'
+      - '.github/workflows/build-r7-2-3-imports-fix.yml'
+
+jobs:
+  build-windows:
+    name: Build Windows installable ZIP
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build installable
+        shell: pwsh
+        run: |
+          ./tools/build_r7_2_3_installable.ps1
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX
+          path: |
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX.sha256.txt
+          if-no-files-found: error
