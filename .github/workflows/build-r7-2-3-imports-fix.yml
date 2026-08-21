@@ -1,4 +1,4 @@
-name: Build R7.2.3 Imports Fix
+name: Build R7.2.4 Lot 3 UX Comptes Rapports
 
 on:
   workflow_dispatch:
@@ -25,8 +25,8 @@ jobs:
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS
           path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX.sha256.txt
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.sha256.txt
           if-no-files-found: error
