@@ -1,34 +1,48 @@
-VALORIA VISION — V0.6.6-R7.2.3 IMPORTS FIX
-================================================
+VALORIA VISION — V0.6.6-R7.2.4 LOT 3
+======================================
 
-Version intermédiaire de recette ciblée sur les imports bancaires et les transactions.
+Version groupée de recette : UX Import, Comptes bancaires et Rapports centralisés.
 
 Objectif de cette version
 -------------------------
-Cette version sert à tester spécifiquement :
+Cette version sert à tester un lot cohérent de correctifs R7.2 :
 
-1. L'import Société Générale CSV.
-2. La détection du compte bancaire source.
-3. La prévention des faux doublons, notamment l'anomalie #53.
-4. L'enrichissement des libellés de cartes.
-5. L'audit technique des lignes d'import.
-6. La cohérence entre aperçu et import réel.
-7. L'impact des imports sur Transactions.
-8. La non-régression des règles de catégorisation automatique.
+1. Import Société Générale CSV déjà stabilisé.
+2. Détection du compte bancaire source.
+3. Prévention des faux doublons, notamment l'anomalie #53.
+4. Audit technique des lignes d'import.
+5. Rapport d'import généré automatiquement.
+6. Message clair en cas de réimport 100 % doublon.
+7. Progression visuelle pendant l'import.
+8. Gestion enrichie des comptes bancaires : N° de compte / RIB et IBAN.
+9. Préparation de la reconnaissance des IBAN internationaux.
+10. Modification contrôlée des comptes bancaires.
+11. Suppression ou archivage sécurisé des comptes.
+12. Consultation des rapports d'import depuis le menu Rapports.
 
 Ce que cette version ne couvre pas encore complètement
 ------------------------------------------------------
 Cette version ne constitue pas encore la livraison complète CDC R7.2.
 
-Les rapprochements N↔N, les groupes de rapprochement, l'historique complet, les transitions avancées de statut et le rollback complet de migration seront traités dans les lots suivants.
+Restent notamment à traiter dans les lots suivants :
+
+- annulation d'import complètement durcie ;
+- recalculs synchronisés complets après annulation ;
+- rapprochements N↔N ;
+- groupes de rapprochement ;
+- historique complet des rapprochements ;
+- transitions avancées de statut ;
+- rollback complet de migration ;
+- recette complète REC-01 à REC-28.
 
 Installation / lancement
 ------------------------
 Si vous utilisez l'archive produite par GitHub Actions :
 
 1. Décompresser l'archive ZIP dans un dossier neuf.
-2. Ouvrir le dossier Valoria Vision.
-3. Lancer Valoria Vision.exe.
+2. Utiliser de préférence un chemin court, par exemple C:\VV\R724\, afin d'éviter les chemins Windows trop longs.
+3. Ouvrir le dossier Valoria Vision.
+4. Lancer Valoria Vision.exe.
 
 Sécurité des données
 --------------------
@@ -42,22 +56,29 @@ Ne jamais versionner ni partager :
 - fichiers .key
 - relevés bancaires réels non anonymisés
 
-Recette conseillée
-------------------
+Recette conseillée Lot 3
+------------------------
 Tester en priorité :
 
 1. Démarrage application.
-2. Création ou vérification des comptes avec identifiants bancaires.
-3. Import du fichier Société Générale.
-4. Contrôle du compte cible.
-5. Vérification des doublons.
-6. Vérification que deux opérations similaires mais réellement distinctes ne sont pas fusionnées.
-7. Vérification des libellés enrichis.
-8. Annulation du dernier import.
-9. Vérification des transactions affichées.
+2. Titre de fenêtre R7.2.4 Lot 3 visible.
+3. Identifiants de comptes masqués.
+4. Création d'un compte avec N° de compte / RIB et IBAN.
+5. Saisie d'IBAN internationaux valides.
+6. Modification d'un compte sans modifier le solde initial.
+7. Suppression d'un compte vide.
+8. Blocage ou archivage d'un compte contenant des données liées.
+9. Import du fichier Société Générale.
+10. Progression visuelle pendant l'import.
+11. Rapport d'import généré après validation.
+12. Rapport retrouvé dans le menu Rapports.
+13. Réimport identique détecté comme 100 % doublon.
+14. Cohérence des transactions affichées après import.
 
 Statut
 ------
-Version intermédiaire de recette.
+Version groupée de recette prévue.
+
+Build automatique désactivé : l'archive doit être générée manuellement uniquement lorsque le Lot 3 est prêt.
 
 Ne pas fusionner dans main avant validation fonctionnelle.
