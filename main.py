@@ -13,7 +13,7 @@ from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.3 Imports Fix"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 3 UX Import Comptes Rapports"
 
 
 def main() -> int:
