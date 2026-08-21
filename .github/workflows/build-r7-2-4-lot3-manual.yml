@@ -1,0 +1,39 @@
+name: Build R7.2.4 Lot 3 Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branche à construire"
+        required: true
+        default: "dev/r7.2-cdc-v1.1-imports-rapprochements"
+
+jobs:
+  build-windows:
+    name: Build Windows installable ZIP — R7.2.4 Lot 3
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build installable R7.2.4 Lot 3
+        shell: pwsh
+        run: |
+          ./tools/build_r7_2_3_installable.ps1
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS
+          path: |
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.sha256.txt
+          if-no-files-found: error
