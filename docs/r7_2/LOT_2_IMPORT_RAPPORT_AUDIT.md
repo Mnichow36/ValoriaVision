@@ -14,6 +14,7 @@ Ce lot s’inscrit dans les exigences CDC v1.1 :
 - preuve des décisions d’import ;
 - cohérence aperçu / écriture réelle ;
 - audit des lignes importées ;
+- audit des lignes rejetées avant écriture ;
 - suivi des doublons ;
 - base de contrôle avant reprise complète des rapprochements.
 
@@ -24,7 +25,7 @@ Ce lot s’inscrit dans les exigences CDC v1.1 :
 | Fichier | Rôle |
 |---|---|
 | `app/r7_2/import_report_patch.py` | Génération automatique d’un rapport texte après mise à jour d’un lot d’import |
-| `tools/test_r7_2_import_report.py` | Test technique minimal de génération du rapport |
+| `tools/test_r7_2_import_report.py` | Test technique de génération du rapport avec ligne importée et ligne rejetée |
 | `docs/r7_2/LOT_2_IMPORT_RAPPORT_AUDIT.md` | Documentation du présent lot |
 
 ---
@@ -63,19 +64,34 @@ Le rapport contient :
 - total débits ;
 - solde net importé ;
 - lignes auditées ;
-- décision ligne par ligne : `imported` ou `duplicate` ;
+- décision ligne par ligne : `imported`, `duplicate` ou `rejected` ;
 - motif de décision ;
-- signature technique utilisée.
+- signature technique utilisée quand elle existe ;
+- payload brut de rejet conservé en base d’audit.
 
 ---
 
-## Limite connue
+## Correction complémentaire ajoutée
 
-À ce stade du Lot 2, le rapport consolide les lignes arrivées jusqu’à l’étape d’écriture réelle ou de doublon.
+Les lignes rejetées par le parseur avant écriture sont maintenant rattachées au lot d’import réel avant génération du rapport.
 
-Les lignes rejetées très tôt par l’analyse du fichier sont comptabilisées via `error_count`, mais leur détail ligne par ligne doit encore être enrichi dans une étape suivante.
+Avant :
 
-Cette limite est volontairement documentée pour éviter toute surinterprétation.
+```text
+les lignes rejetées étaient comptabilisées mais pas détaillées dans le rapport final
+```
+
+Après :
+
+```text
+les lignes rejetées apparaissent dans import_line_audit avec decision = rejected
+```
+
+Cela permet de distinguer clairement :
+
+- une transaction réellement importée ;
+- une transaction ignorée comme doublon ;
+- une ligne rejetée pour motif technique ou métier.
 
 ---
 
@@ -85,7 +101,7 @@ Cette limite est volontairement documentée pour éviter toute surinterprétatio
 |---|---|
 | `tools/test_r7_2_import_sg.py` | Vérifie la reconnaissance du fichier SG |
 | `tools/test_r7_2_false_duplicate_53.py` | Vérifie la correction du faux doublon #53 |
-| `tools/test_r7_2_import_report.py` | Vérifie la génération d’un rapport d’import lisible |
+| `tools/test_r7_2_import_report.py` | Vérifie la génération d’un rapport d’import avec ligne importée et ligne rejetée |
 
 ---
 
