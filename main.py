@@ -5,6 +5,7 @@ from app.database import Database
 from app.r7_2.account_management_patch import apply_r7_2_account_management_patch
 from app.r7_2.import_integrity import apply_r7_2_import_integrity_patch
 from app.r7_2.import_report_patch import apply_r7_2_import_report_patch
+from app.r7_2.import_progress_patch import apply_r7_2_import_progress_patch
 from app.r7_2.import_ui_feedback_patch import apply_r7_2_import_ui_feedback_patch
 from app.r7_2.ui_privacy_patch import apply_r7_2_ui_privacy_patch
 from app.security.auth_service import AuthService
@@ -24,6 +25,7 @@ def main() -> int:
     # et avant création des écrans.
     apply_r7_2_import_integrity_patch()
     apply_r7_2_import_report_patch()
+    apply_r7_2_import_progress_patch()
     apply_r7_2_import_ui_feedback_patch()
     apply_r7_2_ui_privacy_patch()
     apply_r7_2_account_management_patch()
