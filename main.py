@@ -3,9 +3,13 @@ from PySide6.QtGui import QIcon
 from app.main_window import MainWindow
 from app.database import Database
 from app.r7_2.import_integrity import apply_r7_2_import_integrity_patch
+from app.r7_2.ui_privacy_patch import apply_r7_2_ui_privacy_patch
 from app.security.auth_service import AuthService
 from app.ui.auth_dialog import MasterPasswordDialog
 import sys
+
+
+APP_VERSION = "V0.6.6-R7.2.3 Imports Fix"
 
 
 def main() -> int:
@@ -13,9 +17,10 @@ def main() -> int:
     app.setApplicationName("Valoria Vision")
     app.setOrganizationName("Valoria Vision")
 
-    # R7.2 CDC v1.1 — active les correctifs d’intégrité import avant
-    # initialisation/migration de la base SQLite.
+    # R7.2 CDC v1.1 — active les correctifs avant initialisation/migration
+    # et avant création des écrans.
     apply_r7_2_import_integrity_patch()
+    apply_r7_2_ui_privacy_patch()
 
     db = Database()
     db.initialize()
@@ -27,6 +32,7 @@ def main() -> int:
         return 0
 
     window = MainWindow(db)
+    window.setWindowTitle(f"Valoria Vision — {APP_VERSION}")
     window.show()
     return app.exec()
 
