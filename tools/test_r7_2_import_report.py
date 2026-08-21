@@ -63,6 +63,10 @@ def main() -> int:
         if not report_path.exists():
             print("Rapport non créé")
             return 1
+        remembered = db.last_import_report_path() if hasattr(db, "last_import_report_path") else ""
+        if not remembered or Path(remembered) != report_path:
+            print("Chemin du rapport non mémorisé correctement:", remembered)
+            return 1
         content = report_path.read_text(encoding="utf-8")
         required = [
             "Valoria Vision — Rapport d'import R7.2.3",
@@ -79,6 +83,7 @@ def main() -> int:
             print("Contenu manquant:", missing)
             return 1
         print("Rapport import R7.2.3 généré avec ligne rejetée:", report_path)
+        print("Chemin mémorisé:", remembered)
         return 0
 
 
