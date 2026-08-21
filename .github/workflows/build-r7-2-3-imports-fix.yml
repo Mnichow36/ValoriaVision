@@ -2,18 +2,6 @@ name: Build R7.2.3 Imports Fix
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev/r7.2-cdc-v1.1-imports-rapprochements
-    paths:
-      - 'app/**'
-      - 'tools/**'
-      - 'main.py'
-      - 'requirements-lock.txt'
-      - 'build_exe.bat'
-      - 'LISEZMOI_R7_2_3_IMPORTS_FIX.txt'
-      - 'RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md'
-      - '.github/workflows/build-r7-2-3-imports-fix.yml'
 
 jobs:
   build-windows:
