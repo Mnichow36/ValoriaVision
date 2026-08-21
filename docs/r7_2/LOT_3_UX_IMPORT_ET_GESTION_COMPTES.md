@@ -9,13 +9,51 @@ Branche : `dev/r7.2-cdc-v1.1-imports-rapprochements`
 
 Regrouper les prochains correctifs à forte valeur utilisateur avant une nouvelle archive installable.
 
-Ce lot couvre trois besoins prioritaires exprimés en recette :
+Ce lot couvre quatre besoins prioritaires exprimés en recette :
 
 1. rendre l'import bancaire visuellement explicite pendant le traitement ;
 2. permettre la modification et la suppression contrôlée des comptes bancaires ;
-3. préparer la reconnaissance internationale des IBAN en vue d'une future gestion multi-devises / Premium.
+3. préparer la reconnaissance internationale des IBAN en vue d'une future gestion multi-devises / Premium ;
+4. harmoniser les actions techniques via des menus contextuels plutôt que par multiplication de boutons dans les volets de détail.
 
 Aucune nouvelle archive ne doit être reconstruite pour chaque sous-correctif mineur. Les correctifs seront regroupés puis livrés dans une archive de recette cohérente.
+
+---
+
+## Règle UI transversale — actions techniques via menus contextuels
+
+### Décision produit
+
+Dans un objectif d'harmonisation des écrans et des routines métier, les actions techniques ne doivent pas surcharger les volets de détail.
+
+Le volet de détail doit principalement servir à lire et comprendre les informations de l'objet sélectionné.
+
+Les actions techniques doivent être accessibles via un menu contextuel sur la ligne ou l'élément sélectionné.
+
+### Application aux comptes bancaires
+
+Dans l'écran `Comptes`, les actions suivantes doivent être accessibles par clic droit sur un compte :
+
+- Voir les transactions ;
+- Importer des opérations ;
+- Mettre à jour le solde initial ;
+- Modifier le compte ;
+- Supprimer / archiver.
+
+Les boutons techniques `Modifier le compte` et `Supprimer / archiver` ne doivent plus être affichés dans le volet détail.
+
+### Règle de suppression
+
+La suppression d'un compte est autorisée uniquement si le compte ne possède plus aucun lien métier :
+
+- aucune transaction ;
+- aucun lot d'import ;
+- aucune récurrence ;
+- aucune occurrence prévisionnelle.
+
+Si un lien existe, la suppression directe est bloquée et l'application propose l'archivage.
+
+Statut : **corrigé côté branche via `app/r7_2/account_context_menu_patch.py` — à vérifier sur prochaine archive**.
 
 ---
 
@@ -51,7 +89,7 @@ Ajouter une interface de progression comprenant :
 9. Génération du rapport d'import
 10. Import terminé
 
-Statut : **à développer**.
+Statut : **développé côté branche — à vérifier sur prochaine archive installable**.
 
 ---
 
@@ -88,7 +126,7 @@ Ces deux champs doivent rester gérés par l'action dédiée : `Mettre à jour l
 - Ajout des colonnes `accounts.account_number` et `accounts.iban` par migration légère.
 - Maintien du champ historique `accounts.identifier` pour compatibilité avec le moteur d'import existant.
 - Ajout d'un formulaire de compte avec `N° de compte / RIB` et `IBAN`.
-- Ajout d'une action `Modifier le compte` dans le volet détail.
+- Ajout d'une action contextuelle `Modifier le compte`.
 - La modification d'identité ne touche pas au solde initial ni à la date initiale.
 - Correction de la méthode `update_account`, qui utilisait auparavant une variable non définie.
 
@@ -183,7 +221,7 @@ Statut : **développé côté branche — à vérifier sur prochaine archive ins
 
 ### Comportement attendu
 
-Ajouter une action `Supprimer le compte` ou équivalent.
+Ajouter une action `Supprimer / archiver`, accessible depuis le menu contextuel du compte.
 
 ### Règles de sécurité
 
@@ -197,7 +235,7 @@ Ajouter une action `Supprimer le compte` ou équivalent.
 
 ### Implémentation ajoutée
 
-- Ajout d'une action `Supprimer / archiver` dans le volet détail.
+- Ajout d'une action contextuelle `Supprimer / archiver`.
 - Suppression autorisée uniquement pour un compte sans transaction, import, récurrence ou occurrence prévisionnelle.
 - Si des données liées existent, proposition d'archivage au lieu d'une suppression directe.
 
@@ -227,13 +265,14 @@ Ce test vérifie :
 
 - Créer un compte avec N° de compte / RIB et IBAN.
 - Vérifier le masquage en liste, cartes, volet détail et import.
-- Modifier uniquement les champs autorisés.
+- Clic droit sur un compte : vérifier le menu contextuel.
+- Modifier uniquement les champs autorisés via menu contextuel.
 - Vérifier que le solde initial et la date initiale ne changent pas.
 - Vérifier que l'import SG continue à reconnaître le bon compte.
 - Saisir des IBAN français et internationaux valides.
 - Vérifier que les IBAN sont normalisés et masqués.
 - Vérifier que le pays de l'IBAN ne force pas automatiquement la devise.
-- Supprimer un compte vide.
+- Supprimer un compte vide via menu contextuel.
 - Tenter de supprimer un compte avec transactions : suppression refusée ou archivage proposé.
 - Vérifier que les soldes et listes restent cohérents après modification ou archivage.
 
@@ -241,6 +280,7 @@ Ce test vérifie :
 
 ## Statut global du Lot 3
 
-- UX progression import : **à développer**.
+- UX progression import : **développée côté branche**.
 - Gestion comptes RIB / IBAN / édition / suppression contrôlée : **développée côté branche**.
-- Prochaine archive : **à reconstruire uniquement après fin du Lot 3 complet**.
+- Harmonisation menu contextuel comptes : **développée côté branche**.
+- Prochaine archive : **à reconstruire uniquement après stabilisation du Lot 3 complet**.
