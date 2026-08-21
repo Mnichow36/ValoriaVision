@@ -11,15 +11,16 @@ Date : 21/08/2026
 
 | Champ | Valeur |
 |---|---|
-| Statut | À corriger |
+| Statut | Corrigé dans la branche de développement — à vérifier sur prochaine archive |
 | Gravité | Mineure |
 | Domaine | Packaging / affichage version |
 | Détecté par | Recette utilisateur |
-| Contexte | L’archive R7.2.3 démarre correctement, mais le titre de fenêtre affiche encore `MVP V0.6.6-R7.2.2.1`. |
-| Résultat obtenu | La version visible ne correspond pas à l’archive testée. |
-| Résultat attendu | Le titre et les métadonnées visibles doivent afficher `V0.6.6-R7.2.3 — Imports Fix`. |
+| Contexte | L’archive R7.2.3 démarrait correctement, mais le titre de fenêtre affichait encore `MVP V0.6.6-R7.2.2.1`. |
+| Résultat obtenu | La version visible ne correspondait pas à l’archive testée. |
+| Résultat attendu | Le titre visible doit afficher `Valoria Vision — V0.6.6-R7.2.3 Imports Fix`. |
 | Impact | Confusion de recette et de traçabilité. Non bloquant fonctionnellement. |
-| Correctif attendu | Centraliser ou mettre à jour le libellé de version visible dans l’application et le packaging. |
+| Correctif réalisé | `main.py` définit désormais `APP_VERSION = "V0.6.6-R7.2.3 Imports Fix"` et force le titre de fenêtre après création de `MainWindow`. |
+| Vérification attendue | Générer une nouvelle archive installable et confirmer le titre de fenêtre au démarrage. |
 
 ---
 
@@ -27,15 +28,16 @@ Date : 21/08/2026
 
 | Champ | Valeur |
 |---|---|
-| Statut | À corriger |
+| Statut | Corrigé dans la branche de développement — à vérifier sur prochaine archive |
 | Gravité | Moyenne côté confidentialité / UX |
 | Domaine | Comptes bancaires / confidentialité affichage |
 | Détecté par | Recette utilisateur |
-| Contexte | Après création d’un compte `SG CC`, le tableau et/ou le volet détail affichent un identifiant long en clair ou partiellement en clair, contrairement aux comptes existants qui apparaissent sous forme `**** 5541`. |
-| Résultat obtenu | Les comptes historiques affichent un identifiant masqué, mais le nouveau compte affiche une valeur brute ou trop détaillée, par exemple `FR763000300...` dans le tableau et l’identifiant long dans le volet détail. |
+| Contexte | Après création d’un compte `SG CC`, le tableau et/ou le volet détail affichaient un identifiant long en clair ou partiellement en clair, contrairement aux comptes existants qui apparaissent sous forme `**** 5541`. |
+| Résultat obtenu | Les comptes historiques affichaient un identifiant masqué, mais le nouveau compte affichait une valeur brute ou trop détaillée, par exemple `FR763000300...` dans le tableau et l’identifiant long dans le volet détail. |
 | Résultat attendu | Tous les identifiants de comptes doivent être affichés avec la même règle de masquage, quelle que soit leur origine : compte démo, compte existant, compte créé par l’utilisateur. |
 | Impact | Incohérence UI et risque de confidentialité visuelle. Non bloquant pour poursuivre le développement correctif. |
-| Correctif attendu | Appliquer systématiquement une fonction unique de masquage d’identifiant dans la liste des comptes, le volet détail, la vue cartes et les sélecteurs d’import si nécessaire. Le stockage complet en base reste autorisé pour la détection d’import. |
+| Correctif réalisé | Ajout de `app/r7_2/ui_privacy_patch.py`, activé au démarrage par `main.py`. Le stockage complet en base reste conservé pour les imports, mais l’affichage est masqué dans la liste, les cartes et le volet détail. |
+| Vérification attendue | Créer ou afficher un compte avec identifiant complet et confirmer que l’UI affiche seulement `**** 1234` ou équivalent. |
 
 ---
 
