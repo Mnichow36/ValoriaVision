@@ -12,7 +12,7 @@ Préparer une première version installable intermédiaire centrée sur :
 
 ---
 
-## Nom de l’archive prévue
+## Nom de l’archive produite
 
 ```text
 ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX.zip
@@ -48,11 +48,22 @@ Le script `tools/build_r7_2_3_installable.ps1` doit :
 
 ---
 
-## Statut actuel
+## Résultat GitHub Actions
 
-Chaîne de build installable : **préparée**.
+Workflow : `Build R7.2.3 Imports Fix`  
+Job : `Build Windows installable ZIP`  
+Statut : **Success**  
+Artefact produit : `ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX`  
+Taille observée : environ 234 MB  
 
-Archive installable : **à produire par GitHub Actions ou par `build_exe.bat` en local**.
+---
+
+## Validation utilisateur initiale
+
+Date : 21/08/2026  
+Retour utilisateur : l’application démarre normalement et semble parfaitement opérationnelle après téléchargement et lancement de l’archive installable.
+
+Statut : **démarrage installable validé**.
 
 ---
 
@@ -60,7 +71,7 @@ Archive installable : **à produire par GitHub Actions ou par `build_exe.bat` en
 
 La version R7.2.3 est une version intermédiaire.
 
-Elle ne doit pas être fusionnée dans `main` avant recette fonctionnelle.
+Elle ne doit pas être fusionnée dans `main` avant recette fonctionnelle ciblée Imports / Transactions.
 
 ---
 
@@ -78,3 +89,12 @@ Tester en priorité :
 - annulation import ;
 - règles automatiques ;
 - affichage Transactions.
+
+---
+
+## Statut actuel
+
+Chaîne de build installable : **OK**.  
+Archive installable : **produite par GitHub Actions**.  
+Démarrage utilisateur : **OK**.  
+Recette fonctionnelle Imports / Transactions : **à dérouler**.
