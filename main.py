@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 from app.main_window import MainWindow
 from app.database import Database
+from app.r7_2.account_management_patch import apply_r7_2_account_management_patch
 from app.r7_2.import_integrity import apply_r7_2_import_integrity_patch
 from app.r7_2.import_report_patch import apply_r7_2_import_report_patch
 from app.r7_2.import_ui_feedback_patch import apply_r7_2_import_ui_feedback_patch
@@ -25,6 +26,7 @@ def main() -> int:
     apply_r7_2_import_report_patch()
     apply_r7_2_import_ui_feedback_patch()
     apply_r7_2_ui_privacy_patch()
+    apply_r7_2_account_management_patch()
 
     db = Database()
     db.initialize()
