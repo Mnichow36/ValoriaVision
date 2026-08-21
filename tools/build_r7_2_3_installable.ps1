@@ -34,6 +34,7 @@ Write-Host "Tests techniques R7.2..."
 python tools/test_r7_2_import_sg.py
 python tools/test_r7_2_false_duplicate_53.py
 python tools/test_r7_2_import_report.py
+python tools/test_r7_2_all_duplicate_import_message.py
 
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
@@ -61,7 +62,7 @@ $Manifest = @{
     release_name = $ReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Imports bancaires, transactions, faux doublon SG #53, rapport d'import automatique"
+    scope = "Imports bancaires, transactions, faux doublon SG #53, rapport d'import automatique, réimport 100% doublon"
     executable = "Valoria Vision/Valoria Vision.exe"
     status = "Version intermédiaire de recette"
 }
