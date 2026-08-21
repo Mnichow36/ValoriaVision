@@ -26,6 +26,7 @@ from app.ui.placeholder_page import PlaceholderPage
 from app.ui.budgets_page import BudgetsPage
 from app.ui.scenarios_page import ScenariosPage
 from app.ui.reconciliation_page import ReconciliationPage
+from app.ui.reports_page import ReportsPage
 from app.ui.settings_page import SettingsPage
 
 
@@ -63,7 +64,7 @@ class MainWindow(QMainWindow):
             "Patrimoine": AssetsPage(db),
             "Investissements": PlaceholderPage("Investissements", "Suivi PEA, CTO, assurance-vie, crypto et allocations."),
             "Budgets": BudgetsPage(db),
-            "Rapports": PlaceholderPage("Rapports", "Exports PDF/Excel, synthèses mensuelles et historiques."),
+            "Rapports": ReportsPage(db),
             "Paramètres": SettingsPage(db),
         }
         # Cross-page callbacks
@@ -127,7 +128,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lock_btn)
 
         layout.addStretch(1)
-        version = QLabel("Prototype V0.6.6-R7.2.2.1 — Import fix + démarrage corrigé")
+        version = QLabel("Prototype V0.6.6-R7.2.3 — Lot 3 en cours")
         version.setStyleSheet("color: #8FAADC; font-size: 11px;")
         layout.addWidget(version)
 
