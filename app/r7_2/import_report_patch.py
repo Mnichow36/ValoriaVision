@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
+import json
 
 _PATCHED = False
 
@@ -32,6 +33,17 @@ def _safe_file_stem(value: str) -> str:
     return cleaned.strip("_")[:120] or "import"
 
 
+def _payload_to_text(payload) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    try:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return str(payload)
+
+
 def _audit_rows(conn, batch_id: int) -> list:
     return list(
         conn.execute(
@@ -44,6 +56,63 @@ def _audit_rows(conn, batch_id: int) -> list:
             (batch_id,),
         )
     )
+
+
+def _already_audited(conn, batch_id: int, source_line: int | None, decision: str, reason: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT id
+        FROM import_line_audit
+        WHERE import_batch_id = ?
+          AND COALESCE(source_line, -1) = COALESCE(?, -1)
+          AND decision = ?
+          AND COALESCE(reason, '') = COALESCE(?, '')
+        LIMIT 1
+        """,
+        (batch_id, source_line, decision, reason),
+    ).fetchone()
+    return row is not None
+
+
+def _audit_rejected_lines(self, batch_id: int) -> None:
+    """Attach pre-write rejected lines to the real import batch.
+
+    The parser rejects invalid rows before transactions are written. Those rows
+    do not pass through `insert_transaction`, so they need to be persisted here,
+    just before the final report is generated.
+    """
+    analysis = getattr(self, "_r7_2_current_import_analysis", None)
+    if not analysis:
+        return
+
+    diagnostic = getattr(analysis, "diagnostic", None)
+    file_name = getattr(analysis, "file_name", None)
+    profile = getattr(diagnostic, "profile_name", None) if diagnostic else None
+    rejected = list(getattr(analysis, "rejected_lines", []) or [])
+
+    with self.connect() as conn:
+        batch = conn.execute("SELECT account_id, file_name FROM import_batches WHERE id = ?", (batch_id,)).fetchone()
+        if not batch:
+            return
+        account_id = int(batch["account_id"])
+        batch_file_name = batch["file_name"] or file_name
+
+        for rejected_line in rejected:
+            source_line = getattr(rejected_line, "line_number", None)
+            reason = _safe(getattr(rejected_line, "reason", "Ligne rejetée")) or "Ligne rejetée"
+            raw_payload = _payload_to_text(getattr(rejected_line, "raw_payload", None))
+            if _already_audited(conn, batch_id, source_line, "rejected", reason):
+                continue
+            conn.execute(
+                """
+                INSERT INTO import_line_audit(
+                    import_batch_id, file_name, account_id, source_line, decision, reason,
+                    tx_date, label, amount, signature, source_identifier, source_profile, raw_payload
+                )
+                VALUES (?, ?, ?, ?, 'rejected', ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
+                """,
+                (batch_id, batch_file_name, account_id, source_line, reason, profile, raw_payload),
+            )
 
 
 def _build_report(batch, rows: Iterable) -> str:
@@ -91,7 +160,7 @@ def _build_report(batch, rows: Iterable) -> str:
                         _safe(row["tx_date"]),
                         _money(row["amount"]),
                         _safe(row["label"])[:80],
-                        _safe(row["reason"])[:80],
+                        _safe(row["reason"])[:100],
                         _safe(row["signature"])[:120],
                     ]
                 )
@@ -102,8 +171,7 @@ def _build_report(batch, rows: Iterable) -> str:
     lines.append("Note")
     lines.append("-" * 48)
     lines.append("Ce rapport est généré automatiquement après validation d'un import.")
-    lines.append("Il sert de preuve de cohérence entre l'aperçu, l'écriture réelle et les décisions de doublons.")
-    lines.append("Le détail des lignes rejetées avant écriture sera enrichi dans l'étape suivante du Lot 2.")
+    lines.append("Il sert de preuve de cohérence entre l'aperçu, l'écriture réelle et les décisions de doublons/rejets.")
     lines.append("")
     return "\n".join(lines)
 
@@ -141,6 +209,7 @@ def apply_r7_2_import_report_patch() -> None:
     def update_import_batch_with_report(self, batch_id: int, imported: int, duplicates: int, errors: int) -> None:
         original_update_import_batch(self, batch_id, imported, duplicates, errors)
         try:
+            _audit_rejected_lines(self, batch_id)
             export_import_report(self, batch_id)
         except Exception:
             # Never block a valid import because report generation failed.
@@ -153,5 +222,23 @@ def apply_r7_2_import_report_patch() -> None:
     Database.export_import_report = export_import_report
     Database.update_import_batch = update_import_batch_with_report
     Database.list_import_audit_rows = list_import_audit_rows
+
+    try:
+        from app.ui.transactions_page import TransactionsPage
+
+        original_validate_import = TransactionsPage.validate_import
+
+        def validate_import_with_report_context(self, rows_to_import=None):
+            self.db._r7_2_current_import_analysis = getattr(self.import_service, "last_analysis", None)
+            try:
+                return original_validate_import(self, rows_to_import)
+            finally:
+                if hasattr(self.db, "_r7_2_current_import_analysis"):
+                    delattr(self.db, "_r7_2_current_import_analysis")
+
+        TransactionsPage.validate_import = validate_import_with_report_context
+    except Exception:
+        # UI may not be imported in technical scripts.
+        pass
 
     _PATCHED = True
