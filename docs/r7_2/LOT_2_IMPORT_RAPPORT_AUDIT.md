@@ -25,6 +25,7 @@ Ce lot s’inscrit dans les exigences CDC v1.1 :
 | Fichier | Rôle |
 |---|---|
 | `app/r7_2/import_report_patch.py` | Génération automatique d’un rapport texte après mise à jour d’un lot d’import |
+| `app/r7_2/import_ui_feedback_patch.py` | Retour visuel dans l’interface après génération du rapport |
 | `tools/test_r7_2_import_report.py` | Test technique de génération du rapport avec ligne importée et ligne rejetée |
 | `docs/r7_2/LOT_2_IMPORT_RAPPORT_AUDIT.md` | Documentation du présent lot |
 
@@ -34,7 +35,7 @@ Ce lot s’inscrit dans les exigences CDC v1.1 :
 
 | Fichier | Modification |
 |---|---|
-| `main.py` | Activation du patch `apply_r7_2_import_report_patch()` au démarrage |
+| `main.py` | Activation des patches `apply_r7_2_import_report_patch()` et `apply_r7_2_import_ui_feedback_patch()` au démarrage |
 | `tools/build_r7_2_3_installable.ps1` | Ajout du test `tools/test_r7_2_import_report.py` au build |
 
 ---
@@ -95,13 +96,28 @@ Cela permet de distinguer clairement :
 
 ---
 
+## Retour utilisateur ajouté
+
+Après validation d’un import, l’interface Transactions affiche désormais un message indiquant qu’un rapport d’import a été généré.
+
+Le volet d’import affiche également le chemin du rapport :
+
+```text
+Import validé avec rapport d'audit.
+Rapport : data/reports/imports/import_batch_00001_nom_du_fichier.txt
+```
+
+Objectif : éviter que le rapport existe seulement techniquement sans être visible par l’utilisateur.
+
+---
+
 ## Tests associés
 
 | Test | Objet |
 |---|---|
 | `tools/test_r7_2_import_sg.py` | Vérifie la reconnaissance du fichier SG |
 | `tools/test_r7_2_false_duplicate_53.py` | Vérifie la correction du faux doublon #53 |
-| `tools/test_r7_2_import_report.py` | Vérifie la génération d’un rapport d’import avec ligne importée et ligne rejetée |
+| `tools/test_r7_2_import_report.py` | Vérifie la génération d’un rapport d’import avec ligne importée, ligne rejetée et chemin mémorisé |
 
 ---
 
