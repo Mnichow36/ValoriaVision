@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_3_IMPORTS_FIX"
+    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS"
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-Write-Host "Valoria Vision — build installable R7.2.3 Imports Fix"
+Write-Host "Valoria Vision — build installable R7.2.4 Lot 3 UX Import Comptes Rapports"
 Write-Host "Dossier racine : $Root"
 
 $ReleaseRoot = Join-Path $Root "release"
@@ -62,15 +62,15 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.3 Imports Fix"
+    version = "V0.6.6-R7.2.4 Lot 3 UX Import Comptes Rapports"
     release_name = $ReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Imports bancaires, transactions, faux doublon SG #53, rapport d'import automatique, réimport 100% doublon, Lot 3 comptes RIB/IBAN, progression import, rapports centralisés"
+    scope = "Imports bancaires, faux doublon SG #53, rapport d'import automatique, réimport 100% doublon, progression import, comptes RIB/IBAN international, modification/suppression comptes, rapports centralisés"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Version intermédiaire de recette"
+    status = "Archive groupée de recette Lot 3"
 }
-$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_3.json") -Encoding utf8
+$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot3.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
