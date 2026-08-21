@@ -7,13 +7,13 @@ Branche : `dev/r7.2-cdc-v1.1-imports-rapprochements`
 
 ## Contexte
 
-L'écran `Rapports` existe déjà dans l'application mais reste actuellement un écran placeholder.
+L'écran `Rapports` existe déjà dans l'application mais restait jusqu’ici un écran placeholder.
 
 Pendant le correctif R7.2.3, Valoria Vision génère désormais des rapports d'import dans :
 
 `data/reports/imports/`
 
-Ces rapports sont pour l'instant signalés depuis le volet d'import, mais ils ne sont pas encore consultables depuis le module `Rapports`.
+Ces rapports sont signalés depuis le volet d'import. Le besoin métier exprimé est qu’ils soient également retrouvables durablement dans le menu `Rapports`.
 
 ---
 
@@ -39,7 +39,7 @@ Ce module ne doit donc pas être limité aux exports PDF/Excel futurs. Il doit r
 
 ### Comportement attendu
 
-Dans une première version, l'écran `Rapports` doit afficher les rapports d'import générés automatiquement.
+Dans une première version, l'écran `Rapports` affiche les rapports d'import générés automatiquement.
 
 Informations minimales à afficher :
 
@@ -53,6 +53,34 @@ Informations minimales à afficher :
 - chemin du rapport ;
 - action `Ouvrir le rapport` ;
 - action `Ouvrir le dossier`.
+
+---
+
+## Implémentation Lot 3 réalisée côté branche
+
+### Fichiers ajoutés / modifiés
+
+- `app/ui/reports_page.py`
+- `app/main_window.py`
+- `tools/test_r7_2_reports_page.py`
+
+### Comportement implémenté
+
+- Remplacement du placeholder `Rapports` par une vraie page `ReportsPage`.
+- Scan automatique du dossier `data/reports/imports/`.
+- Affichage des rapports `.txt` générés par les imports.
+- Cartes de synthèse par rapport.
+- KPIs : nombre de rapports, lignes importées, doublons, erreurs/rejets.
+- Bouton `Ouvrir le rapport`.
+- Bouton `Ouvrir le dossier`.
+- État vide lisible si aucun rapport n’existe encore.
+- Test technique de parsing des rapports d’import.
+
+### Limite volontaire
+
+Cette première version centralise uniquement les rapports d’import bancaire.
+
+Les futurs rapports de rapprochement, budget, patrimoine, prévisionnel, scénarios et exports seront ajoutés ensuite au même centre de rapports.
 
 ---
 
@@ -90,19 +118,7 @@ Mais le rapport doit aussi être retrouvable plus tard dans `Rapports`.
 
 ---
 
-## Priorité
-
-Ce point est à traiter après :
-
-1. stabilisation du rapport d'import ;
-2. progression visuelle de l'import ;
-3. gestion des comptes RIB / IBAN.
-
-Il peut faire partie de la prochaine archive groupée si le Lot 3 reste stable, ou être livré juste après comme sous-lot `Rapports V1 technique`.
-
----
-
-## Tests à prévoir
+## Tests à prévoir en recette
 
 - Importer un fichier bancaire générant un rapport.
 - Aller dans `Rapports`.
@@ -116,6 +132,6 @@ Il peut faire partie de la prochaine archive groupée si le Lot 3 reste stable, 
 
 ## Statut
 
-Statut : **cadré — à développer après stabilisation Lot 3 courant**.
+Statut : **implémenté côté branche — à vérifier dans la prochaine archive groupée Lot 3**.
 
 Décision : le menu `Rapports` devient le centre de consultation des rapports techniques et métiers générés par Valoria Vision.
