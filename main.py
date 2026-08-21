@@ -3,6 +3,7 @@ from PySide6.QtGui import QIcon
 from app.main_window import MainWindow
 from app.database import Database
 from app.r7_2.import_integrity import apply_r7_2_import_integrity_patch
+from app.r7_2.import_report_patch import apply_r7_2_import_report_patch
 from app.r7_2.ui_privacy_patch import apply_r7_2_ui_privacy_patch
 from app.security.auth_service import AuthService
 from app.ui.auth_dialog import MasterPasswordDialog
@@ -20,6 +21,7 @@ def main() -> int:
     # R7.2 CDC v1.1 — active les correctifs avant initialisation/migration
     # et avant création des écrans.
     apply_r7_2_import_integrity_patch()
+    apply_r7_2_import_report_patch()
     apply_r7_2_ui_privacy_patch()
 
     db = Database()
