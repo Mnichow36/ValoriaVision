@@ -51,6 +51,8 @@ Ajouter une interface de progression comprenant :
 9. Génération du rapport d'import
 10. Import terminé
 
+Statut : **à développer**.
+
 ---
 
 ## Partie B — Modification contrôlée des comptes bancaires
@@ -79,6 +81,18 @@ Les champs suivants ne doivent pas être modifiés dans l'écran de modification
 - Date initiale.
 
 Ces deux champs doivent rester gérés par l'action dédiée : `Mettre à jour le solde initial`.
+
+### Implémentation ajoutée
+
+- Ajout du patch `app/r7_2/account_management_patch.py`.
+- Ajout des colonnes `accounts.account_number` et `accounts.iban` par migration légère.
+- Maintien du champ historique `accounts.identifier` pour compatibilité avec le moteur d'import existant.
+- Ajout d'un formulaire de compte avec `N° de compte / RIB` et `IBAN`.
+- Ajout d'une action `Modifier le compte` dans le volet détail.
+- La modification d'identité ne touche pas au solde initial ni à la date initiale.
+- Correction de la méthode `update_account`, qui utilisait auparavant une variable non définie.
+
+Statut : **développé côté branche — à vérifier sur prochaine archive installable**.
 
 ---
 
@@ -127,7 +141,7 @@ Le champ `IBAN` doit accepter et normaliser les IBAN internationaux conformes à
 
 ### Exemples à accepter
 
-- France : `FR76 3000 3038 9000 0503 8425 529`
+- France : `FR76 3000 3038 9000 0503 8425 5`
 - Allemagne : `DE89 3704 0044 0532 0130 00`
 - Espagne : `ES91 2100 0418 4502 0005 1332`
 - Italie : `IT60 X054 2811 1010 0000 0123 456`
@@ -136,12 +150,13 @@ Le champ `IBAN` doit accepter et normaliser les IBAN internationaux conformes à
 - Royaume-Uni : `GB29 NWBK 6016 1331 9268 19`
 - Pologne : `PL61 1090 1014 0000 0712 1981 2874`
 
-### Validation attendue
+### Validation ajoutée
 
-- Vérifier la structure générale : pays + clé + caractères alphanumériques.
-- Vérifier la longueur selon le pays quand la table de longueurs est disponible.
-- Prévoir une validation mod 97 pour les IBAN complets.
-- Ne jamais empêcher la saisie d'un compte si l'utilisateur ne dispose que d'un identifiant partiel ; dans ce cas, le champ `N° de compte / RIB` reste utilisable.
+- Normalisation des espaces et séparateurs.
+- Vérification structurelle internationale.
+- Vérification mod 97 pour les IBAN complets.
+- Alerte non bloquante en interface si l'IBAN semble invalide.
+- Le champ `N° de compte / RIB` reste utilisable pour les identifiants partiels issus des exports bancaires.
 
 ### Lien avec les devises
 
@@ -159,6 +174,8 @@ Le champ `Devise` reste donc explicitement modifiable et indépendant de l'IBAN.
 ### Limite du Lot 3
 
 Le Lot 3 prépare la structure et la validation IBAN internationale, mais ne met pas encore en œuvre la conversion automatique des devises, les taux de change, ni les valorisations multi-devises. Ces éléments relèvent d'un futur module Premium.
+
+Statut : **développé côté branche — à vérifier sur prochaine archive installable**.
 
 ---
 
@@ -178,9 +195,35 @@ Ajouter une action `Supprimer le compte` ou équivalent.
 
 `Ce compte contient des données liées. Pour préserver l'historique, il ne peut pas être supprimé directement. Vous pouvez le passer au statut Archivé.`
 
+### Implémentation ajoutée
+
+- Ajout d'une action `Supprimer / archiver` dans le volet détail.
+- Suppression autorisée uniquement pour un compte sans transaction, import, récurrence ou occurrence prévisionnelle.
+- Si des données liées existent, proposition d'archivage au lieu d'une suppression directe.
+
+Statut : **développé côté branche — à vérifier sur prochaine archive installable**.
+
 ---
 
-## Tests à prévoir
+## Tests techniques ajoutés
+
+- `tools/test_r7_2_account_management.py`
+
+Ce test vérifie :
+
+- normalisation IBAN ;
+- validation mod 97 France / Allemagne / Suisse ;
+- rejet d'un IBAN à clé invalide ;
+- création d'un compte avec N° de compte / RIB et IBAN ;
+- stockage séparé de `account_number` et `iban` ;
+- conservation de `identifier` pour les imports ;
+- modification des champs autorisés ;
+- non-modification du solde initial et de la date initiale ;
+- suppression d'un compte vide.
+
+---
+
+## Tests à prévoir en recette utilisateur
 
 - Créer un compte avec N° de compte / RIB et IBAN.
 - Vérifier le masquage en liste, cartes, volet détail et import.
@@ -196,8 +239,8 @@ Ajouter une action `Supprimer le compte` ou équivalent.
 
 ---
 
-## Statut
+## Statut global du Lot 3
 
-Statut : **à développer — prioritaire avant prochaine archive installable**.
-
-Décision : regrouper ces corrections avec les corrections UX import avant de reconstruire une nouvelle archive.
+- UX progression import : **à développer**.
+- Gestion comptes RIB / IBAN / édition / suppression contrôlée : **développée côté branche**.
+- Prochaine archive : **à reconstruire uniquement après fin du Lot 3 complet**.
