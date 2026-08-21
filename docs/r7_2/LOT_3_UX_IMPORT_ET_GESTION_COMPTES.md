@@ -9,10 +9,11 @@ Branche : `dev/r7.2-cdc-v1.1-imports-rapprochements`
 
 Regrouper les prochains correctifs à forte valeur utilisateur avant une nouvelle archive installable.
 
-Ce lot couvre deux besoins prioritaires exprimés en recette :
+Ce lot couvre trois besoins prioritaires exprimés en recette :
 
 1. rendre l'import bancaire visuellement explicite pendant le traitement ;
-2. permettre la modification et la suppression contrôlée des comptes bancaires.
+2. permettre la modification et la suppression contrôlée des comptes bancaires ;
+3. préparer la reconnaissance internationale des IBAN en vue d'une future gestion multi-devises / Premium.
 
 Aucune nouvelle archive ne doit être reconstruite pour chaque sous-correctif mineur. Les correctifs seront regroupés puis livrés dans une archive de recette cohérente.
 
@@ -108,7 +109,60 @@ Ces deux champs doivent rester gérés par l'action dédiée : `Mettre à jour l
 
 ---
 
-## Partie C — Suppression contrôlée des comptes bancaires
+## Partie C — Reconnaissance internationale des IBAN
+
+### Demande métier
+
+Dans la perspective d'une future gestion multi-devises et d'un module Premium, Valoria Vision doit pouvoir reconnaître tous les IBAN, et pas uniquement les IBAN français.
+
+### Comportement attendu
+
+Le champ `IBAN` doit accepter et normaliser les IBAN internationaux conformes à la structure IBAN :
+
+- deux lettres de pays ;
+- deux chiffres de contrôle ;
+- suite alphanumérique BBAN ;
+- longueur variable selon le pays ;
+- espaces autorisés à la saisie mais supprimés/normalisés au stockage.
+
+### Exemples à accepter
+
+- France : `FR76 3000 3038 9000 0503 8425 529`
+- Allemagne : `DE89 3704 0044 0532 0130 00`
+- Espagne : `ES91 2100 0418 4502 0005 1332`
+- Italie : `IT60 X054 2811 1010 0000 0123 456`
+- Belgique : `BE68 5390 0754 7034`
+- Suisse : `CH93 0076 2011 6238 5295 7`
+- Royaume-Uni : `GB29 NWBK 6016 1331 9268 19`
+- Pologne : `PL61 1090 1014 0000 0712 1981 2874`
+
+### Validation attendue
+
+- Vérifier la structure générale : pays + clé + caractères alphanumériques.
+- Vérifier la longueur selon le pays quand la table de longueurs est disponible.
+- Prévoir une validation mod 97 pour les IBAN complets.
+- Ne jamais empêcher la saisie d'un compte si l'utilisateur ne dispose que d'un identifiant partiel ; dans ce cas, le champ `N° de compte / RIB` reste utilisable.
+
+### Lien avec les devises
+
+Le pays de l'IBAN ne doit pas imposer automatiquement la devise du compte.
+
+Exemples :
+
+- un compte français peut être en EUR ;
+- un compte suisse peut être en CHF ou EUR ;
+- un compte britannique peut être en GBP ou EUR ;
+- un compte multi-devises peut exister avec une devise principale sélectionnée par l'utilisateur.
+
+Le champ `Devise` reste donc explicitement modifiable et indépendant de l'IBAN.
+
+### Limite du Lot 3
+
+Le Lot 3 prépare la structure et la validation IBAN internationale, mais ne met pas encore en œuvre la conversion automatique des devises, les taux de change, ni les valorisations multi-devises. Ces éléments relèvent d'un futur module Premium.
+
+---
+
+## Partie D — Suppression contrôlée des comptes bancaires
 
 ### Comportement attendu
 
@@ -133,6 +187,9 @@ Ajouter une action `Supprimer le compte` ou équivalent.
 - Modifier uniquement les champs autorisés.
 - Vérifier que le solde initial et la date initiale ne changent pas.
 - Vérifier que l'import SG continue à reconnaître le bon compte.
+- Saisir des IBAN français et internationaux valides.
+- Vérifier que les IBAN sont normalisés et masqués.
+- Vérifier que le pays de l'IBAN ne force pas automatiquement la devise.
 - Supprimer un compte vide.
 - Tenter de supprimer un compte avec transactions : suppression refusée ou archivage proposé.
 - Vérifier que les soldes et listes restent cohérents après modification ou archivage.
