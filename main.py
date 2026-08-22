@@ -6,6 +6,7 @@ from app.r7_2.account_context_menu_patch import apply_r7_2_account_context_menu_
 from app.r7_2.account_management_patch import apply_r7_2_account_management_patch
 from app.r7_2.import_account_resolution_patch import apply_r7_2_import_account_resolution_patch
 from app.r7_2.import_integrity import apply_r7_2_import_integrity_patch
+from app.r7_2.import_lifecycle_patch import apply_r7_2_import_lifecycle_patch
 from app.r7_2.import_report_patch import apply_r7_2_import_report_patch
 from app.r7_2.import_progress_patch import apply_r7_2_import_progress_patch
 from app.r7_2.import_ui_feedback_patch import apply_r7_2_import_ui_feedback_patch
@@ -15,7 +16,7 @@ from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.4 Lot 3 UX Import Comptes Rapports"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 4 Cycle Vie Imports"
 
 
 def main() -> int:
@@ -29,6 +30,7 @@ def main() -> int:
     apply_r7_2_import_report_patch()
     apply_r7_2_import_progress_patch()
     apply_r7_2_import_ui_feedback_patch()
+    apply_r7_2_import_lifecycle_patch()
     apply_r7_2_ui_privacy_patch()
     apply_r7_2_account_management_patch()
     apply_r7_2_import_account_resolution_patch()
