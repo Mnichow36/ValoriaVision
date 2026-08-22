@@ -1,4 +1,4 @@
-name: Build R7.2.4 Lot 4 Manual
+name: Build R7.2.4 Lot 5 Manual
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-windows:
-    name: Build Windows installable ZIP — R7.2.4 Lot 4
+    name: Build Windows installable ZIP — R7.2.4 Lot 5
     runs-on: windows-latest
 
     steps:
@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Build installable R7.2.4 Lot 4
+      - name: Build installable R7.2.4 Lot 5
         shell: pwsh
         run: |
           ./tools/build_r7_2_3_installable.ps1
@@ -32,8 +32,8 @@ jobs:
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT4_CYCLE_VIE_IMPORTS
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_PREVISIONNEL_RECURRENCES
           path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT4_CYCLE_VIE_IMPORTS.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT4_CYCLE_VIE_IMPORTS.sha256.txt
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_PREVISIONNEL_RECURRENCES.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_PREVISIONNEL_RECURRENCES.sha256.txt
           if-no-files-found: error
