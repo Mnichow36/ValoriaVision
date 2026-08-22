@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.r7_2.account_resolution import resolve_import_account, account_variants
+from app.r7_2.account_resolution import resolve_import_account, account_variants, compare_identifier_sets
 
 
 class FakeRow(dict):
@@ -68,6 +68,22 @@ def test_no_identifier_does_not_match():
     assert not result.has_match
 
 
+def test_no_match_returns_complete_tuple():
+    score, confidence, reason, matched_value, detected_value = compare_identifier_sets(["12345678901"], ["99999999999"])
+    assert score == 0
+    assert confidence == ""
+    assert reason == ""
+    assert matched_value == ""
+    assert detected_value == ""
+
+
+def test_resolver_never_crashes_on_no_match():
+    account = make_account(8, "Compte sans rapport", account_number="12345678901")
+    result = resolve_import_account([account], ["99999999999"])
+    assert result.unique_strong_match is None
+    assert not result.has_match
+
+
 def test_variants_include_iban_bban_and_suffixes():
     account = make_account(
         7,
@@ -86,5 +102,7 @@ if __name__ == "__main__":
     test_full_iban_exact_match_is_strong()
     test_short_ambiguous_suffix_is_not_auto_validated()
     test_no_identifier_does_not_match()
+    test_no_match_returns_complete_tuple()
+    test_resolver_never_crashes_on_no_match()
     test_variants_include_iban_bban_and_suffixes()
     print("OK — résolution comptes multi-banques Lot 3")
