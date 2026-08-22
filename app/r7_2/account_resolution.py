@@ -123,8 +123,13 @@ class AccountResolutionResult:
         return bool(self.matches)
 
 
-def compare_identifier_sets(account_values: list[str], detected_values: list[str]) -> tuple[int, str, str, str]:
-    best: tuple[int, str, str, str] = (0, "", "", "")
+def compare_identifier_sets(account_values: list[str], detected_values: list[str]) -> tuple[int, str, str, str, str]:
+    """Compare account-side variants with file-side variants.
+
+    Always returns five values, even when there is no match. This prevents the
+    import analysis from failing before it can display a clear account message.
+    """
+    best: tuple[int, str, str, str, str] = (0, "", "", "", "")
     for account_value in account_values:
         account_alnum = normalize_alnum(account_value)
         account_digits = normalize_digits(account_value)
