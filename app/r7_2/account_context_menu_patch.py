@@ -7,8 +7,9 @@ def apply_r7_2_account_context_menu_patch() -> None:
     """Lot 3 — harmonise account actions through contextual menus.
 
     Product decision:
-    - technical actions must not overload the account detail panel;
-    - account edit/delete/archive actions are available from a right-click menu;
+    - the account detail panel stays informative and keeps only the primary
+      reading/navigation action;
+    - technical account actions are available from a right-click menu;
     - deletion remains strictly controlled and allowed only for accounts with no
       linked transactions/imports/recurrences/forecast occurrences.
     """
@@ -26,20 +27,38 @@ def apply_r7_2_account_context_menu_patch() -> None:
     original_build_detail_panel = AccountsPage.build_detail_panel
     original_refresh = AccountsPage.refresh
 
+    TECHNICAL_BUTTON_ATTRS = (
+        "import_operations_btn",
+        "update_balance_btn",
+        "edit_account_btn",
+        "delete_account_btn",
+    )
+
+    def _remove_widget_from_parent_layout(widget) -> None:
+        try:
+            parent = widget.parentWidget()
+            layout = parent.layout() if parent is not None else None
+            if layout is not None:
+                layout.removeWidget(widget)
+        except Exception:
+            pass
+        try:
+            widget.setVisible(False)
+            widget.setParent(None)
+            widget.deleteLater()
+        except Exception:
+            try:
+                widget.hide()
+            except Exception:
+                pass
+
     def _hide_technical_detail_buttons(self) -> None:
-        """Keep the detail panel informative; move technical actions to menu."""
-        for attr in ("edit_account_btn", "delete_account_btn"):
+        """Keep the detail panel readable; move technical actions to menu."""
+        for attr in TECHNICAL_BUTTON_ATTRS:
             widget = getattr(self, attr, None)
             if widget is not None:
-                try:
-                    widget.hide()
-                    widget.deleteLater()
-                    setattr(self, attr, None)
-                except Exception:
-                    try:
-                        widget.hide()
-                    except Exception:
-                        pass
+                _remove_widget_from_parent_layout(widget)
+                setattr(self, attr, None)
 
     def build_detail_panel_contextual(self):
         panel = original_build_detail_panel(self)
