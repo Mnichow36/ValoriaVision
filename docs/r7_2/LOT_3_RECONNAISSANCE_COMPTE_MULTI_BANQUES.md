@@ -39,43 +39,46 @@ La reconnaissance ne doit donc pas reposer sur un champ unique `identifier` exac
 
 ## Principe retenu
 
-Mettre en place une reconnaissance par `AccountIdentityResolver` ou service équivalent.
+Mise en place du service commun :
 
-Ce service doit produire un ensemble de jetons normalisés pour chaque compte Valoria :
+`app/r7_2/account_resolution.py`
+
+Ce service produit un ensemble de jetons normalisés pour chaque compte Valoria :
 
 - numéro de compte / RIB saisi ;
 - IBAN complet normalisé ;
 - IBAN sans espaces ;
 - chiffres extraits de l'IBAN ;
 - fragments significatifs du RIB ou du BBAN ;
-- éventuels suffixes utiles ;
+- suffixes longs utiles ;
 - ancien champ `identifier` pour compatibilité ;
 - variantes numériques sans séparateurs.
 
-Le parser bancaire doit produire de son côté une liste `source_account_identifiers` à partir du fichier importé.
+Le parser bancaire produit de son côté une liste `source_account_identifiers` à partir du fichier importé.
 
-La correspondance doit comparer ces deux ensembles de jetons, avec score de confiance.
+La correspondance compare ces deux ensembles de jetons, avec score de confiance.
 
 ---
 
-## Règles de correspondance attendues
+## Règles de correspondance implémentées
 
 ### Correspondance forte
 
 - IBAN complet fichier = IBAN complet compte ;
 - RIB complet fichier = RIB complet compte ;
 - numéro de compte fichier = numéro de compte compte ;
-- identifiant fichier inclus de manière non ambiguë dans l'IBAN ou le RIB du compte.
+- identifiant fichier inclus de manière non ambiguë dans l'IBAN ou le RIB du compte ;
+- suffixe bancaire long cohérent.
 
-### Correspondance acceptable avec confirmation
+### Correspondance candidate / à confirmer
 
-- suffixe long commun, par exemple au moins 8 à 11 chiffres ;
-- numéro de compte détecté dans l'IBAN ou le RIB, mais non isolé avec certitude ;
-- identifiant partiel cohérent avec un seul compte Valoria.
+- suffixe court commun ;
+- plusieurs comptes Valoria peuvent correspondre ;
+- niveau de confiance insuffisant pour auto-sélection.
 
-### Correspondance refusée ou à confirmer
+### Correspondance refusée
 
-- plusieurs comptes Valoria correspondent au même identifiant partiel ;
+- plusieurs correspondances fortes concurrentes ;
 - identifiant trop court ;
 - aucun identifiant bancaire présent dans le fichier ;
 - banque ou format ne permettant pas de déduire le compte source.
@@ -86,15 +89,13 @@ La correspondance doit comparer ces deux ensembles de jetons, avec score de conf
 
 ### Cas 1 — un seul compte reconnu avec confiance
 
-Valoria Vision sélectionne automatiquement le compte cible et affiche :
+Valoria Vision sélectionne automatiquement le compte cible et affiche une indication de cohérence :
 
-`Compte source reconnu : ... — Compte Valoria sélectionné automatiquement.`
+`Compte source détecté : ... Compte cible cohérent.`
 
 ### Cas 2 — plusieurs comptes possibles
 
-Valoria Vision bloque l'import direct et demande à l'utilisateur de choisir :
-
-`Plusieurs comptes Valoria peuvent correspondre à ce fichier. Sélectionnez le compte cible.`
+Valoria Vision bloque l'import direct et demande à l'utilisateur de sécuriser les informations de compte.
 
 ### Cas 3 — aucun compte reconnu
 
@@ -102,11 +103,11 @@ Valoria Vision ne doit pas inventer de correspondance.
 
 Le message attendu est :
 
-`Le fichier ne contient pas d'identifiant de compte reconnu ou aucun compte Valoria ne correspond. Sélectionnez le compte cible manuellement, puis confirmez l'association.`
+`Le fichier ne contient pas d'identifiant de compte reconnu ou aucun compte Valoria ne correspond. Sélectionnez ou complétez le compte cible.`
 
-### Cas 4 — association manuelle validée
+### Cas 4 — fichier sans identifiant exploitable
 
-Si l'utilisateur confirme une association manuelle, Valoria Vision pourra mémoriser cette association pour les futurs imports du même type, sous réserve de traçabilité.
+La sélection manuelle du compte reste possible, car l'application n'a pas de preuve de contradiction.
 
 ---
 
@@ -114,12 +115,12 @@ Si l'utilisateur confirme une association manuelle, Valoria Vision pourra mémor
 
 La reconnaissance compte est distincte du parsing des lignes d'opérations.
 
-Le moteur d'import doit être structuré en deux niveaux :
+Le moteur d'import est structuré en deux niveaux :
 
 1. `BankParserProfile` : reconnaît le format du fichier, les colonnes, les dates, les montants, les libellés et les éventuels identifiants source.
-2. `AccountIdentityResolver` : compare les identifiants trouvés dans le fichier avec les comptes Valoria.
+2. `account_resolution.py` : compare les identifiants trouvés dans le fichier avec les comptes Valoria.
 
-Chaque banque peut avoir un profil spécifique, mais la résolution du compte cible doit utiliser un service commun.
+Chaque banque peut avoir un profil spécifique, mais la résolution du compte cible utilise un service commun.
 
 ---
 
@@ -152,19 +153,27 @@ Inversement, si le fichier contient un IBAN complet, Valoria Vision doit pouvoir
 
 ---
 
-## Tests à ajouter
+## Tests ajoutés
 
-- Compte Valoria avec IBAN complet FR, fichier SG avec numéro court : reconnaissance OK.
-- Compte Valoria avec RIB complet FR, fichier SG avec numéro court : reconnaissance OK.
-- Compte Valoria avec numéro court, fichier avec IBAN complet : reconnaissance OK si le numéro est inclus sans ambiguïté.
-- Deux comptes avec suffixe proche : import bloqué / choix manuel demandé.
-- Fichier sans identifiant de compte : choix manuel obligatoire.
-- Association manuelle : message clair et traçabilité.
+Fichier :
+
+`tools/test_r7_2_account_resolution.py`
+
+Ce test vérifie :
+
+- compte Valoria avec IBAN complet FR, fichier SG avec numéro court : reconnaissance forte ;
+- compte Valoria avec RIB complet FR, fichier SG avec numéro court : reconnaissance forte ;
+- compte Valoria avec IBAN complet étranger, fichier avec IBAN complet : reconnaissance forte ;
+- deux comptes avec suffixe court proche : pas d'auto-validation ;
+- compte sans identifiant : aucune correspondance ;
+- génération des variantes IBAN / BBAN / suffixes.
+
+Ce test est ajouté au script de build manuel R7.2.4 Lot 3.
 
 ---
 
 ## Statut
 
-Statut : **cadré — à développer avant validation finale du Lot 3**.
+Statut : **développé côté branche — à vérifier dans la prochaine archive installable Lot 3**.
 
-Décision : ne pas considérer le Lot 3 comme terminé tant que la reconnaissance compte ne fonctionne pas avec RIB complet, IBAN complet et identifiants bancaires partiels.
+Décision : le Lot 3 ne sera considéré terminé qu'après recette réussie de la reconnaissance compte avec RIB complet, IBAN complet et identifiants bancaires partiels.
