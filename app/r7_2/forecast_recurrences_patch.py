@@ -4,11 +4,12 @@ _PATCHED = False
 
 
 def apply_r7_2_forecast_recurrences_patch() -> None:
-    """Lot 5 — make forecast recurring-event management operational.
+    """Lot 5 — operational forecast recurring-event management.
 
-    This patch intentionally reinforces the existing forecast screen instead of
-    replacing it. It fixes the first Lot 5 user recette where the dialog was
-    visible but add/edit actions were not reliably persisted.
+    The first Lot 5 iterations only enhanced the historical dialog. User recette
+    showed that add/edit actions were still not reliably persisted. This patch
+    therefore installs a dedicated Lot 5 management dialog and dedicated database
+    methods for add/update/delete actions.
     """
     global _PATCHED
     if _PATCHED:
@@ -17,20 +18,30 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
     try:
         from uuid import uuid4
         from PySide6.QtCore import QDate, Qt
-        from PySide6.QtWidgets import QCheckBox, QDateEdit, QLabel, QTableWidgetItem, QMessageBox, QPushButton
-        from app.ui import forecast_page
+        from PySide6.QtWidgets import (
+            QCheckBox,
+            QComboBox,
+            QDateEdit,
+            QDialog,
+            QDialogButtonBox,
+            QDoubleSpinBox,
+            QFormLayout,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QMessageBox,
+            QPushButton,
+            QTableWidget,
+            QTableWidgetItem,
+            QVBoxLayout,
+        )
         from app.database import Database
+        from app.ui import forecast_page
         from app.theme import euro, format_date_fr
     except Exception:
         return
 
-    RecurringDialog = forecast_page.RecurringDialog
-    RecurringListDialog = forecast_page.RecurringListDialog
     ForecastPage = forecast_page.ForecastPage
-
-    original_dialog_init = RecurringDialog.__init__
-    original_populate = RecurringDialog.populate_from_row
-    original_data = RecurringDialog.data
 
     def _parse_qdate(value: str | None) -> QDate:
         try:
@@ -44,7 +55,7 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
 
     def _normalise_frequency(value: str | None) -> str:
         text = (value or "Mensuel").strip()
-        aliases = {
+        mapping = {
             "Hebdo": "Hebdomadaire",
             "Hebdomadaire": "Hebdomadaire",
             "Semaine": "Hebdomadaire",
@@ -54,11 +65,10 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
             "Ponctuel": "Ponctuel",
             "once": "Ponctuel",
         }
-        return aliases.get(text, text or "Mensuel")
+        return mapping.get(text, text or "Mensuel")
 
     def _normalise_payload(db: Database, payload: dict) -> dict:
         data = dict(payload or {})
-        data["account_id"] = data.get("account_id")
         data["name"] = (data.get("name") or "Nouvel événement prévisionnel").strip()
         data["category"] = data.get("category") or "À catégoriser"
         data["amount"] = db.normalize_amount_for_category(data.get("category"), float(data.get("amount") or 0))
@@ -66,9 +76,12 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
         data["next_date"] = data.get("next_date") or QDate.currentDate().toString("yyyy-MM-dd")
         data["scenario"] = data.get("scenario") or "Réaliste"
         data["status"] = data.get("status") or "Actif"
+        data["account_id"] = data.get("account_id")
         if data["frequency"] == "Ponctuel":
             data["end_date"] = data["next_date"]
-        elif not data.get("end_date"):
+        elif data.get("end_date"):
+            data["end_date"] = str(data["end_date"])
+        else:
             data["end_date"] = None
         if data.get("end_date") and data["end_date"] < data["next_date"]:
             raise ValueError("La date de fin ne peut pas être antérieure à la prochaine date.")
@@ -111,7 +124,7 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
         data = _normalise_payload(self, payload)
         with self.connect() as conn:
             row = conn.execute("SELECT id FROM recurring_items WHERE id = ?", (recurring_id,)).fetchone()
-            if not row:
+            if row is None:
                 raise ValueError("Récurrence introuvable.")
             conn.execute(
                 """
@@ -149,7 +162,7 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
     def delete_forecast_recurring_item_lot5(self: Database, recurring_id: int) -> None:
         with self.connect() as conn:
             row = conn.execute("SELECT name FROM recurring_items WHERE id = ?", (recurring_id,)).fetchone()
-            if not row:
+            if row is None:
                 return
             conn.execute("DELETE FROM recurring_items WHERE id = ?", (recurring_id,))
             try:
@@ -187,252 +200,331 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
     Database.update_forecast_recurring_item_lot5 = update_forecast_recurring_item_lot5
     Database.delete_forecast_recurring_item_lot5 = delete_forecast_recurring_item_lot5
 
-    def dialog_init_lot5(self, accounts, parent=None, row=None, categories=None) -> None:
-        original_dialog_init(self, accounts, parent=parent, row=row, categories=categories)
+    class Lot5RecurringEditDialog(QDialog):
+        def __init__(self, db: Database, parent=None, row=None) -> None:
+            super().__init__(parent)
+            self.db = db
+            self.row = row
+            self.setWindowTitle("Modifier un événement prévisionnel" if row else "Ajouter un événement prévisionnel")
+            self.setMinimumWidth(640)
+            self._build()
+            if row is not None:
+                self._populate(row)
 
-        layout = self.layout()
-        if layout is None or getattr(self, "_lot5_end_date_ready", False):
-            return
+        def _build(self) -> None:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(18, 16, 18, 16)
+            form = QFormLayout()
 
-        self.frequency.setCurrentText(_normalise_frequency(self.frequency.currentText()))
-        self.end_date_enabled = QCheckBox("Date de fin")
-        self.end_date_enabled.setToolTip("Limiter la génération de cette récurrence à une date donnée.")
-        self.end_date = QDateEdit(QDate.currentDate().addMonths(12))
-        self.end_date.setCalendarPopup(True)
-        self.end_date.setDisplayFormat("dd/MM/yyyy")
-        self.end_date.setEnabled(False)
-        self.end_date_enabled.toggled.connect(self.end_date.setEnabled)
+            self.account = QComboBox()
+            self.account.addItem("Aucun compte spécifique", None)
+            for acc in self.db.list_accounts():
+                if acc["status"] == "Actif":
+                    self.account.addItem(f"{acc['name']} — {acc['bank']}", acc["id"])
 
-        if row is not None:
-            end_value = ""
-            try:
-                end_value = row["end_date"] or ""
-            except Exception:
-                end_value = ""
-            if end_value:
-                self.end_date_enabled.setChecked(True)
-                self.end_date.setEnabled(True)
-                self.end_date.setDate(_parse_qdate(end_value))
+            self.name = QLineEdit()
+            self.name.setPlaceholderText("Ex. Loyer, salaire, prime exceptionnelle")
 
-        hint = QLabel(
-            "Lot 5 : une date de fin évite qu’une récurrence continue indéfiniment. "
-            "Pour un événement unique, choisissez la fréquence Ponctuel."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#64748B; background:#F8FAFC; border-radius:10px; padding:8px;")
+            self.category = QComboBox()
+            self.category.addItems(self.db.category_names() or ["À catégoriser"])
 
-        insert_at = max(0, layout.count() - 1)
-        layout.insertWidget(insert_at, self.end_date_enabled)
-        layout.insertWidget(insert_at + 1, self.end_date)
-        layout.insertWidget(insert_at + 2, hint)
-        self._lot5_end_date_ready = True
+            self.amount = QDoubleSpinBox()
+            self.amount.setRange(0, 100000000)
+            self.amount.setDecimals(2)
+            self.amount.setSuffix(" €")
 
-    def populate_from_row_lot5(self, row) -> None:
-        original_populate(self, row)
-        try:
+            self.frequency = QComboBox()
+            self.frequency.addItems(["Ponctuel", "Mensuel", "Hebdomadaire", "Trimestriel", "Annuel"])
+            self.frequency.setCurrentText("Mensuel")
+
+            self.next_date = QDateEdit(QDate.currentDate())
+            self.next_date.setCalendarPopup(True)
+            self.next_date.setDisplayFormat("dd/MM/yyyy")
+
+            self.end_date_enabled = QCheckBox("Limiter avec une date de fin")
+            self.end_date = QDateEdit(QDate.currentDate().addMonths(12))
+            self.end_date.setCalendarPopup(True)
+            self.end_date.setDisplayFormat("dd/MM/yyyy")
+            self.end_date.setEnabled(False)
+            self.end_date_enabled.toggled.connect(self.end_date.setEnabled)
+
+            self.scenario = QComboBox()
+            self.scenario.addItems(["Prudent", "Réaliste", "Optimiste"])
+            self.scenario.setCurrentText("Réaliste")
+
+            self.status = QComboBox()
+            self.status.addItems(["Actif", "Inactif"])
+
+            form.addRow("Compte", self.account)
+            form.addRow("Nom", self.name)
+            form.addRow("Catégorie", self.category)
+            form.addRow("Montant", self.amount)
+            form.addRow("Fréquence", self.frequency)
+            form.addRow("Prochaine date", self.next_date)
+            form.addRow("Date de fin", self.end_date_enabled)
+            form.addRow("", self.end_date)
+            form.addRow("Scénario", self.scenario)
+            form.addRow("Statut", self.status)
+            layout.addLayout(form)
+
+            hint = QLabel("Pour un événement unique, choisissez Ponctuel. La date de fin sera alors égale à la date de l’événement.")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color:#64748B; background:#F8FAFC; border-radius:10px; padding:8px;")
+            layout.addWidget(hint)
+
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+            layout.addWidget(buttons)
+
+        def _populate(self, row) -> None:
+            idx = self.account.findData(row["account_id"])
+            self.account.setCurrentIndex(idx if idx >= 0 else 0)
+            self.name.setText(row["name"] or "")
+            cat_idx = self.category.findText(row["category"] or "")
+            if cat_idx >= 0:
+                self.category.setCurrentIndex(cat_idx)
+            self.amount.setValue(abs(float(row["amount"] or 0)))
             self.frequency.setCurrentText(_normalise_frequency(row["frequency"]))
-        except Exception:
-            pass
-        if hasattr(self, "end_date_enabled") and hasattr(self, "end_date"):
-            try:
-                end_value = row["end_date"] or ""
-            except Exception:
-                end_value = ""
-            if end_value:
+            self.next_date.setDate(_parse_qdate(row["next_date"]))
+            end_value = row["end_date"] if "end_date" in row.keys() else None
+            if end_value and _normalise_frequency(row["frequency"]) != "Ponctuel":
                 self.end_date_enabled.setChecked(True)
                 self.end_date.setEnabled(True)
                 self.end_date.setDate(_parse_qdate(end_value))
-            else:
-                self.end_date_enabled.setChecked(False)
-                self.end_date.setEnabled(False)
+            self.scenario.setCurrentText(row["scenario"] or "Réaliste")
+            self.status.setCurrentText(row["status"] or "Actif")
 
-    def data_lot5(self) -> dict:
-        payload = original_data(self)
-        payload["frequency"] = _normalise_frequency(payload.get("frequency"))
-        if hasattr(self, "end_date_enabled") and self.end_date_enabled.isChecked():
-            payload["end_date"] = self.end_date.date().toString("yyyy-MM-dd")
-        else:
-            payload["end_date"] = None
-        if payload.get("frequency") == "Ponctuel":
-            payload["end_date"] = payload.get("next_date")
-        if payload.get("end_date") and payload["end_date"] < payload.get("next_date", ""):
-            raise ValueError("La date de fin ne peut pas être antérieure à la prochaine date.")
-        return payload
+        def data(self) -> dict:
+            frequency = _normalise_frequency(self.frequency.currentText())
+            next_date = self.next_date.date().toString("yyyy-MM-dd")
+            end_date = None
+            if frequency == "Ponctuel":
+                end_date = next_date
+            elif self.end_date_enabled.isChecked():
+                end_date = self.end_date.date().toString("yyyy-MM-dd")
+            payload = {
+                "account_id": self.account.currentData(),
+                "name": self.name.text().strip() or "Nouvel événement prévisionnel",
+                "category": self.category.currentText(),
+                "amount": float(self.amount.value()),
+                "frequency": frequency,
+                "next_date": next_date,
+                "end_date": end_date,
+                "scenario": self.scenario.currentText(),
+                "status": self.status.currentText(),
+            }
+            return _normalise_payload(self.db, payload)
 
-    def _safe_dialog_data(dialog) -> dict | None:
-        try:
-            return dialog.data()
-        except ValueError as exc:
-            QMessageBox.warning(dialog, "Données incohérentes", str(exc))
-            return None
+    class Lot5RecurringManagerDialog(QDialog):
+        def __init__(self, db: Database, parent_page=None) -> None:
+            super().__init__(parent_page)
+            self.db = db
+            self.parent_page = parent_page
+            self.setWindowTitle("Gérer les récurrences")
+            self.resize(1100, 620)
+            self.setMinimumSize(920, 520)
+            self._build()
+            self.refresh_table()
 
-    def open_add_recurring_dialog_lot5(self) -> None:
-        dialog = RecurringDialog(self.db.list_accounts(), parent=self, categories=self.db.category_names())
-        if dialog.exec() == dialog.Accepted:
-            payload = _safe_dialog_data(dialog)
-            if payload is None:
+        def _build(self) -> None:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(20, 18, 20, 18)
+            layout.setSpacing(12)
+
+            title = QLabel("Récurrences et événements prévisionnels")
+            title.setStyleSheet("font-size:22px; font-weight:bold; color:#0F172A;")
+            layout.addWidget(title)
+
+            subtitle = QLabel("Ajoutez, modifiez ou supprimez les événements utilisés par la courbe prévisionnelle.")
+            subtitle.setStyleSheet("color:#64748B;")
+            layout.addWidget(subtitle)
+
+            filters = QHBoxLayout()
+            filters.addWidget(QLabel("Compte"))
+            self.account_filter = QComboBox()
+            self.account_filter.addItem("Tous les comptes", None)
+            for acc in self.db.list_accounts():
+                if acc["status"] == "Actif":
+                    self.account_filter.addItem(f"{acc['name']} — {acc['bank']}", acc["id"])
+            self.account_filter.currentIndexChanged.connect(self.refresh_table)
+            filters.addWidget(self.account_filter)
+            filters.addStretch(1)
+            layout.addLayout(filters)
+
+            self.table = QTableWidget(0, 9)
+            self.table.setHorizontalHeaderLabels([
+                "Nom", "Compte", "Catégorie", "Montant", "Fréquence",
+                "Prochaine date", "Date de fin", "Scénario", "Statut",
+            ])
+            self.table.verticalHeader().setVisible(False)
+            self.table.setAlternatingRowColors(True)
+            self.table.setSelectionBehavior(QTableWidget.SelectRows)
+            self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.table.setStyleSheet(
+                "QTableWidget { background:#FFFFFF; alternate-background-color:#F8FAFC; border:1px solid #E5E7EB; border-radius:12px; }"
+                "QHeaderView::section { background:#F8FAFC; color:#64748B; font-weight:bold; border:none; border-bottom:1px solid #E5E7EB; padding:8px; }"
+            )
+            self.table.doubleClicked.connect(self.edit_selected)
+            layout.addWidget(self.table, stretch=1)
+
+            actions = QHBoxLayout()
+            self.add_btn = QPushButton("Ajouter")
+            self.edit_btn = QPushButton("Modifier")
+            self.delete_btn = QPushButton("Supprimer")
+            self.close_btn = QPushButton("Fermer")
+            self.add_btn.clicked.connect(self.add_item)
+            self.edit_btn.clicked.connect(self.edit_selected)
+            self.delete_btn.clicked.connect(self.delete_selected)
+            self.close_btn.clicked.connect(self.accept)
+            actions.addWidget(self.add_btn)
+            actions.addWidget(self.edit_btn)
+            actions.addWidget(self.delete_btn)
+            actions.addStretch(1)
+            actions.addWidget(self.close_btn)
+            layout.addLayout(actions)
+
+        def _rows(self):
+            rows = self.db.list_recurring_items(active_only=False)
+            account_id = self.account_filter.currentData()
+            if account_id is None:
+                return rows
+            return [row for row in rows if row["account_id"] == account_id]
+
+        def refresh_table(self) -> None:
+            rows = self._rows()
+            self.table.setRowCount(0)
+            for r, row in enumerate(rows):
+                self.table.insertRow(r)
+                end_date = row["end_date"] if "end_date" in row.keys() else None
+                values = [
+                    row["name"] or "",
+                    row["account_name"] or "Tous comptes",
+                    row["category"] or "",
+                    euro(float(row["amount"] or 0)),
+                    _normalise_frequency(row["frequency"]),
+                    format_date_fr(row["next_date"]),
+                    format_date_fr(end_date) if end_date else "—",
+                    row["scenario"] or "",
+                    row["status"] or "",
+                ]
+                for c, value in enumerate(values):
+                    item = QTableWidgetItem(str(value).replace("\n", " ").replace("\r", " "))
+                    item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                    if c == 0:
+                        item.setData(Qt.UserRole, row["id"])
+                    if c == 3:
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.table.setItem(r, c, item)
+            if rows:
+                self.table.selectRow(0)
+
+        def selected_id(self):
+            row_index = self.table.currentRow()
+            if row_index < 0:
+                return None
+            item = self.table.item(row_index, 0)
+            return item.data(Qt.UserRole) if item else None
+
+        def _refresh_parent(self) -> None:
+            if self.parent_page is not None and hasattr(self.parent_page, "refresh"):
+                self.parent_page.refresh()
+
+        def add_item(self) -> None:
+            dialog = Lot5RecurringEditDialog(self.db, self)
+            if dialog.exec() == QDialog.Accepted:
+                try:
+                    created_id = self.db.add_forecast_recurring_item_lot5(dialog.data())
+                except Exception as exc:
+                    QMessageBox.warning(self, "Création impossible", str(exc))
+                    return
+                self.refresh_table()
+                for r in range(self.table.rowCount()):
+                    item = self.table.item(r, 0)
+                    if item and item.data(Qt.UserRole) == created_id:
+                        self.table.selectRow(r)
+                        break
+                self._refresh_parent()
+                QMessageBox.information(self, "Récurrences", "Événement prévisionnel créé.")
+
+        def edit_selected(self) -> None:
+            recurring_id = self.selected_id()
+            if not recurring_id:
+                QMessageBox.information(self, "Récurrences", "Sélectionnez une ligne à modifier.")
                 return
-            self.db.add_forecast_recurring_item_lot5(payload)
+            row = self.db.get_recurring_item(recurring_id)
+            if not row:
+                QMessageBox.warning(self, "Récurrence introuvable", "La récurrence sélectionnée est introuvable.")
+                return
+            dialog = Lot5RecurringEditDialog(self.db, self, row=row)
+            if dialog.exec() == QDialog.Accepted:
+                try:
+                    self.db.update_forecast_recurring_item_lot5(recurring_id, dialog.data())
+                except Exception as exc:
+                    QMessageBox.warning(self, "Modification impossible", str(exc))
+                    return
+                self.refresh_table()
+                self._refresh_parent()
+                QMessageBox.information(self, "Récurrences", "Événement prévisionnel modifié.")
+
+        def delete_selected(self) -> None:
+            recurring_id = self.selected_id()
+            if not recurring_id:
+                QMessageBox.information(self, "Récurrences", "Sélectionnez une ligne à supprimer.")
+                return
+            row = self.db.get_recurring_item(recurring_id)
+            name = row["name"] if row else "cet événement"
+            if QMessageBox.question(self, "Supprimer", f"Supprimer « {name} » ?") != QMessageBox.Yes:
+                return
+            self.db.delete_forecast_recurring_item_lot5(recurring_id)
+            self.refresh_table()
+            self._refresh_parent()
+            QMessageBox.information(self, "Récurrences", "Événement prévisionnel supprimé.")
+
+    def open_recurring_list_dialog_lot5(self: ForecastPage) -> None:
+        dialog = Lot5RecurringManagerDialog(self.db, self)
+        dialog.exec()
+        self.refresh()
+
+    def open_add_recurring_dialog_lot5(self: ForecastPage) -> None:
+        dialog = Lot5RecurringEditDialog(self.db, self)
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                self.db.add_forecast_recurring_item_lot5(dialog.data())
+            except Exception as exc:
+                QMessageBox.warning(self, "Création impossible", str(exc))
+                return
             QMessageBox.information(self, "Prévisionnel", "Événement prévisionnel créé.")
             self.refresh()
 
-    def edit_recurring_item_lot5(self, recurring_id: int) -> None:
+    def edit_recurring_item_lot5(self: ForecastPage, recurring_id: int) -> None:
         row = self.db.get_recurring_item(recurring_id)
         if not row:
             QMessageBox.warning(self, "Récurrence introuvable", "La récurrence sélectionnée est introuvable.")
             return
-        dialog = RecurringDialog(self.db.list_accounts(), parent=self, row=row, categories=self.db.category_names())
-        if dialog.exec() == dialog.Accepted:
-            payload = _safe_dialog_data(dialog)
-            if payload is None:
+        dialog = Lot5RecurringEditDialog(self.db, self, row=row)
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                self.db.update_forecast_recurring_item_lot5(recurring_id, dialog.data())
+            except Exception as exc:
+                QMessageBox.warning(self, "Modification impossible", str(exc))
                 return
-            self.db.update_forecast_recurring_item_lot5(recurring_id, payload)
             QMessageBox.information(self, "Prévisionnel", "Événement prévisionnel modifié.")
             self.refresh()
 
-    def delete_recurring_item_lot5(self, recurring_id: int) -> None:
+    def delete_recurring_item_lot5(self: ForecastPage, recurring_id: int) -> None:
         row = self.db.get_recurring_item(recurring_id)
         if not row:
             return
-        answer = QMessageBox.question(self, "Supprimer la récurrence", f"Supprimer la récurrence « {row['name']} » ?")
-        if answer == QMessageBox.Yes:
-            self.db.delete_forecast_recurring_item_lot5(recurring_id)
-            QMessageBox.information(self, "Prévisionnel", "Événement prévisionnel supprimé.")
-            self.refresh()
-
-    def _selected_id(self):
-        row_index = self.table.currentRow()
-        if row_index < 0 and self.table.rowCount() > 0:
-            row_index = 0
-            self.table.selectRow(0)
-        item = self.table.item(row_index, 0) if row_index >= 0 else None
-        return item.data(Qt.UserRole) if item else None
-
-    def refresh_table_lot5(self) -> None:
-        rows = self.rows()
-        self.table.setColumnCount(9)
-        self.table.setHorizontalHeaderLabels([
-            "Nom", "Compte", "Catégorie", "Montant", "Fréquence",
-            "Prochaine date", "Date de fin", "Scénario", "Statut"
-        ])
-        self.table.setRowCount(0)
-        for r, row in enumerate(rows):
-            self.table.insertRow(r)
-            end_date = "—"
-            try:
-                if row["end_date"]:
-                    end_date = format_date_fr(row["end_date"])
-            except Exception:
-                pass
-            values = [
-                row["name"],
-                row["account_name"] or "Tous comptes",
-                row["category"] or "Autre",
-                euro(float(row["amount"] or 0)),
-                _normalise_frequency(row["frequency"]),
-                format_date_fr(row["next_date"]),
-                end_date,
-                row["scenario"],
-                row["status"],
-            ]
-            for c, value in enumerate(values):
-                clean_value = str(value).replace("\n", " ").replace("\r", " ").replace("�", "")
-                item = QTableWidgetItem(clean_value)
-                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                if c == 0:
-                    item.setData(Qt.UserRole, row["id"])
-                if c == 3:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    try:
-                        item.setForeground(Qt.red if float(row["amount"] or 0) < 0 else Qt.darkGreen)
-                    except Exception:
-                        pass
-                self.table.setItem(r, c, item)
-        if rows:
-            self.table.selectRow(0)
-
-    def add_selected_lot5(self) -> None:
-        dialog = RecurringDialog(self.db.list_accounts(), parent=self, categories=self.db.category_names())
-        if dialog.exec() == dialog.Accepted:
-            payload = _safe_dialog_data(dialog)
-            if payload is None:
-                return
-            recurring_id = self.db.add_forecast_recurring_item_lot5(payload)
-            self.refresh_table()
-            # Select the newly created row when visible after filter.
-            for r in range(self.table.rowCount()):
-                item = self.table.item(r, 0)
-                if item and item.data(Qt.UserRole) == recurring_id:
-                    self.table.selectRow(r)
-                    break
-            QMessageBox.information(self, "Récurrences", "Événement prévisionnel créé.")
-
-    def edit_selected_lot5(self) -> None:
-        recurring_id = self.selected_id()
-        if not recurring_id:
-            QMessageBox.information(self, "Récurrences", "Sélectionnez une récurrence à modifier.")
+        if QMessageBox.question(self, "Supprimer", f"Supprimer « {row['name']} » ?") != QMessageBox.Yes:
             return
-        row = self.db.get_recurring_item(recurring_id)
-        if not row:
-            QMessageBox.warning(self, "Récurrence introuvable", "La récurrence sélectionnée est introuvable.")
-            return
-        dialog = RecurringDialog(self.db.list_accounts(), parent=self, row=row, categories=self.db.category_names())
-        if dialog.exec() == dialog.Accepted:
-            payload = _safe_dialog_data(dialog)
-            if payload is None:
-                return
-            self.db.update_forecast_recurring_item_lot5(recurring_id, payload)
-            self.refresh_table()
-            QMessageBox.information(self, "Récurrences", "Événement prévisionnel modifié.")
+        self.db.delete_forecast_recurring_item_lot5(recurring_id)
+        QMessageBox.information(self, "Prévisionnel", "Événement prévisionnel supprimé.")
+        self.refresh()
 
-    def delete_selected_lot5(self) -> None:
-        recurring_id = self.selected_id()
-        if not recurring_id:
-            QMessageBox.information(self, "Récurrences", "Sélectionnez une récurrence à supprimer.")
-            return
-        row = self.db.get_recurring_item(recurring_id)
-        if not row:
-            return
-        if QMessageBox.question(self, "Supprimer la récurrence", f"Supprimer la récurrence « {row['name']} » ?") == QMessageBox.Yes:
-            self.db.delete_forecast_recurring_item_lot5(recurring_id)
-            self.refresh_table()
-            QMessageBox.information(self, "Récurrences", "Événement prévisionnel supprimé.")
-
-    original_list_build = RecurringListDialog.build
-
-    def build_lot5(self) -> None:
-        original_list_build(self)
-        # The original dialog only had Modifier / Supprimer / Fermer. Add an
-        # explicit creation action so "Gérer les récurrences" is a full CRUD hub.
-        if getattr(self, "_lot5_add_button_ready", False):
-            return
-        add_btn = QPushButton("Ajouter")
-        add_btn.clicked.connect(self.add_selected)
-        try:
-            actions_layout = self.edit_btn.parentWidget().layout()
-            if actions_layout is not None:
-                actions_layout.insertWidget(0, add_btn)
-        except Exception:
-            try:
-                self.layout().addWidget(add_btn)
-            except Exception:
-                pass
-        self.add_btn = add_btn
-        self._lot5_add_button_ready = True
-
-    RecurringDialog.__init__ = dialog_init_lot5
-    RecurringDialog.populate_from_row = populate_from_row_lot5
-    RecurringDialog.data = data_lot5
-
+    ForecastPage.open_recurring_list_dialog = open_recurring_list_dialog_lot5
     ForecastPage.open_add_recurring_dialog = open_add_recurring_dialog_lot5
     ForecastPage.edit_recurring_item = edit_recurring_item_lot5
     ForecastPage.delete_recurring_item = delete_recurring_item_lot5
-
-    RecurringListDialog.build = build_lot5
-    RecurringListDialog.selected_id = _selected_id
-    RecurringListDialog.refresh_table = refresh_table_lot5
-    RecurringListDialog.add_selected = add_selected_lot5
-    RecurringListDialog.edit_selected = edit_selected_lot5
-    RecurringListDialog.delete_selected = delete_selected_lot5
 
     _PATCHED = True
