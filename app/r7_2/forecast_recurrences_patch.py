@@ -6,10 +6,9 @@ _PATCHED = False
 def apply_r7_2_forecast_recurrences_patch() -> None:
     """Lot 5 — operational forecast recurring-event management.
 
-    The first Lot 5 iterations only enhanced the historical dialog. User recette
-    showed that add/edit actions were still not reliably persisted. This patch
-    therefore installs a dedicated Lot 5 management dialog and dedicated database
-    methods for add/update/delete actions.
+    Installs a dedicated Lot 5 management dialog and dedicated database methods
+    for add/update/delete actions. UX rule: technical actions are available from
+    the context menu, not as visible action buttons.
     """
     global _PATCHED
     if _PATCHED:
@@ -30,6 +29,7 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
             QLabel,
             QLineEdit,
             QMessageBox,
+            QMenu,
             QPushButton,
             QTableWidget,
             QTableWidgetItem,
@@ -110,7 +110,12 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
                     "recurring_items",
                     str(recurring_id),
                     "Événement prévisionnel créé depuis le Lot 5.",
-                    {"name": data["name"], "frequency": data["frequency"], "next_date": data["next_date"], "end_date": data.get("end_date")},
+                    {
+                        "name": data["name"],
+                        "frequency": data["frequency"],
+                        "next_date": data["next_date"],
+                        "end_date": data.get("end_date"),
+                    },
                 )
             except Exception:
                 pass
@@ -150,7 +155,12 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
                     "recurring_items",
                     str(recurring_id),
                     "Événement prévisionnel modifié depuis le Lot 5.",
-                    {"name": data["name"], "frequency": data["frequency"], "next_date": data["next_date"], "end_date": data.get("end_date")},
+                    {
+                        "name": data["name"],
+                        "frequency": data["frequency"],
+                        "next_date": data["next_date"],
+                        "end_date": data.get("end_date"),
+                    },
                 )
             except Exception:
                 pass
@@ -336,7 +346,7 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
             title.setStyleSheet("font-size:22px; font-weight:bold; color:#0F172A;")
             layout.addWidget(title)
 
-            subtitle = QLabel("Ajoutez, modifiez ou supprimez les événements utilisés par la courbe prévisionnelle.")
+            subtitle = QLabel("Clic droit dans le tableau pour ajouter, modifier ou supprimer un événement. Double-clic sur une ligne pour modifier.")
             subtitle.setStyleSheet("color:#64748B;")
             layout.addWidget(subtitle)
 
@@ -361,6 +371,8 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
             self.table.setAlternatingRowColors(True)
             self.table.setSelectionBehavior(QTableWidget.SelectRows)
             self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.table.customContextMenuRequested.connect(self.open_context_menu)
             self.table.setStyleSheet(
                 "QTableWidget { background:#FFFFFF; alternate-background-color:#F8FAFC; border:1px solid #E5E7EB; border-radius:12px; }"
                 "QHeaderView::section { background:#F8FAFC; color:#64748B; font-weight:bold; border:none; border-bottom:1px solid #E5E7EB; padding:8px; }"
@@ -369,18 +381,9 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
             layout.addWidget(self.table, stretch=1)
 
             actions = QHBoxLayout()
-            self.add_btn = QPushButton("Ajouter")
-            self.edit_btn = QPushButton("Modifier")
-            self.delete_btn = QPushButton("Supprimer")
-            self.close_btn = QPushButton("Fermer")
-            self.add_btn.clicked.connect(self.add_item)
-            self.edit_btn.clicked.connect(self.edit_selected)
-            self.delete_btn.clicked.connect(self.delete_selected)
-            self.close_btn.clicked.connect(self.accept)
-            actions.addWidget(self.add_btn)
-            actions.addWidget(self.edit_btn)
-            actions.addWidget(self.delete_btn)
             actions.addStretch(1)
+            self.close_btn = QPushButton("Fermer")
+            self.close_btn.clicked.connect(self.accept)
             actions.addWidget(self.close_btn)
             layout.addLayout(actions)
 
@@ -429,6 +432,27 @@ def apply_r7_2_forecast_recurrences_patch() -> None:
         def _refresh_parent(self) -> None:
             if self.parent_page is not None and hasattr(self.parent_page, "refresh"):
                 self.parent_page.refresh()
+
+        def open_context_menu(self, pos) -> None:
+            item = self.table.itemAt(pos)
+            if item is not None:
+                self.table.selectRow(item.row())
+            has_selection = self.selected_id() is not None
+
+            menu = QMenu(self.table)
+            add_action = menu.addAction("Ajouter un événement")
+            edit_action = menu.addAction("Modifier l’événement sélectionné")
+            delete_action = menu.addAction("Supprimer l’événement sélectionné")
+            edit_action.setEnabled(has_selection)
+            delete_action.setEnabled(has_selection)
+
+            chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+            if chosen == add_action:
+                self.add_item()
+            elif chosen == edit_action:
+                self.edit_selected()
+            elif chosen == delete_action:
+                self.delete_selected()
 
         def add_item(self) -> None:
             dialog = Lot5RecurringEditDialog(self.db, self)
