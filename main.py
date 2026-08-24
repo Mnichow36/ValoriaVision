@@ -17,7 +17,7 @@ from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.4 Lot 5 Prévisionnel Récurrences"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 5.1 UX Récurrences"
 
 
 def main() -> int:
