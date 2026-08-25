@@ -45,10 +45,7 @@ def _configuration_manifest(db_path: Path) -> dict[str, Any]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
-        tables = {
-            table: _table_count(conn, table)
-            for table in CONFIG_TABLES
-        }
+        tables = {table: _table_count(conn, table) for table in CONFIG_TABLES}
         business_tables = {
             table: _table_count(conn, table)
             for table in [
@@ -77,7 +74,6 @@ def _make_sqlite_snapshot(source: Path, target: Path) -> None:
         target.unlink()
     source_conn = sqlite3.connect(source)
     try:
-        # Ensure WAL content is folded back before using the SQLite backup API.
         try:
             source_conn.execute("PRAGMA wal_checkpoint(FULL)")
         except Exception:
@@ -101,14 +97,40 @@ def _validate_snapshot(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def apply_r7_2_encrypted_backup_complete_patch() -> None:
-    """Lot 5.3 — complete encrypted backup/restore for settings and app config.
+def _refresh_settings_page(page: Any, drawer_title: str | None = None) -> None:
+    """Refresh Settings after backup/restore without requiring app restart."""
+    try:
+        page.report = page.db.data_quality_report()
+        page.security = page.db.security_audit_report()
+        page.premium = page.db.premium_foundation_report()
+        page.status = page.compute_status()
+        page.populate_overview_tab()
+        page.populate_backup_tab()
+        page.populate_security_tab()
+        page.populate_diagnostic_tab()
+        page.populate_business_tab()
+        page.populate_maintenance_tab()
+        page.populate_categories_tab()
+        if getattr(page, "drawer_visible", False):
+            title = drawer_title or page.drawer_title.text()
+            if "sécurité" in title.lower() or "securite" in title.lower():
+                page.open_drawer("Audit sécurité", page.security_detail())
+            elif "diagnostic" in title.lower():
+                page.open_drawer("Diagnostic technique", page.diagnostic_detail())
+            elif "analyse" in title.lower():
+                page.populate_analysis_drawer()
+            else:
+                page.close_drawer()
+    except Exception:
+        # Fallback: keep the old broad refresh behavior if a future screen changes.
+        try:
+            page.refresh()
+        except Exception:
+            pass
 
-    The encrypted .vvb file must contain a complete SQLite snapshot, including
-    configuration tables such as settings, categories, rules, scenarios and
-    recurring items. Local secrets remain governed by the local keyring/vault and
-    are not exported as separate files.
-    """
+
+def apply_r7_2_encrypted_backup_complete_patch() -> None:
+    """Lot 5.3 — complete encrypted backup/restore for settings and app config."""
     global _PATCHED
     if _PATCHED:
         return
@@ -124,6 +146,7 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
         target = Path(target_path) if target_path else BACKUP_DIR / f"valoria_vision_backup_complete_{stamp}.vvb"
         if target.suffix.lower() != ".vvb":
             target = target.with_suffix(".vvb")
+        target.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory(prefix="valoria_backup_complete_") as tmp:
             snapshot = Path(tmp) / "valoria_vision_snapshot.db"
@@ -140,6 +163,11 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
                 "restores_recurring_items": True,
             })
             self.crypto.encrypt_file(snapshot, target, metadata=manifest)
+
+        self.set_setting("last_backup_path", str(target))
+        self.set_setting("last_backup_encrypted", "true")
+        self.set_setting("last_backup_completed_at", datetime.now().isoformat(timespec="seconds"))
+        self.seal_database_to_encrypted_vault()
         return target
 
     def restore_complete_encrypted_backup(self: Database, source_path: str | Path) -> Path:
@@ -150,7 +178,7 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
         with tempfile.TemporaryDirectory(prefix="valoria_restore_complete_") as tmp:
             restored = Path(tmp) / "restored_valoria_vision.db"
             self.crypto.decrypt_file(source, restored)
-            manifest = _validate_snapshot(restored)
+            _validate_snapshot(restored)
 
             BACKUP_DIR.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -161,12 +189,14 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(restored, self.path)
 
-        # Migrate forward if needed and reseal the local encrypted vault with
-        # the current machine key. This preserves local security boundaries.
         with self.connect() as conn:
             self.create_schema(conn)
             self.apply_migrations(conn)
             self.set_schema_version(conn, SCHEMA_VERSION)
+        self.set_setting("last_restore_source", str(source))
+        self.set_setting("last_restore_completed_at", datetime.now().isoformat(timespec="seconds"))
+        self.set_setting("last_backup_path", str(source))
+        self.set_setting("last_backup_encrypted", "true")
         self.seal_database_to_encrypted_vault()
         return self.path
 
@@ -180,8 +210,6 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
     Database.create_complete_encrypted_backup = create_complete_encrypted_backup
     Database.restore_complete_encrypted_backup = restore_complete_encrypted_backup
     Database.encrypted_backup_manifest = encrypted_backup_manifest
-
-    # Compatibility aliases for existing screens or older code paths.
     Database.create_encrypted_backup = create_complete_encrypted_backup
     Database.restore_encrypted_backup = restore_complete_encrypted_backup
     Database.backup_encrypted = create_complete_encrypted_backup
@@ -203,14 +231,14 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
                 return
             try:
                 output = self.db.create_complete_encrypted_backup(Path(path))
+                _refresh_settings_page(self, "Audit sécurité")
                 QMessageBox.information(
                     self,
                     "Sauvegarde créée",
                     "Sauvegarde chiffrée complète créée avec succès.\n\n"
                     f"Fichier : {output}\n\n"
-                    "Cette sauvegarde inclut les paramètres, catégories, règles, scénarios et données métier.",
+                    "L'état sauvegarde et l'audit sécurité ont été rafraîchis.",
                 )
-                self.refresh()
             except Exception as exc:
                 QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
 
@@ -236,13 +264,14 @@ def apply_r7_2_encrypted_backup_complete_patch() -> None:
                 return
             try:
                 self.db.restore_complete_encrypted_backup(Path(path))
+                _refresh_settings_page(self, "Audit sécurité")
                 QMessageBox.information(
                     self,
                     "Sauvegarde restaurée",
                     "Sauvegarde chiffrée complète restaurée avec succès.\n\n"
-                    "Les paramètres et données applicatives ont été restaurés. Redémarrez Valoria Vision pour recharger tous les écrans.",
+                    "Les paramètres, catégories, règles, scénarios et données métier ont été restaurés.\n"
+                    "L'écran Paramètres a été rafraîchi immédiatement.",
                 )
-                self.refresh()
             except Exception as exc:
                 QMessageBox.critical(self, "Erreur de restauration", str(exc))
 
