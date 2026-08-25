@@ -13,13 +13,14 @@ from app.r7_2.import_lifecycle_patch import apply_r7_2_import_lifecycle_patch
 from app.r7_2.import_report_patch import apply_r7_2_import_report_patch
 from app.r7_2.import_progress_patch import apply_r7_2_import_progress_patch
 from app.r7_2.import_ui_feedback_patch import apply_r7_2_import_ui_feedback_patch
+from app.r7_2.settings_backup_ux_patch import apply_r7_2_settings_backup_ux_patch
 from app.r7_2.ui_privacy_patch import apply_r7_2_ui_privacy_patch
 from app.security.auth_service import AuthService
 from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.4 Lot 5.3.1 Sauvegarde rafraîchie"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 5.3.2 UX Sauvegarde centralisée"
 
 
 def main() -> int:
@@ -41,6 +42,7 @@ def main() -> int:
     apply_r7_2_forecast_recurrences_patch()
     apply_r7_2_forecast_ux_simplification_patch()
     apply_r7_2_encrypted_backup_complete_patch()
+    apply_r7_2_settings_backup_ux_patch()
 
     db = Database()
     db.initialize()
