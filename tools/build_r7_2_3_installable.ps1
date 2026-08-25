@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_2_UX_PREVISIONNEL"
+    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_3_SAUVEGARDE_COMPLETE"
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.2 UX Previsionnel"
+Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3 Sauvegarde complete"
 Write-Host ("Dossier racine : " + $Root)
 
 $ReleaseRoot = Join-Path $Root "release"
@@ -47,6 +47,9 @@ python tools/test_r7_2_import_lifecycle.py
 Write-Host "Tests techniques R7.2 - Lot 5..."
 python tools/test_r7_2_forecast_recurrences.py
 
+Write-Host "Tests techniques R7.2 - Lot 5.3 sauvegarde..."
+python tools/test_r7_2_complete_encrypted_backup.py
+
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
 $PyInstallerArgs = @(
@@ -69,15 +72,15 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.4 Lot 5.2 UX Previsionnel"
+    version = "V0.6.6-R7.2.4 Lot 5.3 Sauvegarde complete"
     release_name = $ReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "UX previsionnel : bouton ajout global retire, menu contextuel courbe simplifie, gestion recurrences conservee"
+    scope = "Lot 5.2 UX previsionnel + Lot 5.3 sauvegarde chiffree complete des parametres, categories, regles, scenarios et donnees metier"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Archive locale de recette Lot 5.2"
+    status = "Archive locale de recette Lot 5.3"
 }
-$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_2.json") -Encoding utf8
+$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
