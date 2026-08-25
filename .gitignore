@@ -3,10 +3,25 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Base locale et éléments sensibles
 data/valoria_vision.db
 data/secure/
 data/security/
 data/backups/
+data/reports/
 *.vvdb
+*.vvb
 *.key
 *.log
+
+# Builds locaux / PyInstaller
+build/
+dist/
+release/
+*.spec
+*.toc
+*.pkg
+*.pyz
+*.exe
+*.sha256.txt
