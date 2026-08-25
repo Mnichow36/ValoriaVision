@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_3_1_SAUVEGARDE_RAFRAICHIE"
+    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_3_2_UX_SAUVEGARDE_CENTRALISEE"
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3.1 Sauvegarde rafraichie"
+Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3.2 UX sauvegarde centralisee"
 Write-Host ("Dossier racine : " + $Root)
 
 $ReleaseRoot = Join-Path $Root "release"
@@ -72,15 +72,15 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.4 Lot 5.3.1 Sauvegarde rafraichie"
+    version = "V0.6.6-R7.2.4 Lot 5.3.2 UX Sauvegarde centralisee"
     release_name = $ReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Lot 5.3.1 : sauvegarde chiffree complete + rafraichissement immediat de l'etat sauvegarde/restauration et audit securite"
+    scope = "Lot 5.3.2 : sauvegarde/restauration centralisees dans l'onglet Sauvegarde, retrait des doublons Securite/Maintenance et ajout de la liste des dernieres sauvegardes"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Archive locale de recette Lot 5.3.1"
+    status = "Archive locale de recette Lot 5.3.2"
 }
-$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3_1.json") -Encoding utf8
+$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3_2.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
