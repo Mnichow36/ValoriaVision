@@ -7,22 +7,31 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
+$BuildStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$EffectiveReleaseName = $ReleaseName + "_" + $BuildStamp
+
 Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3.3 sauvegarde fiabilisee"
 Write-Host ("Dossier racine : " + $Root)
+Write-Host ("Release locale : " + $EffectiveReleaseName)
 
 $ReleaseRoot = Join-Path $Root "release"
-$ReleaseDir = Join-Path $ReleaseRoot $ReleaseName
-$ZipPath = Join-Path $ReleaseRoot ($ReleaseName + ".zip")
-$ShaPath = Join-Path $ReleaseRoot ($ReleaseName + ".sha256.txt")
+$ReleaseDir = Join-Path $ReleaseRoot $EffectiveReleaseName
+$ZipPath = Join-Path $ReleaseRoot ($EffectiveReleaseName + ".zip")
+$ShaPath = Join-Path $ReleaseRoot ($EffectiveReleaseName + ".sha256.txt")
 
-if (Test-Path $ReleaseDir) { Remove-Item $ReleaseDir -Recurse -Force }
-if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-if (Test-Path $ShaPath) { Remove-Item $ShaPath -Force }
-if (Test-Path (Join-Path $Root "build")) { Remove-Item (Join-Path $Root "build") -Recurse -Force }
-if (Test-Path (Join-Path $Root "dist")) { Remove-Item (Join-Path $Root "dist") -Recurse -Force }
-if (Test-Path (Join-Path $Root "Valoria Vision.spec")) { Remove-Item (Join-Path $Root "Valoria Vision.spec") -Force }
+$BuildRoot = Join-Path $Root ("build_local_" + $BuildStamp)
+$PyBuildDir = Join-Path $BuildRoot "build"
+$PyDistDir = Join-Path $BuildRoot "dist"
+$PySpecDir = Join-Path $BuildRoot "spec"
 
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
+New-Item -ItemType Directory -Path $PyBuildDir -Force | Out-Null
+New-Item -ItemType Directory -Path $PyDistDir -Force | Out-Null
+New-Item -ItemType Directory -Path $PySpecDir -Force | Out-Null
+
+# Ne pas supprimer les anciens dossiers build/dist/release : ils peuvent être
+# verrouillés par Windows, OneDrive, l'antivirus ou une ancienne instance de
+# Valoria Vision. Chaque build utilise désormais un dossier horodaté isolé.
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements-lock.txt
@@ -56,12 +65,15 @@ $PyInstallerArgs = @(
     "--noconfirm",
     "--windowed",
     "--name", "Valoria Vision",
+    "--distpath", $PyDistDir,
+    "--workpath", $PyBuildDir,
+    "--specpath", $PySpecDir,
     "--add-data", ($PlotlyRuntime + ";data/runtime"),
     "main.py"
 )
 python -m PyInstaller @PyInstallerArgs
 
-$AppDist = Join-Path $Root "dist\Valoria Vision"
+$AppDist = Join-Path $PyDistDir "Valoria Vision"
 if (!(Test-Path $AppDist)) {
     throw ("Build PyInstaller introuvable : " + $AppDist)
 }
@@ -73,21 +85,23 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 $Manifest = @{
     product = "Valoria Vision"
     version = "V0.6.6-R7.2.4 Lot 5.3.3 Sauvegarde fiabilisee"
-    release_name = $ReleaseName
+    release_name = $EffectiveReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     scope = "Lot 5.3.3 : sauvegarde/restauration centralisee + fiabilisation Windows du snapshot SQLite, suppression WinError 32 et mise a jour immediate de l'historique"
     executable = "Valoria Vision/Valoria Vision.exe"
     status = "Archive locale de recette Lot 5.3.3"
+    local_build_strategy = "Dossiers horodates pour eviter les fichiers dist verrouilles"
 }
 $Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3_3.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
-$HashLine = $Hash.Hash + "  " + $ReleaseName + ".zip"
+$HashLine = $Hash.Hash + "  " + $EffectiveReleaseName + ".zip"
 $HashLine | Out-File -FilePath $ShaPath -Encoding ascii
 
 Write-Host ""
 Write-Host "Build termine."
+Write-Host ("Dossier : " + $ReleaseDir)
 Write-Host ("Archive : " + $ZipPath)
 Write-Host ("SHA-256 : " + $Hash.Hash)
