@@ -4,11 +4,9 @@
 
 Démarrer le Lot 6 issu de l'issue #63 en supprimant le caractère décoratif des scénarios standards du Prévisionnel.
 
-Les choix **Prudent**, **Réaliste** et **Optimiste** doivent produire des projections réellement différentes et l'utilisateur doit pouvoir comprendre l'hypothèse appliquée.
+Les choix **Prudent**, **Réaliste** et **Optimiste** doivent produire des projections réellement différentes et l'utilisateur doit pouvoir comprendre et paramétrer l'hypothèse appliquée.
 
-## Périmètre Lot 6.1
-
-### Hypothèses standards initiales
+## Hypothèses standards initiales
 
 | Scénario | Revenus prévisionnels | Dépenses prévisionnelles |
 |---|---:|---:|
@@ -16,23 +14,41 @@ Les choix **Prudent**, **Réaliste** et **Optimiste** doivent produire des proje
 | Réaliste | 0 % | 0 % |
 | Optimiste | +5 % | -5 % |
 
-Ces valeurs sont des valeurs initiales. Elles sont lues depuis la table générique `settings` afin de préparer leur modification depuis l'interface sans migration supplémentaire de la base.
+Les valeurs Prudent et Optimiste sont modifiables depuis l'interface. Réaliste reste la référence à **0 % / 0 %**.
 
-### Règle de sécurité métier
+Les coefficients sont persistés dans la table générique `settings`, sans migration supplémentaire du schéma.
+
+## Interface Lot 6.1
+
+Dans **Prévisionnel**, à côté du sélecteur **Scénario**, un bouton **Paramétrer** ouvre la fenêtre **Hypothèses de projection**.
+
+Cette fenêtre permet de :
+
+- modifier la variation des revenus de Prudent ;
+- modifier la variation des dépenses de Prudent ;
+- consulter Réaliste à 0 % / 0 %, non modifiable ;
+- modifier la variation des revenus d'Optimiste ;
+- modifier la variation des dépenses d'Optimiste ;
+- réinitialiser les valeurs par défaut ;
+- enregistrer les coefficients.
+
+Après enregistrement, le Prévisionnel est recalculé immédiatement.
+
+## Règle de sécurité métier
 
 Les coefficients s'appliquent uniquement aux **récurrences prévisionnelles**.
 
 Ils ne modifient jamais :
 
 - une transaction bancaire réelle ;
-- une transaction future déjà enregistrée dans la table Transactions ;
+- une transaction future déjà enregistrée dans Transactions ;
 - le montant stocké du modèle de récurrence.
 
 L'ajustement est appliqué uniquement à l'occurrence calculée pour la projection.
 
-### Explicabilité
+## Explicabilité
 
-Le panneau d'information du Prévisionnel affiche désormais une ligne **Hypothèse appliquée** indiquant les variations utilisées par le scénario sélectionné.
+Le panneau **Analyse de la période** du Prévisionnel affiche une ligne **Hypothèse appliquée** indiquant les coefficients actifs.
 
 Les événements ajustés transportent également :
 
@@ -40,20 +56,22 @@ Les événements ajustés transportent également :
 - le pourcentage d'ajustement ;
 - la règle de scénario appliquée.
 
-### Scénarios personnalisés
+## Scénarios personnalisés
 
-Le mécanisme existant des scénarios personnalisés et de leurs événements reste conservé. Le Lot 6 poursuivra leur raccord complet et la cohérence des associations avec les récurrences / événements.
+Le mécanisme existant des scénarios personnalisés et de leurs événements est conservé. Les scénarios personnalisés restent alimentés par leurs propres événements, sans appliquer automatiquement les coefficients Prudent / Réaliste / Optimiste.
 
 ## Correction UX associée
 
 Le dialogue de création / modification d'un scénario contenait un appel résiduel à une méthode de durée utilisant des champs inexistants. Le patch Lot 6.1 neutralise ce blocage afin de rendre à nouveau la création et la modification accessibles.
 
-## Fichiers ajoutés / modifiés
+## Fichiers Lot 6.1
 
 - `app/services/scenario_hypothesis_service.py`
 - `app/r7_2/scenario_hypotheses_patch.py`
 - `main.py`
 - `tools/test_r7_2_scenario_hypotheses.py`
+- `tools/build_r7_2_3_installable.ps1`
+- `build_local_lot6_1.bat`
 
 ## Version visible
 
@@ -61,25 +79,43 @@ Le dialogue de création / modification d'un scénario contenait un appel résid
 
 ## Recette ciblée
 
-1. Lancer Valoria Vision sur la version Lot 6.1.
+1. Construire la version avec `build_local_lot6_1.bat`.
 2. Ouvrir Prévisionnel avec une période contenant au moins une recette ou dépense récurrente.
-3. Sélectionner **Réaliste** et noter le cash final / point bas.
-4. Sélectionner **Prudent** : le cash final doit se dégrader si la période contient des flux prévisionnels concernés.
-5. Sélectionner **Optimiste** : le cash final doit s'améliorer dans le même cas.
-6. Vérifier que **Hypothèse appliquée** décrit les coefficients utilisés.
-7. Vérifier que les transactions réelles ne changent pas de montant.
-8. Ouvrir Scénarios et vérifier que Nouveau scénario / Modifier ne provoque pas d'erreur liée à `frequency` ou `duration`.
+3. Sélectionner **Réaliste** et noter le cash final, le point bas, les entrées et les sorties.
+4. Sélectionner **Prudent** : la projection doit refléter les coefficients configurés.
+5. Sélectionner **Optimiste** : la projection doit refléter les coefficients configurés.
+6. Ouvrir **Paramétrer** et modifier au moins un coefficient Prudent ou Optimiste.
+7. Enregistrer : la projection doit être recalculée immédiatement.
+8. Rouvrir **Paramétrer** : les valeurs enregistrées doivent être conservées.
+9. Cliquer **Réinitialiser les valeurs**, enregistrer et vérifier le retour aux valeurs initiales.
+10. Ouvrir **Analyse de la période** et vérifier la ligne **Hypothèse appliquée**.
+11. Vérifier qu'une transaction réelle conserve strictement son montant quel que soit le scénario.
+12. Vérifier qu'une transaction future enregistrée conserve strictement son montant.
+13. Vérifier que le montant source d'une récurrence n'est pas modifié en base.
+14. Ouvrir Scénarios et vérifier que Nouveau scénario / Modifier ne provoque pas d'erreur liée à `frequency` ou `duration`.
+
+## Critères de sortie Lot 6.1
+
+- [x] scénarios standards dotés d'hypothèses chiffrées ;
+- [x] impact réel sur les récurrences du moteur prévisionnel ;
+- [x] transactions réelles protégées ;
+- [x] transaction future enregistrée protégée ;
+- [x] coefficients persistés dans les paramètres ;
+- [x] interface d'édition Prudent / Optimiste ;
+- [x] Réaliste verrouillé comme référence ;
+- [x] hypothèse active expliquée dans Prévisionnel ;
+- [x] test technique dédié intégré au script de build ;
+- [ ] recette utilisateur locale validée.
 
 ## Suite du Lot 6
 
-- exposer dans l'interface la modification des pourcentages des scénarios standards ;
-- rendre les hypothèses personnalisées plus riches (date, montant, activation d'événements) ;
-- permettre l'association explicite des récurrences / événements aux scénarios ;
-- garantir la cohérence entre Prévisionnel, Scénarios et Paramètres ;
-- compléter les tests de non-régression.
+Après validation de ce sous-lot :
+
+- association plus explicite des récurrences et événements aux scénarios ;
+- enrichissement des hypothèses personnalisées ;
+- cohérence complète Prévisionnel / Scénarios / Paramètres ;
+- traitement des autres critères de l'issue #63.
 
 ## Statut
 
-**DÉVELOPPEMENT DÉMARRÉ — Lot 6.1 implémenté sur la branche `dev/r7.2.4-lot6-scenarios-parametrables`.**
-
-Recette locale à effectuer avant validation du sous-lot.
+**LOT 6.1 IMPLÉMENTÉ — en attente de recette locale utilisateur.**
