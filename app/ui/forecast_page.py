@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from app.database import Database
 from app.services.forecast_chart_service import ForecastChartService
+from app.services.feature_access_service import FeatureAccessService
 from app.theme import COLORS, euro
 from app.widgets import Card, KpiCard, PageHeader, primary_button
 from app.ui.plotly_runtime import build_plotly_html
@@ -667,23 +668,25 @@ class ForecastPage(QWidget):
         for name in ["Prudent", "Réaliste", "Optimiste"]:
             self.scenario.addItem(name)
         try:
-            with self.db.connect() as conn:
-                rows = list(
-                    conn.execute(
-                        """
-                        SELECT name
-                        FROM scenarios
-                        WHERE deleted_at IS NULL
-                          AND is_active = 1
-                          AND is_reference = 0
-                        ORDER BY updated_at DESC, name
-                        """
+            access = FeatureAccessService(self.db)
+            if access.has_feature(FeatureAccessService.FEATURE_SCENARIOS):
+                with self.db.connect() as conn:
+                    rows = list(
+                        conn.execute(
+                            """
+                            SELECT name
+                            FROM scenarios
+                            WHERE deleted_at IS NULL
+                              AND is_active = 1
+                              AND is_reference = 0
+                            ORDER BY updated_at DESC, name
+                            """
+                        )
                     )
-                )
-            for row in rows:
-                name = row["name"]
-                if self.scenario.findText(name) < 0:
-                    self.scenario.addItem(name)
+                for row in rows:
+                    name = row["name"]
+                    if self.scenario.findText(name) < 0:
+                        self.scenario.addItem(name)
         except Exception:
             pass
         idx = self.scenario.findText(previous)
@@ -1097,16 +1100,13 @@ class RecurringDialog(QDialog):
         self.frequency.addItems(["Ponctuel", "Mensuel", "Hebdomadaire", "Trimestriel", "Annuel"])
         self.next_date = QDateEdit(QDate.currentDate())
         self.next_date.setCalendarPopup(True)
-        self.scenario = QComboBox()
-        self.scenario.addItems(["Prudent", "Réaliste", "Optimiste"])
-        self.scenario.setCurrentText("Réaliste")
         self.status = QComboBox()
         self.status.addItems(["Actif", "Inactif"])
 
         for label, widget in [
             ("Compte", self.account), ("Nom", self.name), ("Catégorie", self.category),
             ("Montant", self.amount), ("Fréquence", self.frequency),
-            ("Prochaine date", self.next_date), ("Scénario", self.scenario), ("Statut", self.status),
+            ("Prochaine date", self.next_date), ("Statut", self.status),
         ]:
             form.addRow(label, widget)
         layout.addLayout(form)
@@ -1131,7 +1131,6 @@ class RecurringDialog(QDialog):
         self.frequency.setCurrentText(row["frequency"] or "Mensuel")
         y, m, d = [int(v) for v in (row["next_date"] or QDate.currentDate().toString("yyyy-MM-dd")).split('-')]
         self.next_date.setDate(QDate(y, m, d))
-        self.scenario.setCurrentText(row["scenario"] or "Réaliste")
         self.status.setCurrentText(row["status"] or "Actif")
 
     def data(self) -> dict:
@@ -1143,7 +1142,7 @@ class RecurringDialog(QDialog):
             "frequency": self.frequency.currentText(),
             "next_date": self.next_date.date().toString("yyyy-MM-dd"),
             "end_date": None,
-            "scenario": self.scenario.currentText(),
+            "scenario": "Tous",
             "status": self.status.currentText(),
         }
 
@@ -1177,8 +1176,8 @@ class RecurringListDialog(QDialog):
         filters.addStretch(1)
         layout.addLayout(filters)
 
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["Nom", "Compte", "Catégorie", "Montant", "Fréquence", "Prochaine date", "Scénario", "Statut"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Nom", "Compte", "Catégorie", "Montant", "Fréquence", "Prochaine date", "Statut"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -1201,7 +1200,6 @@ class RecurringListDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
 
         actions = QHBoxLayout()
@@ -1236,7 +1234,6 @@ class RecurringListDialog(QDialog):
                 euro(float(row["amount"] or 0)),
                 row["frequency"],
                 format_date_fr(row["next_date"]),
-                row["scenario"],
                 row["status"],
             ]
             for c, value in enumerate(values):
