@@ -40,4 +40,10 @@ Le Lot 5.3.4 fiabilise la sauvegarde et le build local :
 
 ## Statut
 
-À recetter localement après Pull origin.
+**VALIDÉ — 26/08/2026**
+
+- le script de build local corrigé est validé ;
+- le build local ne doit plus être considéré comme un point ouvert ;
+- la sauvegarde/restauration chiffrée du Lot 5.3 a déjà été validée dans `RECETTE_LOT_5_3_3_SAUVEGARDE_FIABILISEE_VALIDEE.md` pour les paramètres, catégories, règles, scénarios et données métier restaurées.
+
+Le Lot 5.3.4 est clôturé. Le développement passe au **Lot 6 — Scénarios paramétrables et impact réel sur le prévisionnel**, rattaché à l'issue #63.
