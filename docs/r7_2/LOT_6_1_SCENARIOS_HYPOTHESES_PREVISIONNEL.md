@@ -140,3 +140,21 @@ Dans l'édition Free, le sélecteur de scénario du Prévisionnel n'affiche que 
 16. Créer une nouvelle récurrence puis basculer entre Prudent, Réaliste et Optimiste : la récurrence doit exister dans les trois projections.
 17. Vérifier qu'une ancienne récurrence historiquement rattachée à Optimiste apparaît également en Réaliste et Prudent après migration.
 18. En édition Free, vérifier qu'aucun scénario personnalisé n'apparaît dans le sélecteur du Prévisionnel.
+
+
+## Lisibilité de l'axe des dates — correction de recette
+
+Retour de recette utilisateur du 26/08/2026 :
+
+- les 8 critères fonctionnels du Lot 6.1 sont validés ;
+- anomalie visuelle relevée : l'échelle de dates de la courbe est partiellement tronquée et trop dense ;
+- impact : lisibilité dégradée, sans erreur de calcul métier.
+
+Correction appliquée :
+- hauteur du graphique portée à 400 px ;
+- marge basse augmentée ;
+- libellés inclinés à -45° ;
+- nombre de graduations limité pour éviter la surcharge ;
+- marges automatiques activées sur les axes.
+
+Statut : **à revalider visuellement avant clôture définitive du Lot 6.1**.
