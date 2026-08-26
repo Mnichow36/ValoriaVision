@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from app.database import Database
 from app.security.auth_service import AuthService
+from app.services.feature_access_service import FeatureAccessService
 from app.ui.auth_dialog import MasterPasswordDialog
 from app.theme import APP_STYLESHEET
 from app.ui.accounts_page import AccountsPage
@@ -25,6 +26,7 @@ from app.ui.forecast_page import ForecastPage
 from app.ui.placeholder_page import PlaceholderPage
 from app.ui.budgets_page import BudgetsPage
 from app.ui.scenarios_page import ScenariosPage
+from app.ui.premium_locked_page import PremiumLockedPage
 from app.ui.reconciliation_page import ReconciliationPage
 from app.ui.reports_page import ReportsPage
 from app.ui.settings_page import SettingsPage
@@ -35,6 +37,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = db
         self.auth = AuthService(db)
+        self.features = FeatureAccessService(db)
         self.is_locked = False
         self.setWindowTitle("Valoria Vision — MVP V0.6.6-R7.2.2.1")
         self.resize(1600, 980)
@@ -60,7 +63,20 @@ class MainWindow(QMainWindow):
             "Transactions": TransactionsPage(db),
             "Prévisionnel": ForecastPage(db),
             "Rapprochements": ReconciliationPage(db),
-            "Scénarios": ScenariosPage(db),
+            "Scénarios": (
+                ScenariosPage(db)
+                if self.features.has_feature(FeatureAccessService.FEATURE_SCENARIOS)
+                else PremiumLockedPage(
+                    "Scénarios",
+                    "Créez et comparez des simulations avancées sans modifier vos données réelles.",
+                    [
+                        "scénarios personnalisés par projet ou changement de situation",
+                        "événements ponctuels ou récurrents propres à une simulation",
+                        "comparaison avec le scénario de référence",
+                        "projection de l'impact sur la trésorerie",
+                    ],
+                )
+            ),
             "Patrimoine": AssetsPage(db),
             "Investissements": PlaceholderPage("Investissements", "Suivi PEA, CTO, assurance-vie, crypto et allocations."),
             "Budgets": BudgetsPage(db),
@@ -105,7 +121,7 @@ class MainWindow(QMainWindow):
             ("Transactions", "▤  Transactions"),
             ("Prévisionnel", "⌁  Prévisionnel"),
             ("Rapprochements", "≋  Rapprochements"),
-            ("Scénarios", "◇  Scénarios"),
+            ("Scénarios", "◇  Scénarios  PREMIUM"),
             ("Patrimoine", "◆  Patrimoine"),
             ("Investissements", "▲  Investissements"),
             ("Budgets", "◌  Budgets"),
@@ -133,6 +149,32 @@ class MainWindow(QMainWindow):
         layout.addWidget(version)
 
     def select_page(self, name: str) -> None:
+        if name == "Scénarios":
+            should_have_access = self.features.has_feature(FeatureAccessService.FEATURE_SCENARIOS)
+            has_real_page = isinstance(self.pages.get("Scénarios"), ScenariosPage)
+            if should_have_access and not has_real_page:
+                old_page = self.pages["Scénarios"]
+                new_page = ScenariosPage(self.db)
+                self.pages["Scénarios"] = new_page
+                self.stack.addWidget(new_page)
+                self.stack.removeWidget(old_page)
+                old_page.deleteLater()
+            elif not should_have_access and has_real_page:
+                old_page = self.pages["Scénarios"]
+                new_page = PremiumLockedPage(
+                    "Scénarios",
+                    "Créez et comparez des simulations avancées sans modifier vos données réelles.",
+                    [
+                        "scénarios personnalisés par projet ou changement de situation",
+                        "événements ponctuels ou récurrents propres à une simulation",
+                        "comparaison avec le scénario de référence",
+                        "projection de l'impact sur la trésorerie",
+                    ],
+                )
+                self.pages["Scénarios"] = new_page
+                self.stack.addWidget(new_page)
+                self.stack.removeWidget(old_page)
+                old_page.deleteLater()
         page = self.pages[name]
         self.stack.setCurrentWidget(page)
         for key, button in self.nav_buttons.items():
