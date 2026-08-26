@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_3_3_SAUVEGARDE_FIABILISEE"
+    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT5_3_4_SAUVEGARDE_MEMOIRE"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +10,7 @@ Set-Location $Root
 $BuildStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $EffectiveReleaseName = $ReleaseName + "_" + $BuildStamp
 
-Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3.3 sauvegarde fiabilisee"
+Write-Host "Valoria Vision - build installable R7.2.4 Lot 5.3.4 sauvegarde memoire"
 Write-Host ("Dossier racine : " + $Root)
 Write-Host ("Release locale : " + $EffectiveReleaseName)
 
@@ -84,16 +84,16 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.4 Lot 5.3.3 Sauvegarde fiabilisee"
+    version = "V0.6.6-R7.2.4 Lot 5.3.4 Sauvegarde memoire"
     release_name = $EffectiveReleaseName
     branch = "dev/r7.2-cdc-v1.1-imports-rapprochements"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Lot 5.3.3 : sauvegarde/restauration centralisee + fiabilisation Windows du snapshot SQLite, suppression WinError 32 et mise a jour immediate de l'historique"
+    scope = "Lot 5.3.4 : sauvegarde SQLite en memoire sans fichier snapshot temporaire + refresh UI apres sauvegarde/restauration"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Archive locale de recette Lot 5.3.3"
+    status = "Archive locale de recette Lot 5.3.4"
     local_build_strategy = "Dossiers horodates pour eviter les fichiers dist verrouilles"
 }
-$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3_3.json") -Encoding utf8
+$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot5_3_4.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
