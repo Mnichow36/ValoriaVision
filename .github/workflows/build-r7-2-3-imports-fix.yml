@@ -1,4 +1,4 @@
-name: Build R7.2.4 Lot 3 UX Comptes Rapports
+name: Build R7.2.4 Lot 6.2 Consolidation prévisionnel
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Build installable
+      - name: Build and test installable
         shell: pwsh
         run: |
           ./tools/build_r7_2_3_installable.ps1
@@ -25,8 +25,8 @@ jobs:
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_NAVIGATION_PERF
           path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT3_UX_COMPTES_RAPPORTS.sha256.txt
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.sha256.txt
           if-no-files-found: error
