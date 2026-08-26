@@ -4,6 +4,7 @@ from app.main_window import MainWindow
 from app.database import Database
 from app.r7_2.account_context_menu_patch import apply_r7_2_account_context_menu_patch
 from app.r7_2.account_management_patch import apply_r7_2_account_management_patch
+from app.r7_2.backup_memory_snapshot_patch import apply_r7_2_backup_memory_snapshot_patch
 from app.r7_2.backup_reliability_patch import apply_r7_2_backup_reliability_patch
 from app.r7_2.encrypted_backup_complete_patch import apply_r7_2_encrypted_backup_complete_patch
 from app.r7_2.forecast_recurrences_patch import apply_r7_2_forecast_recurrences_patch
@@ -21,7 +22,7 @@ from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.4 Lot 5.3.3 Sauvegarde fiabilisée"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 5.3.4 Sauvegarde mémoire"
 
 
 def main() -> int:
@@ -45,6 +46,7 @@ def main() -> int:
     apply_r7_2_encrypted_backup_complete_patch()
     apply_r7_2_settings_backup_ux_patch()
     apply_r7_2_backup_reliability_patch()
+    apply_r7_2_backup_memory_snapshot_patch()
 
     db = Database()
     db.initialize()
