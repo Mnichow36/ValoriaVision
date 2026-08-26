@@ -61,6 +61,7 @@ python tools/test_r7_2_complete_encrypted_backup.py
 
 Write-Host "Tests techniques R7.2 - Lot 6.1 scenarios..."
 python tools/test_r7_2_scenario_hypotheses.py
+python tools/test_feature_access_premium.py
 
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
