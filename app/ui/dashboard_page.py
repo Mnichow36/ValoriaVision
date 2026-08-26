@@ -324,8 +324,12 @@ class DashboardPage(QWidget):
             ),
             (
                 "🔵",
-                "Prévision réaliste à 60 jours",
-                f"Solde projeté : {euro(forecast_chart['end_balance'])}",
+                "Comparaison des scénarios à 60 jours",
+                (
+                    f"Prudent : {euro(forecast_chart.get('end_balance_by_scenario', {}).get('Prudent', forecast_chart['end_balance']))} — "
+                    f"Réaliste : {euro(forecast_chart.get('end_balance_by_scenario', {}).get('Réaliste', forecast_chart['end_balance']))} — "
+                    f"Optimiste : {euro(forecast_chart.get('end_balance_by_scenario', {}).get('Optimiste', forecast_chart['end_balance']))}"
+                ),
             ),
             (
                 "🔵",
