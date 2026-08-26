@@ -2765,10 +2765,15 @@ class Database:
             series[scenario] = sampled_values
 
         realistic = self.cash_forecast(start_date, horizon_days, "Réaliste")
+        end_balance_by_scenario = {
+            name: (values[-1] if values else realistic["starting_cash"])
+            for name, values in series.items()
+        }
         return {
             "start_date": start_date,
             "labels": labels,
             "series": series,
+            "end_balance_by_scenario": end_balance_by_scenario,
             "alert": realistic["alert"],
             "alert_level": realistic.get("alert_level", "ok"),
             "alert_detail": realistic.get("alert_detail", ""),
