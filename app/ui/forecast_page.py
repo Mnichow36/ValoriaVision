@@ -280,7 +280,7 @@ class InteractiveForecastPlotlyChart(Card):
         self.bridge = None
         if PLOTLY_AVAILABLE and WEBENGINE_AVAILABLE and WEBCHANNEL_AVAILABLE:
             self.web = ForecastPlotlyWebView(self)
-            self.web.setMinimumHeight(360)
+            self.web.setMinimumHeight(400)
             self.web.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             self.channel = QWebChannel(self.web.page())
             self.bridge = ForecastPlotlyBridge(parent_page)
@@ -399,18 +399,24 @@ class InteractiveForecastPlotlyChart(Card):
             fig.update_layout(
                 barmode="group",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                yaxis=dict(title="Flux", ticksuffix=" €", showgrid=True),
-                yaxis2=dict(title="Solde", ticksuffix=" €", overlaying="y", side="right", showgrid=False),
+                xaxis=dict(
+                    tickangle=-45,
+                    automargin=True,
+                    nticks=12,
+                    tickfont=dict(size=10),
+                ),
+                yaxis=dict(title="Flux", ticksuffix=" €", showgrid=True, automargin=True),
+                yaxis2=dict(title="Solde", ticksuffix=" €", overlaying="y", side="right", showgrid=False, automargin=True),
             )
 
         fig.update_layout(
             template="plotly_white",
-            margin=dict(l=40, r=62, t=30, b=44),
+            margin=dict(l=46, r=68, t=30, b=82),
             paper_bgcolor="white",
             plot_bgcolor="white",
             font=dict(family="Segoe UI, Inter, Arial", size=11, color="#0F172A"),
             hoverlabel=dict(bgcolor="white", font_size=12, font_family="Segoe UI"),
-            height=360,
+            height=400,
         )
         plot_body = fig
         bridge_js = """
@@ -455,7 +461,7 @@ class InteractiveForecastPlotlyChart(Card):
         full_html, base_url = build_plotly_html(
             fig,
             "forecast_combined_plot",
-            360,
+            400,
             extra_js=bridge_js,
             config={"displayModeBar": False, "responsive": True, "locale": "fr", "scrollZoom": False},
         )
