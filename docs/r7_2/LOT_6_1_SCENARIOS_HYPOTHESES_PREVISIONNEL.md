@@ -119,3 +119,24 @@ Après validation de ce sous-lot :
 ## Statut
 
 **LOT 6.1 IMPLÉMENTÉ — en attente de recette locale utilisateur.**
+
+
+## Récurrences communes
+
+Décision métier complémentaire du 26/08/2026 :
+
+- les récurrences standards n'appartiennent plus à un scénario exclusif ;
+- le champ Scénario est retiré de la fiche et de la liste des récurrences ;
+- toute nouvelle récurrence est enregistrée avec la portée technique `Tous` ;
+- les anciennes valeurs Prudent / Réaliste / Optimiste / personnalisées sont normalisées vers `Tous` au démarrage ;
+- cette normalisation ne modifie ni montant, ni date, ni fréquence, ni compte ;
+- Prudent / Réaliste / Optimiste agissent ensuite sur cette même base commune via les hypothèses du Lot 6.1.
+
+Dans l'édition Free, le sélecteur de scénario du Prévisionnel n'affiche que Prudent / Réaliste / Optimiste. Les scénarios personnalisés restent réservés au module Scénarios Premium.
+
+### Recette complémentaire
+
+15. Ouvrir une récurrence existante : aucun champ Scénario ne doit être proposé.
+16. Créer une nouvelle récurrence puis basculer entre Prudent, Réaliste et Optimiste : la récurrence doit exister dans les trois projections.
+17. Vérifier qu'une ancienne récurrence historiquement rattachée à Optimiste apparaît également en Réaliste et Prudent après migration.
+18. En édition Free, vérifier qu'aucun scénario personnalisé n'apparaît dans le sélecteur du Prévisionnel.
