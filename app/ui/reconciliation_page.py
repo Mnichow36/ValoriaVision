@@ -241,13 +241,17 @@ class ReconciliationPage(QWidget):
         self.active_status_filter = status
         for key, button in self.kpi_buttons.items():
             button.setChecked(key == status)
-        self.refresh_occurrences()
+        self.refresh_data()
 
     def refresh(self) -> None:
         self.refresh_accounts()
-        self.refresh_transactions()
-        self.refresh_occurrences()
-        self.refresh_kpis()
+        self.refresh_data()
+
+    def refresh_data(self) -> None:
+        dataset = self.current_dataset()
+        self.refresh_transactions(dataset)
+        self.refresh_occurrences(dataset)
+        self.refresh_kpis(dataset)
 
     def current_dataset(self, status: str | None = None) -> dict:
         return self.service.build_reconciliation_dataset(
@@ -257,8 +261,9 @@ class ReconciliationPage(QWidget):
             status=status or self.active_status_filter,
         )
 
-    def refresh_kpis(self) -> None:
-        summary = self.current_dataset("all")["summary"]
+    def refresh_kpis(self, dataset: dict | None = None) -> None:
+        dataset = dataset or self.current_dataset()
+        summary = dataset["summary"]
         labels = {
             "active": summary.get("active", 0),
             "all": summary.get("all", 0),
@@ -283,8 +288,9 @@ class ReconciliationPage(QWidget):
                 "QPushButton:hover {border-color:#2563EB;}"
             )
 
-    def refresh_transactions(self) -> None:
-        rows = self.current_dataset("active")["transactions"]
+    def refresh_transactions(self, dataset: dict | None = None) -> None:
+        dataset = dataset or self.current_dataset()
+        rows = dataset["transactions"]
         self.transactions_table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
@@ -309,8 +315,9 @@ class ReconciliationPage(QWidget):
                     item.setToolTip(str(value))
                 self.transactions_table.setItem(row_index, col, item)
 
-    def refresh_occurrences(self) -> None:
-        rows = self.current_dataset(self.active_status_filter)["occurrences"]
+    def refresh_occurrences(self, dataset: dict | None = None) -> None:
+        dataset = dataset or self.current_dataset()
+        rows = dataset["occurrences"]
         self.occurrences_table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
@@ -334,7 +341,6 @@ class ReconciliationPage(QWidget):
                 if col == 3:
                     item.setToolTip(str(value))
                 self.occurrences_table.setItem(row_index, col, item)
-        self.refresh_kpis()
 
     def checked_transaction_id(self) -> int | None:
         found = []
