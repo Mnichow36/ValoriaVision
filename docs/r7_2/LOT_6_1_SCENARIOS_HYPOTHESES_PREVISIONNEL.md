@@ -118,7 +118,7 @@ Après validation de ce sous-lot :
 
 ## Statut
 
-**LOT 6.1 IMPLÉMENTÉ — en attente de recette locale utilisateur.**
+**LOT 6.1 VALIDÉ — recette fonctionnelle et visuelle validée le 27/08/2026.**
 
 
 ## Récurrences communes
@@ -157,4 +157,34 @@ Correction appliquée :
 - nombre de graduations limité pour éviter la surcharge ;
 - marges automatiques activées sur les axes.
 
-Statut : **à revalider visuellement avant clôture définitive du Lot 6.1**.
+Statut : **VALIDÉ visuellement le 27/08/2026** — axe des dates lisible, non tronqué et suffisamment espacé.
+
+
+## Validation finale du Lot 6.1
+
+Validation utilisateur du 27/08/2026.
+
+### Fonctionnel
+
+Les 8 critères de recette communiqués sont validés :
+
+1. version affichée correcte ;
+2. champ Scénario retiré de la création/modification des récurrences ;
+3. colonne Scénario retirée de la liste des récurrences ;
+4. mêmes récurrences présentes en Réaliste, Prudent et Optimiste ;
+5. projections différenciées sans modification du montant source de la récurrence ;
+6. Prudent et Optimiste paramétrables, Réaliste verrouillé à 0 % / 0 % ;
+7. recalcul immédiat de la courbe et des KPI après modification ;
+8. module Scénarios visible comme Premium mais verrouillé en édition gratuite.
+
+### Visuel
+
+L'anomalie de lisibilité de l'axe des dates a été corrigée puis revalidée :
+- dates entièrement visibles ;
+- espacement suffisant ;
+- plus de troncature en bas du graphique ;
+- lecture de la courbe satisfaisante sur 90 jours.
+
+### Conclusion
+
+**LOT 6.1 VALIDÉ ET CLÔTURÉ.**
