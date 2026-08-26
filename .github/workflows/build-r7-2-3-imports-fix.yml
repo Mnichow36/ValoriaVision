@@ -2,6 +2,9 @@ name: Build R7.2.4 Lot 6.2 Consolidation prévisionnel
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - dev/r7.2.4-lot6.2-consolidation-previsionnel
 
 jobs:
   build-windows:
