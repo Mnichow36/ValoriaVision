@@ -80,3 +80,12 @@ Les fonctionnalités avancées de scénarios personnalisés restent développée
 ## Statut
 
 **RÈGLE PRODUIT VALIDÉE ET IMPLÉMENTÉE.**
+
+
+## Récurrences standards
+
+Les récurrences du Prévisionnel constituent une **base commune** et ne sont jamais rattachées exclusivement à un scénario.
+
+Le champ de scénario est donc supprimé de leur interface. La valeur technique `Tous` est utilisée pour assurer la compatibilité avec le schéma existant.
+
+Les variantes Prudent / Réaliste / Optimiste modifient cette base commune par hypothèses. Les simulations spécifiques restent du ressort du module Scénarios Premium et de ses propres événements.
