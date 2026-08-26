@@ -137,20 +137,14 @@ class ForecastReconciliationService:
         start = _parse_date(start_date) if start_date else date.today() - timedelta(days=90)
         end = _parse_date(end_date) if end_date else date.today() + timedelta(days=180)
 
-        # Exhaustive source refresh for all accounts and the selected date window.
-        self.generate_occurrences(start, end)
-        self.mark_overdue(date.today())
-
-        all_transactions = self._all_eligible_transactions()
-        all_occurrences = self._all_eligible_occurrences()
+        # Display refreshes are read-only. Occurrence generation remains an explicit
+        # action (or is triggered by an import), so page navigation never performs
+        # hundreds of synchronous SQLite upserts.
+        all_transactions = self._eligible_transactions(start, end, account_id)
+        all_occurrences = self._eligible_occurrences(start, end, account_id)
 
         filtered_transactions = []
         for tx in all_transactions:
-            tx_day = _parse_date(tx["tx_date"])
-            if tx_day < start or tx_day > end:
-                continue
-            if account_id and int(tx["account_id"]) != int(account_id):
-                continue
             # Active working list: hide transactions already consumed by an active/final link.
             if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"]:
                 continue
@@ -158,19 +152,10 @@ class ForecastReconciliationService:
 
         filtered_occurrences = []
         for occ in all_occurrences:
-            occ_day = _parse_date(occ["expected_date"])
-            if occ_day < start or occ_day > end:
-                continue
-            if account_id and occ["account_id"] is not None and int(occ["account_id"]) != int(account_id):
-                continue
             if self._status_matches(str(occ["status"]), status):
                 filtered_occurrences.append(occ)
 
-        summary = self._summary_from_occurrences([
-            occ for occ in all_occurrences
-            if start <= _parse_date(occ["expected_date"]) <= end
-            and (not account_id or (occ["account_id"] is not None and int(occ["account_id"]) == int(account_id)))
-        ])
+        summary = self._summary_from_occurrences(all_occurrences)
         return {
             "transactions": filtered_transactions[:limit],
             "occurrences": filtered_occurrences[:limit],
@@ -208,7 +193,7 @@ class ForecastReconciliationService:
                 output["finalized"] += 1
         return output
 
-    def _all_eligible_transactions(self) -> list:
+    def _eligible_transactions(self, start: date, end: date, account_id: int | None) -> list:
         with self.db.connect() as conn:
             return list(
                 conn.execute(
@@ -227,12 +212,15 @@ class ForecastReconciliationService:
                        AND o.status IN ('auto_matched', 'confirmed', 'to_review')
                     WHERE t.source IN ('Import bancaire', 'Manuel')
                       AND a.status = 'Actif'
+                      AND t.tx_date BETWEEN ? AND ?
+                      AND (? IS NULL OR t.account_id = ?)
                     ORDER BY t.tx_date DESC, t.id DESC
-                    """
+                    """,
+                    (start.isoformat(), end.isoformat(), account_id, account_id),
                 )
             )
 
-    def _all_eligible_occurrences(self) -> list:
+    def _eligible_occurrences(self, start: date, end: date, account_id: int | None) -> list:
         with self.db.connect() as conn:
             return list(
                 conn.execute(
@@ -248,8 +236,11 @@ class ForecastReconciliationService:
                     LEFT JOIN accounts a ON a.id = o.account_id
                     LEFT JOIN transactions t ON t.id = o.actual_transaction_id
                     WHERE o.deleted_at IS NULL
+                      AND o.expected_date BETWEEN ? AND ?
+                      AND (? IS NULL OR o.account_id IS NULL OR o.account_id = ?)
                     ORDER BY o.expected_date DESC, o.id DESC
-                    """
+                    """,
+                    (start.isoformat(), end.isoformat(), account_id, account_id),
                 )
             )
 
