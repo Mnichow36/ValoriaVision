@@ -248,6 +248,9 @@ class ReconciliationPage(QWidget):
         self.refresh_data()
 
     def refresh_data(self) -> None:
+        # Keep statuses current with one indexed UPDATE; occurrence generation is
+        # intentionally reserved for the dedicated action/import workflow.
+        self.service.mark_overdue(date.today())
         dataset = self.current_dataset()
         self.refresh_transactions(dataset)
         self.refresh_occurrences(dataset)
