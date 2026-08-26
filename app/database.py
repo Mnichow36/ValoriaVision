@@ -2523,8 +2523,6 @@ class Database:
         for item in self.list_recurring_items(active_only=True):
             if account_id is not None and item["account_id"] != account_id:
                 continue
-            if scenario in {"Réaliste", "Prudent"} and item["scenario"] == "Optimiste":
-                continue
             next_date = datetime.strptime(item["next_date"], "%Y-%m-%d").date()
             end_date = datetime.strptime(item["end_date"], "%Y-%m-%d").date() if item["end_date"] else end
             while next_date <= end and next_date <= end_date:
@@ -2533,10 +2531,10 @@ class Database:
                         next_date = self.add_period(next_date, item["frequency"])
                         continue
                     amount = float(item["amount"] or 0)
-                    # V0.4.6: the displayed and calculated recurrence amount must
-                    # remain the amount entered by the user. Scenario analysis will
-                    # be handled later through explicit scenario rules, not by
-                    # silently modifying the recurrence value.
+                    # Lot 6.2: toutes les récurrences standards appartiennent à
+                    # la base prévisionnelle commune. Les variantes Prudent /
+                    # Réaliste / Optimiste sont appliquées ensuite par le service
+                    # d'hypothèses, sans filtrage exclusif de la récurrence.
                     events.append({
                         "date": next_date.isoformat(),
                         "name": item["name"],
@@ -2546,14 +2544,15 @@ class Database:
                         "account": item["account_name"] or "Compte",
                         "account_id": item["account_id"],
                         "recurring_id": item["id"],
-                        "scenario": item["scenario"],
+                        "scenario": "Tous",
                     })
                 next_date = self.add_period(next_date, item["frequency"])
 
 
         # R7.1: connect personalized scenarios to the forecast engine.
-        # Built-in prudent/realistic/optimistic recurrence filtering is kept.
-        # If the selected scenario matches a custom scenario name, its events
+        # Les récurrences standards sont communes aux trois scénarios intégrés.
+        # Si le scénario sélectionné correspond à un scénario personnalisé,
+        # ses événements Premium sont ajoutés par-dessus la référence.
         # are added on top of the reference forecast.
         scenario_name = str(scenario or "").strip()
         built_in_scenarios = {"Prudent", "Réaliste", "Optimiste"}
