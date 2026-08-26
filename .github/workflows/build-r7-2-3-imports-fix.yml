@@ -6,6 +6,9 @@ on:
     branches:
       - dev/r7.2.4-lot6.2-consolidation-previsionnel
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build Windows installable ZIP
@@ -25,11 +28,12 @@ jobs:
         run: |
           ./tools/build_r7_2_3_installable.ps1
 
-      - name: Upload installable ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_NAVIGATION_PERF
-          path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.sha256.txt
-          if-no-files-found: error
+      - name: Publish recipe release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Zip = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.zip" | Select-Object -First 1
+          $Sha = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.sha256.txt" | Select-Object -First 1
+          $Tag = "recipe-r7.2.4-lot6.2-navigation-perf-" + "${{ github.run_number }}"
+          gh release create $Tag $Zip.FullName $Sha.FullName --target "${{ github.sha }}" --title "Recette R7.2.4 Lot 6.2 — Navigation Rapprochements" --notes "Build de recette intégrant l’optimisation du chargement et de la navigation du module Rapprochements. Tests automatisés R7.2 exécutés avant publication." --prerelease
