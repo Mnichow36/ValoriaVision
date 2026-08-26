@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.database import Database
+from app.services.recurring_scope_service import RecurringScopeService
 
 
 _PATCH_MARKER = "_r7_2_lot6_common_recurrences_applied"
@@ -38,13 +39,11 @@ def apply_r7_2_common_recurrences_patch() -> None:
             )
 
     def add_recurring_item_common(self, data: dict) -> None:
-        payload = dict(data)
-        payload["scenario"] = "Tous"
+        payload = RecurringScopeService.normalize_payload(data)
         original_add_recurring_item(self, payload)
 
     def update_recurring_item_common(self, item_id: int, data: dict) -> None:
-        payload = dict(data)
-        payload["scenario"] = "Tous"
+        payload = RecurringScopeService.normalize_payload(data)
         original_update_recurring_item(self, item_id, payload)
 
     Database.initialize = initialize_with_common_recurrences
