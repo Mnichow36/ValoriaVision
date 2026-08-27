@@ -335,6 +335,9 @@ class Database:
                 match_confidence INTEGER,
                 match_reason TEXT,
                 ignored_reason TEXT,
+                cancelled_reason TEXT,
+                cancelled_at TEXT,
+                reactivated_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 deleted_at TEXT,
@@ -831,6 +834,9 @@ class Database:
             "match_confidence": "INTEGER",
             "match_reason": "TEXT",
             "ignored_reason": "TEXT",
+            "cancelled_reason": "TEXT",
+            "cancelled_at": "TEXT",
+            "reactivated_at": "TEXT",
             "created_at": "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
             "updated_at": "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
             "deleted_at": "TEXT",
@@ -863,6 +869,9 @@ class Database:
         })
         self.ensure_columns(conn, "forecast_occurrences", {
             "match_type": "TEXT",
+            "cancelled_reason": "TEXT",
+            "cancelled_at": "TEXT",
+            "reactivated_at": "TEXT",
         })
         # R7.2: the ambiguous status planned_confirmed is not accepted.
         # If an occurrence has no real transaction, it returns to planned/overdue.
