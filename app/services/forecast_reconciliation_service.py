@@ -210,7 +210,7 @@ class ForecastReconciliationService:
                         ON o.actual_transaction_id = t.id
                        AND o.deleted_at IS NULL
                        AND o.status IN ('auto_matched', 'confirmed', 'to_review')
-                    WHERE t.source IN ('Import bancaire', 'Manuel')
+                    WHERE t.deleted_at IS NULL
                       AND a.status = 'Actif'
                       AND t.tx_date BETWEEN ? AND ?
                       AND (? IS NULL OR t.account_id = ?)
