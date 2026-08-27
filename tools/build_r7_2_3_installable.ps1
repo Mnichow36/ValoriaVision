@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT7_1_RAPPROCHEMENTS_EXHAUSTIFS"
+    [string]$ReleaseName = "ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT7_2_CYCLE_VIE_RAPPROCHEMENTS"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +10,7 @@ Set-Location $Root
 $BuildStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $EffectiveReleaseName = $ReleaseName + "_" + $BuildStamp
 
-Write-Host "Valoria Vision - build installable R7.2.4 Lot 7.1 rapprochements exhaustifs"
+Write-Host "Valoria Vision - build installable R7.2.4 Lot 7.2 cycle de vie rapprochements"
 Write-Host ("Dossier racine : " + $Root)
 Write-Host ("Release locale : " + $EffectiveReleaseName)
 
@@ -66,8 +66,10 @@ python tools/test_recurring_scope_service.py
 python tools/test_r7_2_dashboard_scenario_consistency.py
 python tools/test_r7_2_common_recurrence_forecast.py
 
-Write-Host "Tests techniques R7.2 - Lot 7.1 rapprochements..."
+Write-Host "Tests techniques R7.2 - Lot 7.1 / 7.2 rapprochements..."
 python tools/test_r7_2_reconciliation_all_transaction_sources.py
+python tools/test_r7_2_reconciliation_status_filters.py
+python tools/test_r7_2_occurrence_lifecycle.py
 
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
@@ -94,16 +96,16 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_3_IMPORTS_FIX.md") $ReleaseDir -F
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.4 Lot 7.1 Rapprochements exhaustifs"
+    version = "V0.6.6-R7.2.4 Lot 7.2 Cycle de vie rapprochements"
     release_name = $EffectiveReleaseName
-    branch = "dev/r7.2.4-lot7.1-rapprochements-transactions-exhaustives"
+    branch = "dev/r7.2.4-lot7.2-rapprochements-cycle-vie"
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Lot 7.1 : exhaustivite des transactions reelles dans Rapprochements, independamment de leur origine"
+    scope = "Lot 7.2 : coherence filtres/statuts, annulation et remise a traiter des occurrences"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Archive locale de recette Lot 7.1"
+    status = "Archive locale de recette Lot 7.2"
     local_build_strategy = "Dossiers horodates pour eviter les fichiers dist verrouilles"
 }
-$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot7_1.json") -Encoding utf8
+$Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_lot7_2.json") -Encoding utf8
 
 Compress-Archive -Path (Join-Path $ReleaseDir "*") -DestinationPath $ZipPath -Force
 $Hash = Get-FileHash $ZipPath -Algorithm SHA256
