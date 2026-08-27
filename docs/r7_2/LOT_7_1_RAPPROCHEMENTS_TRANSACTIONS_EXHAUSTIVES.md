@@ -90,8 +90,25 @@ Archive attendue :
 - [x] transactions supprimées exclues ;
 - [x] test multi-origines ajouté ;
 - [x] build Lot 7.1 préparé ;
-- [ ] recette locale utilisateur validée.
+- [x] recette locale utilisateur validée.
 
 ## Statut
 
-**LOT 7.1 IMPLÉMENTÉ — en attente de recette locale utilisateur.**
+**LOT 7.1 VALIDÉ ET CLÔTURÉ — recette utilisateur validée le 27/08/2026.**
+
+
+## Validation finale
+
+Validation utilisateur du 27/08/2026.
+
+Cas recettés :
+
+1. Compte contenant des transactions manuelles / historiques : **OK**.
+2. Compte contenant des transactions issues d'un import bancaire : **OK**.
+
+Conclusion :
+- les transactions réelles remontent désormais dans Rapprochements indépendamment de leur origine technique ;
+- l'issue #56 est considérée corrigée ;
+- aucune régression fonctionnelle signalée sur ces deux cas.
+
+**LOT 7.1 VALIDÉ ET CLÔTURÉ.**
