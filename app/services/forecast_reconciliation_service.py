@@ -17,6 +17,7 @@ STATUS_LABELS = {
 
 ACTIVE_STATUSES = {"planned", "overdue", "to_review"}
 FINAL_STATUSES = {"auto_matched", "confirmed", "ignored", "cancelled"}
+LINKED_STATUSES = {"auto_matched", "confirmed", "to_review"}
 MANUAL_STATUS = "confirmed"
 AUTO_STATUS = "auto_matched"
 
@@ -143,17 +144,16 @@ class ForecastReconciliationService:
         all_transactions = self._eligible_transactions(start, end, account_id)
         all_occurrences = self._eligible_occurrences(start, end, account_id)
 
-        filtered_transactions = []
-        for tx in all_transactions:
-            # Active working list: hide transactions already consumed by an active/final link.
-            if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"]:
-                continue
-            filtered_transactions.append(tx)
-
-        filtered_occurrences = []
-        for occ in all_occurrences:
-            if self._status_matches(str(occ["status"]), status):
-                filtered_occurrences.append(occ)
+        filtered_occurrences = [
+            occ
+            for occ in all_occurrences
+            if self._status_matches(str(occ["status"]), status)
+        ]
+        filtered_transactions = self._transactions_for_status(
+            all_transactions,
+            filtered_occurrences,
+            status,
+        )
 
         summary = self._summary_from_occurrences(all_occurrences)
         return {
@@ -167,6 +167,26 @@ class ForecastReconciliationService:
                 "occurrences_displayed": len(filtered_occurrences[:limit]),
             },
         }
+
+    def _transactions_for_status(self, transactions: list, occurrences: list, status: str | None) -> list:
+        """Keep the left transaction panel coherent with the selected occurrence status."""
+        if status in LINKED_STATUSES or status == "finalized":
+            linked_ids = {
+                int(occ["actual_transaction_id"])
+                for occ in occurrences
+                if occ["actual_transaction_id"] is not None
+            }
+            return [tx for tx in transactions if int(tx["id"]) in linked_ids]
+
+        if status in {"ignored", "cancelled"}:
+            # These states do not have an active real transaction link.
+            return []
+
+        if status in {None, "", "active", "planned", "overdue", "all_active"}:
+            return [tx for tx in transactions if not tx["linked_occurrence_id"]]
+
+        # Historical complete view intentionally keeps the complete transaction set.
+        return list(transactions)
 
     def _status_matches(self, actual_status: str, requested_status: str | None) -> bool:
         if requested_status in {None, "", "active", "all_active"}:
@@ -525,8 +545,23 @@ class ForecastReconciliationService:
         # Compatibility alias. UI R7.2 exposes this as “Annuler rapprochement”.
         self.cancel_match(occurrence_id)
 
-    def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> None:
+    def get_occurrence(self, occurrence_id: int):
         with self.db.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+
+    def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[int, str]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+            if not row:
+                return 0, "Occurrence introuvable."
+            if row["status"] not in ACTIVE_STATUSES:
+                return 0, "Cette occurrence ne peut pas être ignorée dans son état actuel."
             conn.execute(
                 """
                 UPDATE forecast_occurrences
@@ -538,3 +573,67 @@ class ForecastReconciliationService:
                 """,
                 (reason, occurrence_id),
             )
+        return 1, "Occurrence ignorée."
+
+    def cancel_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[int, str]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT status, actual_transaction_id
+                FROM forecast_occurrences
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (occurrence_id,),
+            ).fetchone()
+            if not row:
+                return 0, "Occurrence introuvable."
+            if row["actual_transaction_id"] is not None or row["status"] in LINKED_STATUSES:
+                return 0, "Annule d'abord le rapprochement actif avant d'annuler l'occurrence."
+            if row["status"] not in {"planned", "overdue"}:
+                return 0, "Cette occurrence ne peut pas être annulée dans son état actuel."
+            conn.execute(
+                """
+                UPDATE forecast_occurrences
+                SET status = 'cancelled',
+                    cancelled_reason = ?,
+                    cancelled_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (reason, occurrence_id),
+            )
+        return 1, "Occurrence annulée."
+
+    def reactivate_occurrence(self, occurrence_id: int) -> tuple[int, str]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT status, expected_date
+                FROM forecast_occurrences
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (occurrence_id,),
+            ).fetchone()
+            if not row:
+                return 0, "Occurrence introuvable."
+            if row["status"] not in {"ignored", "cancelled"}:
+                return 0, "Cette occurrence n'est pas dans un état réactivable."
+            restored_status = "overdue" if _parse_date(row["expected_date"]) < date.today() else "planned"
+            conn.execute(
+                """
+                UPDATE forecast_occurrences
+                SET status = ?,
+                    actual_transaction_id = NULL,
+                    actual_date = NULL,
+                    actual_amount = NULL,
+                    amount_delta = NULL,
+                    match_confidence = NULL,
+                    match_reason = NULL,
+                    match_type = NULL,
+                    reactivated_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (restored_status, occurrence_id),
+            )
+        return 1, "Occurrence remise à traiter."
