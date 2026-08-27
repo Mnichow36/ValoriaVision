@@ -24,7 +24,7 @@ from app.ui.auth_dialog import MasterPasswordDialog
 import sys
 
 
-APP_VERSION = "V0.6.6-R7.2.4 Lot 6.2 Consolidation prévisionnel"
+APP_VERSION = "V0.6.6-R7.2.4 Lot 7.1 Rapprochements exhaustifs"
 
 
 def main() -> int:
