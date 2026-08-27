@@ -13,14 +13,18 @@ Consolider le socle standard du Prévisionnel après validation du Lot 6.1, sans
 - tests de non-régression du moteur prévisionnel ;
 - recette courte avant passage au Lot 7 Rapprochements.
 
-## Première correction
+## Corrections et consolidation réalisées
 
 Le filtrage historique qui excluait certaines récurrences selon leur ancien champ scénario a été supprimé du moteur `forecast_events()`.
 
 Désormais :
 - toutes les récurrences standards appartiennent à la base commune ;
 - les événements générés portent la portée technique `Tous` ;
-- les différences Prudent / Réaliste / Optimiste proviennent uniquement du service d'hypothèses validé au Lot 6.1.
+- les différences Prudent / Réaliste / Optimiste proviennent uniquement du service d'hypothèses validé au Lot 6.1 ;
+- le Dashboard consomme le même moteur `cash_forecast()` que le Prévisionnel ;
+- le Dashboard affiche explicitement la comparaison Prudent / Réaliste / Optimiste à 60 jours ;
+- Réaliste reste la référence pour les alertes et indicateurs de synthèse ;
+- en édition Free, aucun scénario personnalisé n'est exposé dans le Prévisionnel.
 
 ## Version
 
@@ -30,23 +34,7 @@ Désormais :
 
 #64
 
-## Statut
-
-**LOT 6.2 DÉMARRÉ.**
-
-
-## Consolidation Dashboard
-
-Le Dashboard consomme le même moteur `cash_forecast()` que le Prévisionnel.
-
-La carte d'alertes affiche désormais explicitement les soldes projetés à 60 jours pour :
-- Prudent ;
-- Réaliste ;
-- Optimiste.
-
-Réaliste reste la référence pour les alertes et indicateurs de synthèse, tandis que la comparaison des trois scénarios devient visible.
-
-## Tests de non-régression ajoutés
+## Tests de non-régression
 
 - `tools/test_r7_2_dashboard_scenario_consistency.py`
   - vérifie que le Dashboard reprend les trois projections ;
@@ -65,20 +53,23 @@ Lanceur dédié :
 
 `build_local_lot6_2.bat`
 
-Archive attendue :
+Archive :
 
 `ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_<date_heure>.zip`
 
-## Recette locale courte Lot 6.2
+## Recette utilisateur — validation du 27/08/2026
 
-1. Vérifier la version : `V0.6.6-R7.2.4 Lot 6.2 Consolidation prévisionnel`.
-2. Ouvrir le Dashboard.
-3. Vérifier la ligne **Comparaison des scénarios à 60 jours** avec Prudent / Réaliste / Optimiste.
-4. Vérifier que les trois soldes sont distincts lorsqu'il existe au moins une récurrence et des coefficients non nuls.
-5. Vérifier que Réaliste reste cohérent avec la valeur de référence affichée dans le Prévisionnel sur le même horizon.
-6. Ouvrir Prévisionnel et contrôler qu'une même récurrence apparaît dans les trois scénarios.
-7. En édition Free, vérifier que seuls Prudent / Réaliste / Optimiste sont proposés dans Prévisionnel.
-8. Vérifier qu'aucun ancien rattachement de récurrence à Optimiste/Prudent/Réaliste ne la fait disparaître d'une projection.
+Résultats communiqués pendant la recette :
+
+1. Version Lot 6.2 affichée correctement : **OK**.
+2. Dashboard — comparaison des scénarios à 60 jours présente : **OK**.
+3. Prudent / Réaliste / Optimiste produisent des valeurs cohérentes : **OK**.
+4. Réaliste correspond à la référence du Prévisionnel : **OK**.
+5. Une même récurrence reste présente dans les trois scénarios et son montant projeté est corrigé selon l'hypothèse choisie, sans modifier le montant source : **OK**.
+6. En édition Free, seuls Prudent / Réaliste / Optimiste sont proposés dans Prévisionnel : **OK**.
+7. Aucun ancien rattachement de récurrence à un scénario standard ne la fait disparaître d'une projection : **OK**.
+8. La lisibilité de la comparaison Dashboard a été contrôlée : la comparaison est fonctionnelle.
+9. Une lenteur de navigation observée autour du module Rapprochements a été traitée séparément et déclarée résolue avant clôture administrative du Lot 6.2.
 
 ## Critères de sortie
 
@@ -87,8 +78,11 @@ Archive attendue :
 - [x] comparaison Dashboard des trois scénarios ajoutée ;
 - [x] tests de non-régression ajoutés au build ;
 - [x] build local Lot 6.2 préparé ;
-- [ ] recette locale utilisateur validée.
+- [x] recette locale utilisateur validée ;
+- [x] aucune régression bloquante de navigation maintenue ouverte au moment de la clôture.
 
-## Statut
+## Conclusion
 
-**LOT 6.2 IMPLÉMENTÉ — en attente de recette locale utilisateur.**
+**LOT 6.2 VALIDÉ ET CLÔTURÉ ADMINISTRATIVEMENT — 27/08/2026.**
+
+Suite prévue : **Lot 7.1 — Rapprochements, exhaustivité des transactions réelles**, avec priorité à l'issue #56, puis cohérence des statuts/filtres (#61) et recette globale #52.
