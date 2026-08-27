@@ -416,9 +416,44 @@ class ReconciliationPage(QWidget):
             QMessageBox.information(self, "Rapprochements", "Sélectionne ou coche une occurrence.")
             return
         reason, ok = QInputDialog.getText(self, "Ignorer", "Motif d'ignorance :")
-        if ok:
-            self.service.ignore_occurrence(occurrence_id, reason)
-            self.refresh()
+        if not ok:
+            return
+        success, message = self.service.ignore_occurrence(occurrence_id, reason)
+        if not success:
+            QMessageBox.warning(self, "Rapprochements", message)
+        self.refresh()
+
+    def cancel_occurrence(self) -> None:
+        occurrence_id = self.selected_occurrence_id()
+        if not occurrence_id:
+            QMessageBox.information(self, "Rapprochements", "Sélectionne ou coche une occurrence.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Annuler l'occurrence",
+            "Cette occurrence sera retirée de la liste À traiter mais restera dans l'historique. Continuer ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        reason, ok = QInputDialog.getText(self, "Annuler l'occurrence", "Motif d'annulation (facultatif) :")
+        if not ok:
+            return
+        success, message = self.service.cancel_occurrence(occurrence_id, reason)
+        if not success:
+            QMessageBox.warning(self, "Rapprochements", message)
+        self.refresh()
+
+    def reactivate_occurrence(self) -> None:
+        occurrence_id = self.selected_occurrence_id()
+        if not occurrence_id:
+            QMessageBox.information(self, "Rapprochements", "Sélectionne ou coche une occurrence.")
+            return
+        success, message = self.service.reactivate_occurrence(occurrence_id)
+        if not success:
+            QMessageBox.warning(self, "Rapprochements", message)
+        self.refresh()
 
     def show_transactions_context_menu(self, pos: QPoint) -> None:
         row = self.transactions_table.rowAt(pos.y())
@@ -434,11 +469,33 @@ class ReconciliationPage(QWidget):
         row = self.occurrences_table.rowAt(pos.y())
         if row >= 0:
             self.occurrences_table.selectRow(row)
+
+        occurrence_id = self.selected_occurrence_id()
+        occurrence = self.service.get_occurrence(occurrence_id) if occurrence_id else None
+        if occurrence is None:
+            return
+
+        status = str(occurrence["status"] or "")
+        linked = occurrence["actual_transaction_id"] is not None
+
         menu = QMenu(self)
-        menu.addAction("Rapprocher avec la transaction cochée", self.match_checked)
-        menu.addAction("Annuler rapprochement", self.cancel_occurrence_match)
-        menu.addAction("Ignorer l’occurrence", self.ignore_occurrence)
-        menu.addSeparator()
+
+        if status in {"planned", "overdue"}:
+            menu.addAction("Rapprocher avec la transaction cochée", self.match_checked)
+            menu.addAction("Ignorer l’occurrence", self.ignore_occurrence)
+            menu.addAction("Annuler l’occurrence", self.cancel_occurrence)
+        elif status == "to_review":
+            if linked:
+                menu.addAction("Annuler rapprochement", self.cancel_occurrence_match)
+            menu.addAction("Ignorer l’occurrence", self.ignore_occurrence)
+        elif status in {"auto_matched", "confirmed"}:
+            if linked:
+                menu.addAction("Annuler rapprochement", self.cancel_occurrence_match)
+        elif status in {"ignored", "cancelled"}:
+            menu.addAction("Remettre à traiter", self.reactivate_occurrence)
+
+        if not menu.isEmpty():
+            menu.addSeparator()
         menu.addAction("Afficher les informations", self.show_occurrence_info)
         menu.exec(self.occurrences_table.viewport().mapToGlobal(pos))
 
