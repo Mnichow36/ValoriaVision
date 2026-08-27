@@ -121,7 +121,7 @@ class ReconciliationPage(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(10)
-        layout.addWidget(self.panel_title("Transactions bancaires", "Opérations réelles non encore consommées par un rapprochement actif/final."))
+        layout.addWidget(self.panel_title("Transactions réalisées", "Toutes les opérations réelles éligibles, quelle que soit leur origine, hors transactions déjà consommées par un rapprochement actif/final."))
 
         self.transactions_table = QTableWidget(0, 7)
         self.transactions_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Montant", "Catégorie", "Lien"])
