@@ -10,7 +10,7 @@ Documenter la mise a jour de la landing page Valoria Vision actuellement publiee
 
 La page doit montrer la valeur concrete du produit sans donner une impression de catalogue. Elle doit aussi rester coherente avec le positionnement public deja pose : application locale de gestion financiere personnelle, socle gratuit, trajectoire premium future, donnees traitees sous controle utilisateur.
 
-## Changements actus sur la landing page
+## Changements retenus sur la landing page
 
 | Zone | Decision |
 |---|---|
@@ -18,7 +18,7 @@ La page doit montrer la valeur concrete du produit sans donner une impression de
 | Navigation desktop | Garder une navigation lisible : Produit, Ecrans, Histoire, Offre, Feuille de route. |
 | Redondance | Supprimer le doublon visible autour du libelle Fonctionnalites. |
 | Storytelling | Ajouter une section expliquant la creation du produit par un ancien professionnel de la tresorerie et de la gestion financiere. |
-| Retour haut de page | Conserver un bouton flottant de remontée rapide pour les longues pages. |
+| Retour haut de page | Conserver un bouton flottant de remontee rapide pour les longues pages. |
 | Maquettes produit | Ajouter une section Ecrans & choix techniques avec une selection courte de visuels forts. |
 
 ## Maquettes retenues
