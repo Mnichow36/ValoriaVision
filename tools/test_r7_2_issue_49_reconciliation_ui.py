@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QApplication
+
+from app.services.forecast_reconciliation_service import ForecastReconciliationService
+from app.ui.reconciliation_page import ReconciliationPage
+from tools.test_r7_2_issue_49_reconciliation_scope import add_occurrence, make_db
+
+
+def kpi_value(page: ReconciliationPage, key: str) -> int:
+    return int(page.kpi_buttons[key].text().rsplit("  ", 1)[1])
+
+
+def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
+    app = QApplication.instance() or QApplication([])
+    db = make_db()
+    account_id = int(db.list_accounts()[0]["id"])
+
+    assert db.insert_transaction(account_id, "2030-06-10", "IMPORT UI", "Test", -10, "Import bancaire")
+    assert db.insert_transaction(account_id, "2030-06-11", "MANUEL UI", "Test", -20, "Manuel")
+    planned_id = add_occurrence(db, account_id, day="2030-06-12", label="PREVUE UI", amount=-30, source_id=201)
+    review_id = add_occurrence(db, account_id, day="2030-06-13", label="A VERIFIER UI", amount=-40, status="to_review", source_id=202)
+    add_occurrence(db, account_id, day="2030-06-14", label="FINALISEE UI", amount=-50, status="confirmed", source_id=203)
+
+    page = ReconciliationPage(db)
+    page.start_date.setDate(QDate(2030, 6, 1))
+    page.end_date.setDate(QDate(2030, 6, 30))
+    page.account_filter.setCurrentIndex(page.account_filter.findData(account_id))
+    page.refresh()
+    app.processEvents()
+
+    assert page.transactions_table.rowCount() == 2
+    assert page.occurrences_table.rowCount() == 2
+    assert kpi_value(page, "active") == 2
+    assert kpi_value(page, "all") == 3
+    assert kpi_value(page, "planned") == 1
+    assert kpi_value(page, "to_review") == 1
+    assert kpi_value(page, "confirmed") == 1
+
+    page.set_status_filter("planned")
+    app.processEvents()
+    assert page.occurrences_table.rowCount() == 1
+    assert int(page.occurrences_table.item(0, 1).data(256)) == planned_id
+    assert kpi_value(page, "all") == 3
+
+    page.set_status_filter("to_review")
+    app.processEvents()
+    assert page.occurrences_table.rowCount() == 1
+    assert int(page.occurrences_table.item(0, 1).data(256)) == review_id
+
+    # A new eligible row becomes visible on refresh; no application restart.
+    assert db.insert_transaction(account_id, "2030-06-15", "AJOUT SANS REDEMARRAGE", "Test", -60, "Manuel")
+    page.refresh()
+    app.processEvents()
+    assert page.transactions_table.rowCount() == 3
+
+    # The UI must inherit the engine's exhaustive default, beyond the old 500-row cap.
+    with db.connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO transactions(account_id, tx_date, label, amount, tx_type, source)
+            VALUES (?, '2030-06-20', ?, -1, 'Débit', 'Manuel')
+            """,
+            [(account_id, f"UI BULK {index:04d}") for index in range(0, 505)],
+        )
+    page.refresh()
+    app.processEvents()
+    assert page.transactions_table.rowCount() == 508
+
+    page.close()
+
+
+if __name__ == "__main__":
+    test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart()
+    print("OK - issue #49 interface, filtres, KPI et rafraîchissement sans redémarrage")
