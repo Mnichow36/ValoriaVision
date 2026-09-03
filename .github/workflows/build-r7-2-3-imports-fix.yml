@@ -33,7 +33,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $Zip = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.zip" | Select-Object -First 1
-          $Sha = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_LOT6_2_CONSOLIDATION_PREVISIONNEL_*.sha256.txt" | Select-Object -First 1
+          $Zip = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_RAPPROCHEMENTS_BETA_*.zip" | Select-Object -First 1
+          $Sha = Get-ChildItem "release/ValoriaVision_INSTALLABLE_V0_6_6_R7_2_4_RAPPROCHEMENTS_BETA_*.sha256.txt" | Select-Object -First 1
+          if (!$Zip -or !$Sha) { throw "Archive R7.2.4 Rapprochements beta ou empreinte SHA-256 introuvable." }
           $Tag = "recipe-r7.2.4-lot6.2-navigation-perf-" + "${{ github.run_number }}"
-          gh release create $Tag $Zip.FullName $Sha.FullName --target "${{ github.sha }}" --title "Recette R7.2.4 Lot 6.2 — Navigation Rapprochements" --notes "Build de recette intégrant l’optimisation du chargement et de la navigation du module Rapprochements. Tests automatisés R7.2 exécutés avant publication." --prerelease
+          gh release create $Tag $Zip.FullName $Sha.FullName --target "${{ github.sha }}" --title "Valoria Vision V0.6.6-R7.2.4 — Rapprochements beta" --notes "Archive Windows qualifiée pour la recette utilisateur des rapprochements (#49 et #82). Tests automatisés R7.2 exécutés avant publication." --prerelease
