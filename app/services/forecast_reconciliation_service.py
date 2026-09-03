@@ -131,7 +131,7 @@ class ForecastReconciliationService:
         end_date: str | date | None = None,
         account_id: int | None = None,
         status: str | None = "active",
-        limit: int = 500,
+        limit: int | None = None,
     ) -> dict:
         """Build complete eligible data first, then apply display filters."""
         start = _parse_date(start_date) if start_date else date.today() - timedelta(days=90)
@@ -155,16 +155,18 @@ class ForecastReconciliationService:
             if self._status_matches(str(occ["status"]), status):
                 filtered_occurrences.append(occ)
 
+        visible_transactions = filtered_transactions if limit is None else filtered_transactions[:limit]
+        visible_occurrences = filtered_occurrences if limit is None else filtered_occurrences[:limit]
         summary = self._summary_from_occurrences(all_occurrences)
         return {
-            "transactions": filtered_transactions[:limit],
-            "occurrences": filtered_occurrences[:limit],
+            "transactions": visible_transactions,
+            "occurrences": visible_occurrences,
             "summary": summary,
             "source_counts": {
                 "transactions_loaded": len(all_transactions),
                 "occurrences_loaded": len(all_occurrences),
-                "transactions_displayed": len(filtered_transactions[:limit]),
-                "occurrences_displayed": len(filtered_occurrences[:limit]),
+                "transactions_displayed": len(visible_transactions),
+                "occurrences_displayed": len(visible_occurrences),
             },
         }
 
@@ -459,10 +461,10 @@ class ForecastReconciliationService:
             )
             return int(cur.rowcount or 0)
 
-    def list_imported_transactions(self, start_date=None, end_date=None, account_id=None, limit: int = 500) -> list:
+    def list_imported_transactions(self, start_date=None, end_date=None, account_id=None, limit: int | None = None) -> list:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, "active", limit)["transactions"]
 
-    def list_occurrences(self, status: str | None = "active", start_date=None, end_date=None, account_id=None, limit: int = 500) -> list:
+    def list_occurrences(self, status: str | None = "active", start_date=None, end_date=None, account_id=None, limit: int | None = None) -> list:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, status, limit)["occurrences"]
 
     def summary(self, start_date=None, end_date=None, account_id=None) -> dict:
