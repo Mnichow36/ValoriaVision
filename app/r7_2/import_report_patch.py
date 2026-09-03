@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 from pathlib import Path
 from typing import Iterable, Any
 
@@ -146,6 +147,26 @@ def apply_r7_2_import_report_patch() -> None:
             ).fetchone()
             if not batch:
                 raise ValueError("Lot d'import introuvable.")
+            analysis = getattr(self, "_r7_2_current_import_analysis", None)
+            for rejected in list(getattr(analysis, "rejected_lines", []) or []):
+                exists = conn.execute(
+                    "SELECT 1 FROM import_line_audit WHERE import_batch_id = ? AND source_line = ? AND decision = 'rejected' LIMIT 1",
+                    (batch_id, rejected.line_number),
+                ).fetchone()
+                if not exists:
+                    conn.execute(
+                        """
+                        INSERT INTO import_line_audit(
+                            import_batch_id, file_name, account_id, source_line,
+                            decision, reason, raw_payload, source_profile
+                        ) VALUES (?, ?, ?, ?, 'rejected', ?, ?, ?)
+                        """,
+                        (
+                            batch_id, batch["file_name"], batch["account_id"], rejected.line_number,
+                            rejected.reason, json.dumps(rejected.raw_payload, ensure_ascii=False),
+                            batch["parser_profile"],
+                        ),
+                    )
             rows = _audit_rows(conn, batch_id)
             report = _build_report(batch, rows)
 

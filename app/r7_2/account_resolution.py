@@ -70,6 +70,10 @@ def account_variants(account: Any) -> list[str]:
             variants.append(digits)
         if bban_digits and bban_digits != digits:
             variants.append(bban_digits)
+        # French BBAN/RIB: bank (5) + branch (5) + account (11) + key (2).
+        # Some bank exports expose only the central 11-character account part.
+        if len(bban_digits) == 23:
+            variants.append(bban_digits[10:21])
         # Useful long suffixes for banks exposing only the account component.
         for size in (23, 18, 16, 14, 12, 11, 10, 8):
             if len(digits) >= size:

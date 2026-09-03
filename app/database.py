@@ -20,6 +20,16 @@ DB_PATH = DATA_DIR / "valoria_vision.db"
 SCHEMA_VERSION = 15
 
 
+class ClosingConnection(sqlite3.Connection):
+    """SQLite connection whose context manager also releases the file handle."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 @dataclass
 class Account:
     id: int
@@ -158,7 +168,7 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         recovered = self.ensure_valid_database_file()
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         if recovered is not None:

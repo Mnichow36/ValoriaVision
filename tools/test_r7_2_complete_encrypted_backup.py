@@ -20,13 +20,13 @@ def main() -> None:
         db = Database(db_path)
         db.initialize()
         db.set_setting("lot53.preference.test", "restored-ok")
-        db.upsert_category({
-            "name": "Lot53 Test Catégorie",
-            "kind": "Dépense",
-            "direction": "Dépense",
-            "color": "#123456",
-            "budget_enabled": True,
-        })
+        db.add_category(
+            "Lot53 Test Catégorie",
+            kind="Dépense",
+            direction="Dépense",
+            color="#123456",
+            budget_enabled=True,
+        )
         db.create_complete_encrypted_backup(backup_path)
 
         manifest = db.encrypted_backup_manifest(backup_path)

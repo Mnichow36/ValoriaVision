@@ -1,0 +1,21 @@
+VALORIA VISION - V0.6.6-R7.2.4 RAPPROCHEMENTS BETA
+
+Cette archive est destinée à la recette fonctionnelle du module Rapprochements.
+
+Lancement
+1. Décompresser entièrement l'archive dans un dossier local.
+2. Ouvrir le dossier "Valoria Vision".
+3. Lancer "Valoria Vision.exe".
+
+Périmètre principal
+- exhaustivité et cohérence des transactions/prévisions (#49) ;
+- file active limitée aux transactions disposant d'un candidat cohérent ;
+- propositions ambiguës à valider ou rejeter explicitement ;
+- rapprochements partiels et multi-éléments (#82) ;
+- affichage du réalisé cumulé et du reste à couvrir.
+
+Précaution
+Effectuer la recette sur une copie de la base ou après une sauvegarde complète.
+Ne pas supprimer une version précédente avant validation de cette archive.
+
+La somme SHA-256 livrée avec l'archive permet de contrôler son intégrité.

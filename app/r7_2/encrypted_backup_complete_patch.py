@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import tempfile
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,7 @@ def _table_count(conn: sqlite3.Connection, table: str) -> int | None:
 
 
 def _configuration_manifest(db_path: Path) -> dict[str, Any]:
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         tables = {table: _table_count(conn, table) for table in CONFIG_TABLES}
