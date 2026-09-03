@@ -928,6 +928,32 @@ class Database:
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reconciliation_links_occurrence ON forecast_reconciliation_links(occurrence_id, deleted_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reconciliation_links_transaction ON forecast_reconciliation_links(transaction_id, deleted_at)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecast_reconciliation_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                occurrence_id INTEGER NOT NULL,
+                transaction_id INTEGER NOT NULL,
+                score INTEGER NOT NULL,
+                reason TEXT,
+                status TEXT NOT NULL DEFAULT 'to_review',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TEXT,
+                FOREIGN KEY(occurrence_id) REFERENCES forecast_occurrences(id) ON DELETE CASCADE,
+                FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_reconciliation_proposals_active_pair
+            ON forecast_reconciliation_proposals(occurrence_id, transaction_id)
+            WHERE deleted_at IS NULL AND status = 'to_review'
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reconciliation_proposals_transaction ON forecast_reconciliation_proposals(transaction_id, status, deleted_at)")
         # Preserve links created by versions that stored one transaction directly
         # on the occurrence. INSERT OR IGNORE keeps the migration idempotent.
         conn.execute(

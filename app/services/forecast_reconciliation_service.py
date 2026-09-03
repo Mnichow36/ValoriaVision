@@ -149,6 +149,10 @@ class ForecastReconciliationService:
             # Active working list: hide transactions already consumed by an active/final link.
             if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"]:
                 continue
+            if status in {None, "", "active", "planned", "overdue", "to_review"}:
+                candidates = self.find_candidates(tx)
+                if not candidates or candidates[0]["score"] < self.REVIEW_THRESHOLD:
+                    continue
             filtered_transactions.append(tx)
 
         filtered_occurrences = []
@@ -158,16 +162,19 @@ class ForecastReconciliationService:
 
         visible_transactions = filtered_transactions if limit is None else filtered_transactions[:limit]
         visible_occurrences = filtered_occurrences if limit is None else filtered_occurrences[:limit]
+        proposals = self._eligible_proposals(start, end, account_id)
         summary = self._summary_from_occurrences(all_occurrences)
         return {
             "transactions": visible_transactions,
             "occurrences": visible_occurrences,
+            "proposals": proposals,
             "summary": summary,
             "source_counts": {
                 "transactions_loaded": len(all_transactions),
                 "occurrences_loaded": len(all_occurrences),
                 "transactions_displayed": len(visible_transactions),
                 "occurrences_displayed": len(visible_occurrences),
+                "proposals_loaded": len(proposals),
             },
         }
 
@@ -204,15 +211,19 @@ class ForecastReconciliationService:
                     SELECT t.*,
                            a.name AS account_name,
                            a.bank AS bank,
-                           o.id AS linked_occurrence_id,
-                           o.expected_label AS linked_expected_label,
-                           o.status AS linked_status
+                           (SELECT l.occurrence_id FROM forecast_reconciliation_links l
+                            WHERE l.transaction_id = t.id AND l.deleted_at IS NULL
+                            ORDER BY l.id LIMIT 1) AS linked_occurrence_id,
+                           (SELECT o.expected_label FROM forecast_reconciliation_links l
+                            JOIN forecast_occurrences o ON o.id = l.occurrence_id
+                            WHERE l.transaction_id = t.id AND l.deleted_at IS NULL
+                            ORDER BY l.id LIMIT 1) AS linked_expected_label,
+                           (SELECT o.status FROM forecast_reconciliation_links l
+                            JOIN forecast_occurrences o ON o.id = l.occurrence_id
+                            WHERE l.transaction_id = t.id AND l.deleted_at IS NULL
+                            ORDER BY l.id LIMIT 1) AS linked_status
                     FROM transactions t
                     JOIN accounts a ON a.id = t.account_id
-                    LEFT JOIN forecast_occurrences o
-                        ON o.actual_transaction_id = t.id
-                       AND o.deleted_at IS NULL
-                       AND o.status IN ('auto_matched', 'confirmed', 'to_review')
                     WHERE t.source IN ('Import bancaire', 'Manuel')
                       AND a.status = 'Actif'
                       AND t.tx_date BETWEEN ? AND ?
@@ -247,6 +258,30 @@ class ForecastReconciliationService:
                 )
             )
 
+    def _eligible_proposals(self, start: date, end: date, account_id: int | None) -> list:
+        with self.db.connect() as conn:
+            return list(
+                conn.execute(
+                    """
+                    SELECT p.*, o.expected_date, o.expected_label, o.expected_amount,
+                           o.matched_amount, o.remaining_amount, o.overage_amount,
+                           t.tx_date, t.label AS tx_label, t.amount AS tx_amount,
+                           a.name AS account_name
+                    FROM forecast_reconciliation_proposals p
+                    JOIN forecast_occurrences o ON o.id = p.occurrence_id
+                    JOIN transactions t ON t.id = p.transaction_id
+                    LEFT JOIN accounts a ON a.id = o.account_id
+                    WHERE p.deleted_at IS NULL
+                      AND p.status = 'to_review'
+                      AND o.deleted_at IS NULL
+                      AND o.expected_date BETWEEN ? AND ?
+                      AND (? IS NULL OR o.account_id = ?)
+                    ORDER BY p.score DESC, o.expected_date, p.id
+                    """,
+                    (start.isoformat(), end.isoformat(), account_id, account_id),
+                )
+            )
+
     def reconcile_import_batch(self, import_batch_id: int) -> dict:
         transactions = self._imported_transactions(import_batch_id)
         if not transactions:
@@ -269,7 +304,7 @@ class ForecastReconciliationService:
                 else:
                     summary["unmatched"] += 1
             elif best["score"] >= self.REVIEW_THRESHOLD:
-                if self._link_occurrence(best["occurrence"]["id"], tx, best, "to_review", "proposal"):
+                if self._save_proposal(best):
                     summary["to_review"] += 1
                 else:
                     summary["unmatched"] += 1
@@ -308,7 +343,7 @@ class ForecastReconciliationService:
                     FROM forecast_occurrences o
                     LEFT JOIN accounts a ON a.id = o.account_id
                     WHERE o.deleted_at IS NULL
-                      AND o.status IN ('planned', 'overdue', 'to_review')
+                      AND o.status IN ('planned', 'overdue', 'to_review', 'partially_matched')
                       AND o.account_id = ?
                       AND o.direction = ?
                       AND o.expected_date BETWEEN ? AND ?
@@ -324,6 +359,34 @@ class ForecastReconciliationService:
             score, reason = self.compute_match_score(occurrence, transaction)
             scored.append({"occurrence": occurrence, "transaction": transaction, "score": score, "reason": reason})
         return sorted(scored, key=lambda row: row["score"], reverse=True)
+
+    def _save_proposal(self, scored: dict) -> bool:
+        occurrence = scored["occurrence"]
+        transaction = scored["transaction"]
+        with self.db.connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT id FROM forecast_reconciliation_proposals
+                WHERE occurrence_id = ? AND transaction_id = ?
+                  AND deleted_at IS NULL AND status = 'to_review'
+                """,
+                (occurrence["id"], transaction["id"]),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE forecast_reconciliation_proposals SET score = ?, reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (int(scored["score"]), scored["reason"], existing["id"]),
+                )
+                return True
+            conn.execute(
+                """
+                INSERT INTO forecast_reconciliation_proposals(
+                    uuid, occurrence_id, transaction_id, score, reason
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (str(uuid4()), occurrence["id"], transaction["id"], int(scored["score"]), scored["reason"]),
+            )
+            return True
 
     def compute_match_score(self, occurrence, transaction) -> tuple[int, str]:
         score = 0
@@ -410,41 +473,14 @@ class ForecastReconciliationService:
         return row is not None
 
     def _link_occurrence(self, occurrence_id: int, transaction, scored: dict, status: str, match_type: str) -> bool:
-        expected_amount = float(scored["occurrence"]["expected_amount"] or 0)
-        actual_amount = float(transaction["amount"] or 0)
-        with self.db.connect() as conn:
-            occ = conn.execute("SELECT status, actual_transaction_id FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL", (occurrence_id,)).fetchone()
-            if not occ or (occ["actual_transaction_id"] is not None and int(occ["actual_transaction_id"]) != int(transaction["id"])):
-                return False
-            if self._transaction_already_linked(conn, int(transaction["id"]), occurrence_id):
-                return False
-            conn.execute(
-                """
-                UPDATE forecast_occurrences
-                SET status = ?,
-                    actual_transaction_id = ?,
-                    actual_date = ?,
-                    actual_amount = ?,
-                    amount_delta = ?,
-                    match_confidence = ?,
-                    match_reason = ?,
-                    match_type = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (
-                    status,
-                    transaction["id"],
-                    transaction["tx_date"],
-                    actual_amount,
-                    round(actual_amount - expected_amount, 2),
-                    int(scored["score"]),
-                    scored["reason"],
-                    match_type,
-                    occurrence_id,
-                ),
-            )
-            return True
+        linked, _ = self.add_reconciliation_link(
+            occurrence_id,
+            int(transaction["id"]),
+            match_type=match_type,
+            confidence=int(scored["score"]),
+            reason=scored["reason"],
+        )
+        return linked
 
     def mark_overdue(self, reference_date: str | date) -> int:
         ref = _parse_date(reference_date).isoformat()
@@ -545,7 +581,7 @@ class ForecastReconciliationService:
         elif remaining > tolerance:
             status = "partially_matched"
         else:
-            status = "confirmed"
+            status = "auto_matched" if len(links) == 1 and links[0]["match_type"] == "automatic" else "confirmed"
         first = links[0] if links else None
         conn.execute(
             """
@@ -600,10 +636,6 @@ class ForecastReconciliationService:
             transaction = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
             if not occurrence or not transaction:
                 return 0, "Occurrence ou transaction introuvable."
-            if occurrence["actual_transaction_id"] is not None and int(occurrence["actual_transaction_id"]) != int(transaction_id):
-                return 0, "Cette occurrence est déjà liée à une autre transaction."
-            if self._transaction_already_linked(conn, transaction_id, occurrence_id):
-                return 0, "Cette transaction est déjà liée à un autre rapprochement."
 
         score, reason = self.compute_match_score(occurrence, transaction)
         linked = self._link_occurrence(

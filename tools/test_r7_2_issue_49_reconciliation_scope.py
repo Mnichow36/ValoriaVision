@@ -87,7 +87,7 @@ def test_issue_49_default_dataset_never_silently_truncates() -> None:
             [(account_id, f"MANUEL {index:04d}") for index in range(0, 525)],
         )
 
-    dataset = service.build_reconciliation_dataset(START, END, account_id, "active")
+    dataset = service.build_reconciliation_dataset(START, END, account_id, "all")
     assert len(dataset["transactions"]) == 525
     assert dataset["source_counts"]["transactions_loaded"] == 525
     assert dataset["source_counts"]["transactions_displayed"] == 525

@@ -99,8 +99,57 @@ def test_issue_82_overage_remains_visible() -> None:
     assert float(row["overage_amount"]) == 20
 
 
+def test_issue_82_active_queue_and_ambiguous_proposal() -> None:
+    db = make_db()
+    service = ForecastReconciliationService(db)
+    account_id = int(db.list_accounts()[0]["id"])
+    add_occurrence(db, account_id, day="2030-07-10", label="LOYER PREVU", amount=-100, source_id=8205)
+    assert db.insert_transaction(account_id, "2030-07-10", "PAIEMENT POSSIBLE", "Test", -300, "Manuel")
+    assert db.insert_transaction(account_id, "2030-07-10", "SANS PREVISION", "Test", 75, "Manuel")
+    possible_id = transaction_id(db, "PAIEMENT POSSIBLE")
+
+    with db.connect() as conn:
+        possible = conn.execute("SELECT * FROM transactions WHERE id = ?", (possible_id,)).fetchone()
+    candidates = service.find_candidates(possible)
+    assert candidates and service.REVIEW_THRESHOLD <= candidates[0]["score"] < service.AUTO_THRESHOLD
+    assert service._save_proposal(candidates[0])
+
+    dataset = service.build_reconciliation_dataset("2030-07-01", "2030-07-31", account_id, "active")
+    assert {row["label"] for row in dataset["transactions"]} == {"PAIEMENT POSSIBLE"}
+    assert len(dataset["proposals"]) == 1
+    assert int(dataset["proposals"][0]["transaction_id"]) == possible_id
+    assert dataset["proposals"][0]["status"] == "to_review"
+    assert occurrence(db, int(dataset["proposals"][0]["occurrence_id"]))["actual_transaction_id"] is None
+
+
+def test_issue_82_strong_match_uses_validated_link() -> None:
+    db = make_db()
+    service = ForecastReconciliationService(db)
+    account_id = int(db.list_accounts()[0]["id"])
+    occurrence_id = add_occurrence(db, account_id, day="2030-08-10", label="LOYER", amount=-800, source_id=8206)
+    batch_id = db.create_import_batch("issue82.csv", account_id, parser_profile="Test")
+    assert db.insert_transaction(
+        account_id, "2030-08-10", "LOYER", "Test", -800, "Import bancaire", batch_id,
+        source_line=1, source_profile="Test", source_identifier="ISSUE82-STRONG",
+    )
+
+    result = service.reconcile_import_batch(batch_id)
+    assert result["auto"] == 1
+    row = occurrence(db, occurrence_id)
+    assert row["status"] == "auto_matched"
+    assert float(row["matched_amount"]) == 800
+    assert float(row["remaining_amount"]) == 0
+    with db.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM forecast_reconciliation_links WHERE occurrence_id = ? AND deleted_at IS NULL",
+            (occurrence_id,),
+        ).fetchone()[0] == 1
+
+
 if __name__ == "__main__":
     test_issue_82_partial_rollup_and_cancel()
     test_issue_82_one_transaction_can_be_allocated_to_multiple_occurrences()
     test_issue_82_overage_remains_visible()
+    test_issue_82_active_queue_and_ambiguous_proposal()
+    test_issue_82_strong_match_uses_validated_link()
     print("OK - issue #82 socle multi-liens et rapprochement partiel")
