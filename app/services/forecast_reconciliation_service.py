@@ -10,12 +10,13 @@ STATUS_LABELS = {
     "auto_matched": "Rapprochée automatiquement",
     "confirmed": "Rapprochée manuellement",
     "to_review": "À vérifier",
+    "partially_matched": "Partiellement rapprochée",
     "overdue": "En retard",
     "ignored": "Ignorée",
     "cancelled": "Annulée",
 }
 
-ACTIVE_STATUSES = {"planned", "overdue", "to_review"}
+ACTIVE_STATUSES = {"planned", "overdue", "to_review", "partially_matched"}
 FINAL_STATUSES = {"auto_matched", "confirmed", "ignored", "cancelled"}
 MANUAL_STATUS = "confirmed"
 AUTO_STATUS = "auto_matched"
@@ -460,6 +461,129 @@ class ForecastReconciliationService:
                 (ref,),
             )
             return int(cur.rowcount or 0)
+
+    def add_reconciliation_link(
+        self,
+        occurrence_id: int,
+        transaction_id: int,
+        applied_amount: float | None = None,
+        match_type: str = "manual",
+        confidence: int | None = None,
+        reason: str = "",
+    ) -> tuple[bool, str]:
+        """Attach one transaction allocation and recalculate the occurrence rollup."""
+        with self.db.connect() as conn:
+            occurrence = conn.execute(
+                "SELECT * FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+            transaction = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+            if not occurrence or not transaction:
+                return False, "Occurrence ou transaction introuvable."
+            if occurrence["account_id"] is not None and int(occurrence["account_id"]) != int(transaction["account_id"]):
+                return False, "Le compte de la transaction ne correspond pas à celui de la prévision."
+            expected_direction = str(occurrence["direction"])
+            transaction_direction = "credit" if float(transaction["amount"] or 0) >= 0 else "debit"
+            if expected_direction != transaction_direction:
+                return False, "Le sens de la transaction ne correspond pas à celui de la prévision."
+
+            transaction_total = abs(float(transaction["amount"] or 0))
+            already_allocated = float(
+                conn.execute(
+                    "SELECT COALESCE(SUM(applied_amount), 0) FROM forecast_reconciliation_links WHERE transaction_id = ? AND deleted_at IS NULL",
+                    (transaction_id,),
+                ).fetchone()[0]
+            )
+            transaction_remaining = max(transaction_total - already_allocated, 0.0)
+            occurrence_realized = float(
+                conn.execute(
+                    "SELECT COALESCE(SUM(applied_amount), 0) FROM forecast_reconciliation_links WHERE occurrence_id = ? AND deleted_at IS NULL",
+                    (occurrence_id,),
+                ).fetchone()[0]
+            )
+            occurrence_remaining = max(abs(float(occurrence["expected_amount"] or 0)) - occurrence_realized, 0.0)
+            allocation = min(transaction_remaining, occurrence_remaining) if applied_amount is None else abs(float(applied_amount))
+            if allocation <= 0.005:
+                return False, "Aucun montant restant ne peut être affecté."
+            if allocation - transaction_remaining > 0.005:
+                return False, "Le montant affecté dépasse le solde disponible de la transaction."
+
+            conn.execute(
+                """
+                INSERT INTO forecast_reconciliation_links(
+                    uuid, occurrence_id, transaction_id, applied_amount,
+                    match_type, confidence, reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (str(uuid4()), occurrence_id, transaction_id, round(allocation, 2), match_type, confidence, reason),
+            )
+            self._refresh_occurrence_rollup(conn, occurrence_id)
+        return True, "Rapprochement ajouté et montants recalculés."
+
+    def _refresh_occurrence_rollup(self, conn, occurrence_id: int) -> None:
+        occurrence = conn.execute(
+            "SELECT expected_amount, expected_date FROM forecast_occurrences WHERE id = ?",
+            (occurrence_id,),
+        ).fetchone()
+        links = conn.execute(
+            """
+            SELECT l.transaction_id, l.applied_amount, l.match_type, t.tx_date
+            FROM forecast_reconciliation_links l
+            JOIN transactions t ON t.id = l.transaction_id
+            WHERE l.occurrence_id = ? AND l.deleted_at IS NULL
+            ORDER BY l.created_at, l.id
+            """,
+            (occurrence_id,),
+        ).fetchall()
+        expected = abs(float(occurrence["expected_amount"] or 0))
+        realized = round(sum(float(link["applied_amount"] or 0) for link in links), 2)
+        remaining = round(max(expected - realized, 0.0), 2)
+        overage = round(max(realized - expected, 0.0), 2)
+        tolerance = max(0.01, expected * 0.02)
+        if not links:
+            status = "overdue" if _parse_date(occurrence["expected_date"]) < date.today() else "planned"
+        elif remaining > tolerance:
+            status = "partially_matched"
+        else:
+            status = "confirmed"
+        first = links[0] if links else None
+        conn.execute(
+            """
+            UPDATE forecast_occurrences
+            SET status = ?, actual_transaction_id = ?, actual_date = ?, actual_amount = ?,
+                amount_delta = ?, matched_amount = ?, remaining_amount = ?, overage_amount = ?,
+                match_type = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                status,
+                first["transaction_id"] if first else None,
+                first["tx_date"] if first else None,
+                (-realized if occurrence["expected_amount"] < 0 else realized) if links else None,
+                ((-realized if occurrence["expected_amount"] < 0 else realized) - float(occurrence["expected_amount"])) if links else None,
+                realized,
+                remaining,
+                overage,
+                "multi" if len(links) > 1 else (first["match_type"] if first else None),
+                occurrence_id,
+            ),
+        )
+
+    def cancel_reconciliation_link(self, occurrence_id: int, transaction_id: int) -> tuple[bool, str]:
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE forecast_reconciliation_links
+                SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE occurrence_id = ? AND transaction_id = ? AND deleted_at IS NULL
+                """,
+                (occurrence_id, transaction_id),
+            )
+            if not cursor.rowcount:
+                return False, "Rapprochement introuvable."
+            self._refresh_occurrence_rollup(conn, occurrence_id)
+        return True, "Rapprochement annulé et montants recalculés."
 
     def list_imported_transactions(self, start_date=None, end_date=None, account_id=None, limit: int | None = None) -> list:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, "active", limit)["transactions"]

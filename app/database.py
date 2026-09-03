@@ -17,7 +17,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
 DB_PATH = DATA_DIR / "valoria_vision.db"
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 @dataclass
@@ -533,6 +533,7 @@ class Database:
         self.apply_forecast_reconciliation_foundation(conn)
         self.apply_premium_foundation(conn)
         self.apply_r7_2_foundation(conn)
+        self.apply_reconciliation_multi_link_foundation(conn)
 
     def ensure_columns(self, conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -881,6 +882,77 @@ class Database:
         conn.execute("UPDATE forecast_occurrences SET match_type = 'manual' WHERE status = 'confirmed' AND (match_type IS NULL OR match_type = '')")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_reconciliation_source ON transactions(source, account_id, tx_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_match_type ON forecast_occurrences(match_type, status)")
+
+    def apply_reconciliation_multi_link_foundation(self, conn: sqlite3.Connection) -> None:
+        """V0.6.6-R7.2.4 - multi-element and partial reconciliation links."""
+        self.ensure_columns(conn, "forecast_occurrences", {
+            "matched_amount": "REAL NOT NULL DEFAULT 0",
+            "remaining_amount": "REAL",
+            "overage_amount": "REAL NOT NULL DEFAULT 0",
+        })
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecast_reconciliation_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                occurrence_id INTEGER NOT NULL,
+                transaction_id INTEGER NOT NULL,
+                applied_amount REAL NOT NULL,
+                match_type TEXT NOT NULL DEFAULT 'manual',
+                confidence INTEGER,
+                reason TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TEXT,
+                FOREIGN KEY(occurrence_id) REFERENCES forecast_occurrences(id) ON DELETE CASCADE,
+                FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE forecast_occurrences
+            SET matched_amount = ABS(COALESCE(actual_amount, 0)),
+                remaining_amount = MAX(ABS(expected_amount) - ABS(COALESCE(actual_amount, 0)), 0),
+                overage_amount = MAX(ABS(COALESCE(actual_amount, 0)) - ABS(expected_amount), 0)
+            WHERE actual_transaction_id IS NOT NULL
+              AND (matched_amount = 0 OR remaining_amount IS NULL)
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_reconciliation_links_active_pair
+            ON forecast_reconciliation_links(occurrence_id, transaction_id)
+            WHERE deleted_at IS NULL
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reconciliation_links_occurrence ON forecast_reconciliation_links(occurrence_id, deleted_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reconciliation_links_transaction ON forecast_reconciliation_links(transaction_id, deleted_at)")
+        # Preserve links created by versions that stored one transaction directly
+        # on the occurrence. INSERT OR IGNORE keeps the migration idempotent.
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO forecast_reconciliation_links(
+                uuid, occurrence_id, transaction_id, applied_amount,
+                match_type, confidence, reason, created_at, updated_at
+            )
+            SELECT lower(hex(randomblob(16))), o.id, o.actual_transaction_id,
+                   ABS(COALESCE(o.actual_amount, t.amount, 0)),
+                   COALESCE(o.match_type, 'legacy'), o.match_confidence,
+                   COALESCE(o.match_reason, 'Migration du rapprochement historique.'),
+                   o.created_at, o.updated_at
+            FROM forecast_occurrences o
+            JOIN transactions t ON t.id = o.actual_transaction_id
+            WHERE o.deleted_at IS NULL
+              AND o.actual_transaction_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM forecast_reconciliation_links l
+                  WHERE l.occurrence_id = o.id
+                    AND l.transaction_id = o.actual_transaction_id
+                    AND l.deleted_at IS NULL
+              )
+            """
+        )
 
 
     def apply_premium_foundation(self, conn: sqlite3.Connection) -> None:
