@@ -92,11 +92,17 @@ class ReconciliationPage(QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.build_transactions_panel())
         splitter.addWidget(self.build_occurrences_panel())
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+        right_layout.addWidget(self.build_proposal_panel(), stretch=3)
         self.kpi_panel = self.build_kpi_panel()
-        splitter.addWidget(self.kpi_panel)
-        splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 2)
+        right_layout.addWidget(self.kpi_panel, stretch=2)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 4)
+        splitter.setStretchFactor(2, 4)
         self.layout.addWidget(splitter, stretch=1)
 
         self.refresh_accounts()
@@ -153,7 +159,7 @@ class ReconciliationPage(QWidget):
         layout.addWidget(self.panel_title("Occurrences prévisionnelles", "Par défaut : opérations restant à traiter. Les finalisées sont accessibles via les filtres de statut."))
 
         self.occurrences_table = QTableWidget(0, 8)
-        self.occurrences_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Prévu", "Statut", "Réalisé", "Écart"])
+        self.occurrences_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Prévu", "Statut", "Réalisé", "Reste"])
         self.prepare_table(self.occurrences_table)
         header = self.occurrences_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Fixed)
@@ -204,6 +210,7 @@ class ReconciliationPage(QWidget):
             ("planned", "Prévue"),
             ("overdue", "En retard"),
             ("to_review", "À vérifier"),
+            ("partially_matched", "Partiellement rapprochée"),
             ("auto_matched", "Rapprochée auto"),
             ("confirmed", "Rapprochée manuelle"),
             ("ignored", "Ignorée"),
@@ -216,6 +223,35 @@ class ReconciliationPage(QWidget):
             self.kpi_buttons[key] = button
             layout.addWidget(button)
         layout.addStretch(1)
+        return card
+
+    def build_proposal_panel(self) -> Card:
+        card = Card()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 16)
+        layout.setSpacing(8)
+        layout.addWidget(self.panel_title("Proposition de rapprochement", "Correspondances plausibles à valider explicitement."))
+        self.proposals_table = QTableWidget(0, 5)
+        self.proposals_table.setHorizontalHeaderLabels(["Score", "Transaction", "Prévision", "Écart", "Reste"])
+        self.prepare_table(self.proposals_table)
+        self.proposals_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.proposals_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.proposals_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.proposals_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.proposals_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self.proposals_table.setColumnWidth(0, 64)
+        self.proposals_table.setColumnWidth(3, 85)
+        self.proposals_table.setColumnWidth(4, 85)
+        layout.addWidget(self.proposals_table, stretch=1)
+        actions = QHBoxLayout()
+        validate_btn = primary_button("Valider")
+        validate_btn.clicked.connect(self.confirm_selected_proposal)
+        reject_btn = secondary_button("Rejeter")
+        reject_btn.clicked.connect(self.reject_selected_proposal)
+        actions.addWidget(validate_btn)
+        actions.addWidget(reject_btn)
+        actions.addStretch(1)
+        layout.addLayout(actions)
         return card
 
     def qdate_to_iso(self, widget: QDateEdit) -> str:
@@ -254,6 +290,7 @@ class ReconciliationPage(QWidget):
         dataset = self.current_dataset()
         self.refresh_transactions(dataset)
         self.refresh_occurrences(dataset)
+        self.refresh_proposals(dataset)
         self.refresh_kpis(dataset)
 
     def current_dataset(self, status: str | None = None) -> dict:
@@ -273,6 +310,7 @@ class ReconciliationPage(QWidget):
             "planned": summary.get("planned", 0),
             "overdue": summary.get("overdue", 0),
             "to_review": summary.get("to_review", 0),
+            "partially_matched": summary.get("partially_matched", 0),
             "auto_matched": summary.get("auto_matched", 0),
             "confirmed": summary.get("confirmed", 0),
             "ignored": summary.get("ignored", 0),
@@ -299,7 +337,8 @@ class ReconciliationPage(QWidget):
             checkbox = QCheckBox()
             checkbox.setProperty("tx_id", int(row["id"]))
             self.transactions_table.setCellWidget(row_index, 0, checkbox)
-            linked = "Liée" if row["linked_occurrence_id"] else ""
+            allocated = float(row["allocated_amount"] or 0)
+            linked = "Liée" if allocated >= abs(float(row["amount"] or 0)) - 0.005 else ("Partielle" if allocated else "")
             values = [
                 format_date_fr(row["tx_date"]),
                 row["account_name"] or "",
@@ -332,8 +371,8 @@ class ReconciliationPage(QWidget):
                 row["expected_label"] or "",
                 euro(float(row["expected_amount"] or 0)),
                 STATUS_LABELS.get(row["status"], row["status"]),
-                euro(float(row["actual_amount"] or 0)) if row["actual_amount"] is not None else "",
-                euro(float(row["amount_delta"] or 0)) if row["amount_delta"] is not None else "",
+                euro(float(row["matched_amount"] or 0)) if float(row["matched_amount"] or 0) else "",
+                euro(float(row["remaining_amount"] or 0)) if row["remaining_amount"] is not None else "",
             ]
             for col, value in enumerate(values, start=1):
                 item = QTableWidgetItem(str(value))
@@ -344,6 +383,52 @@ class ReconciliationPage(QWidget):
                 if col == 3:
                     item.setToolTip(str(value))
                 self.occurrences_table.setItem(row_index, col, item)
+
+    def refresh_proposals(self, dataset: dict | None = None) -> None:
+        dataset = dataset or self.current_dataset()
+        rows = dataset.get("proposals", [])
+        self.proposals_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            difference = abs(float(row["tx_amount"] or 0)) - abs(float(row["expected_amount"] or 0))
+            values = [
+                f"{int(row['score'])}%",
+                row["tx_label"] or "",
+                row["expected_label"] or "",
+                euro(difference),
+                euro(float(row["remaining_amount"] or abs(float(row["expected_amount"] or 0)))),
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                if col == 0:
+                    item.setData(Qt.UserRole, int(row["id"]))
+                if col in {0, 3, 4}:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.proposals_table.setItem(row_index, col, item)
+
+    def selected_proposal_id(self) -> int | None:
+        row = self.proposals_table.currentRow()
+        if row < 0:
+            return None
+        item = self.proposals_table.item(row, 0)
+        return int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
+
+    def confirm_selected_proposal(self) -> None:
+        proposal_id = self.selected_proposal_id()
+        if not proposal_id:
+            QMessageBox.information(self, "Proposition", "Sélectionne une proposition à valider.")
+            return
+        ok, message = self.service.confirm_proposal(proposal_id)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Proposition", message)
+        self.refresh()
+
+    def reject_selected_proposal(self) -> None:
+        proposal_id = self.selected_proposal_id()
+        if not proposal_id:
+            QMessageBox.information(self, "Proposition", "Sélectionne une proposition à rejeter.")
+            return
+        ok, message = self.service.reject_proposal(proposal_id)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Proposition", message)
+        self.refresh()
 
     def checked_transaction_id(self) -> int | None:
         found = []

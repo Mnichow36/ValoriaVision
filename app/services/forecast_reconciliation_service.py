@@ -147,7 +147,8 @@ class ForecastReconciliationService:
         filtered_transactions = []
         for tx in all_transactions:
             # Active working list: hide transactions already consumed by an active/final link.
-            if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"]:
+            fully_allocated = float(tx["allocated_amount"] or 0) >= abs(float(tx["amount"] or 0)) - 0.005
+            if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"] and fully_allocated:
                 continue
             if status in {None, "", "active", "planned", "overdue", "to_review"}:
                 candidates = self.find_candidates(tx)
@@ -221,7 +222,10 @@ class ForecastReconciliationService:
                            (SELECT o.status FROM forecast_reconciliation_links l
                             JOIN forecast_occurrences o ON o.id = l.occurrence_id
                             WHERE l.transaction_id = t.id AND l.deleted_at IS NULL
-                            ORDER BY l.id LIMIT 1) AS linked_status
+                            ORDER BY l.id LIMIT 1) AS linked_status,
+                           (SELECT COALESCE(SUM(l.applied_amount), 0)
+                            FROM forecast_reconciliation_links l
+                            WHERE l.transaction_id = t.id AND l.deleted_at IS NULL) AS allocated_amount
                     FROM transactions t
                     JOIN accounts a ON a.id = t.account_id
                     WHERE t.source IN ('Import bancaire', 'Manuel')
@@ -387,6 +391,42 @@ class ForecastReconciliationService:
                 (str(uuid4()), occurrence["id"], transaction["id"], int(scored["score"]), scored["reason"]),
             )
             return True
+
+    def confirm_proposal(self, proposal_id: int) -> tuple[bool, str]:
+        with self.db.connect() as conn:
+            proposal = conn.execute(
+                "SELECT * FROM forecast_reconciliation_proposals WHERE id = ? AND deleted_at IS NULL AND status = 'to_review'",
+                (proposal_id,),
+            ).fetchone()
+        if not proposal:
+            return False, "Proposition introuvable ou déjà traitée."
+        linked, message = self.add_reconciliation_link(
+            int(proposal["occurrence_id"]),
+            int(proposal["transaction_id"]),
+            match_type="manual",
+            confidence=int(proposal["score"]),
+            reason="Proposition validée manuellement. " + str(proposal["reason"] or ""),
+        )
+        if not linked:
+            return False, message
+        with self.db.connect() as conn:
+            conn.execute(
+                "UPDATE forecast_reconciliation_proposals SET status = 'accepted', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (proposal_id,),
+            )
+        return True, "Proposition validée et rapprochement recalculé."
+
+    def reject_proposal(self, proposal_id: int) -> tuple[bool, str]:
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE forecast_reconciliation_proposals
+                SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND deleted_at IS NULL AND status = 'to_review'
+                """,
+                (proposal_id,),
+            )
+        return (True, "Proposition rejetée.") if cursor.rowcount else (False, "Proposition introuvable ou déjà traitée.")
 
     def compute_match_score(self, occurrence, transaction) -> tuple[int, str]:
         score = 0

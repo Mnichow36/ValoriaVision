@@ -146,10 +146,48 @@ def test_issue_82_strong_match_uses_validated_link() -> None:
         ).fetchone()[0] == 1
 
 
+def test_issue_82_proposal_can_be_confirmed_or_rejected_explicitly() -> None:
+    db = make_db()
+    service = ForecastReconciliationService(db)
+    account_id = int(db.list_accounts()[0]["id"])
+    occurrence_id = add_occurrence(db, account_id, day="2030-09-10", label="FACTURE", amount=-100, source_id=8207)
+    assert db.insert_transaction(account_id, "2030-09-10", "PAIEMENT AMBIGU", "Test", -300, "Manuel")
+    tx_id = transaction_id(db, "PAIEMENT AMBIGU")
+    with db.connect() as conn:
+        tx = conn.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+    candidate = service.find_candidates(tx)[0]
+    assert service._save_proposal(candidate)
+    dataset = service.build_reconciliation_dataset("2030-09-01", "2030-09-30", account_id, "active")
+    proposal_id = int(dataset["proposals"][0]["id"])
+
+    assert service.confirm_proposal(proposal_id)[0]
+    row = occurrence(db, occurrence_id)
+    assert row["status"] == "confirmed"
+    assert float(row["matched_amount"]) == 100
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM forecast_reconciliation_proposals WHERE id = ?", (proposal_id,)).fetchone()[0] == "accepted"
+
+    second_occurrence = add_occurrence(db, account_id, day="2030-09-11", label="AUTRE FACTURE", amount=-100, source_id=8208)
+    assert db.insert_transaction(account_id, "2030-09-11", "AUTRE PAIEMENT", "Test", -300, "Manuel")
+    second_tx_id = transaction_id(db, "AUTRE PAIEMENT")
+    with db.connect() as conn:
+        second_tx = conn.execute("SELECT * FROM transactions WHERE id = ?", (second_tx_id,)).fetchone()
+    second_candidate = [item for item in service.find_candidates(second_tx) if int(item["occurrence"]["id"]) == second_occurrence][0]
+    assert service._save_proposal(second_candidate)
+    with db.connect() as conn:
+        second_proposal_id = int(conn.execute(
+            "SELECT id FROM forecast_reconciliation_proposals WHERE transaction_id = ? AND status = 'to_review'",
+            (second_tx_id,),
+        ).fetchone()[0])
+    assert service.reject_proposal(second_proposal_id)[0]
+    assert occurrence(db, second_occurrence)["actual_transaction_id"] is None
+
+
 if __name__ == "__main__":
     test_issue_82_partial_rollup_and_cancel()
     test_issue_82_one_transaction_can_be_allocated_to_multiple_occurrences()
     test_issue_82_overage_remains_visible()
     test_issue_82_active_queue_and_ambiguous_proposal()
     test_issue_82_strong_match_uses_validated_link()
+    test_issue_82_proposal_can_be_confirmed_or_rejected_explicitly()
     print("OK - issue #82 socle multi-liens et rapprochement partiel")

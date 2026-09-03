@@ -26,6 +26,12 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
     planned_id = add_occurrence(db, account_id, day="2030-06-12", label="PREVUE UI", amount=-30, source_id=201)
     review_id = add_occurrence(db, account_id, day="2030-06-13", label="A VERIFIER UI", amount=-40, status="to_review", source_id=202)
     add_occurrence(db, account_id, day="2030-06-14", label="FINALISEE UI", amount=-50, status="confirmed", source_id=203)
+    seed_service = ForecastReconciliationService(db)
+    with db.connect() as conn:
+        ambiguous_tx = conn.execute("SELECT * FROM transactions WHERE label = 'IMPORT UI'").fetchone()
+    candidates = seed_service.find_candidates(ambiguous_tx)
+    assert candidates
+    assert seed_service._save_proposal(candidates[0])
 
     page = ReconciliationPage(db)
     page.start_date.setDate(QDate(2030, 6, 1))
@@ -36,6 +42,7 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
 
     assert page.transactions_table.rowCount() == 2
     assert page.occurrences_table.rowCount() == 2
+    assert page.proposals_table.rowCount() == 1
     assert kpi_value(page, "active") == 2
     assert kpi_value(page, "all") == 3
     assert kpi_value(page, "planned") == 1
@@ -59,7 +66,8 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
     app.processEvents()
     assert page.transactions_table.rowCount() == 3
 
-    # The UI must inherit the engine's exhaustive default, beyond the old 500-row cap.
+    # Transactions without a coherent candidate remain stored but are excluded
+    # from the active reconciliation queue by issue #82.
     with db.connect() as conn:
         conn.executemany(
             """
@@ -70,7 +78,9 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
         )
     page.refresh()
     app.processEvents()
-    assert page.transactions_table.rowCount() == 508
+    assert page.transactions_table.rowCount() == 3
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] >= 508
 
     page.close()
 
