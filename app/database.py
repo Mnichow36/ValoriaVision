@@ -1867,8 +1867,8 @@ class Database:
                 )
             )
 
-    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None) -> bool:
-        if source == "Manuel":
+    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None, respect_amount_sign: bool = False) -> bool:
+        if source == "Manuel" and not respect_amount_sign:
             amount = self.normalize_amount_for_category(category, amount)
         tx_type = "Crédit" if amount >= 0 else "Débit"
         status = "Validée" if category else "À catégoriser"
@@ -1932,8 +1932,11 @@ class Database:
             "status": data.get("status", row["status"] or "Validée"),
             "source": data.get("source", row["source"] or "Manuel"),
         }
-        if payload["source"] == "Manuel":
-            payload["amount"] = self.normalize_amount_for_category(payload["category"], payload["amount"])
+        requested_type = str(data.get("tx_type") or "").strip()
+        if requested_type == "Débit":
+            payload["amount"] = -abs(payload["amount"])
+        elif requested_type == "Crédit":
+            payload["amount"] = abs(payload["amount"])
         payload["tx_type"] = "Crédit" if payload["amount"] >= 0 else "Débit"
         if not payload["category"]:
             payload["status"] = "À catégoriser"

@@ -15,6 +15,8 @@ from app.ui.plotly_components import PlotlyFigureCard, empty_figure, go
 class DashboardPage(QWidget):
     """Dashboard V0.6.8.1 — current month budget plus annual income/expense bars."""
 
+    GREETING_TITLE = "Bonjour"
+
     def __init__(self, db: Database) -> None:
         super().__init__()
         self.db = db
@@ -26,7 +28,7 @@ class DashboardPage(QWidget):
     def build(self) -> None:
         self.layout.addWidget(
             PageHeader(
-                "Bonjour François 👋",
+                self.GREETING_TITLE,
                 "Voici votre situation financière — budget, patrimoine et alertes clés",
             )
         )
