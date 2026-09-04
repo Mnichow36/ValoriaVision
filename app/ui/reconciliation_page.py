@@ -536,8 +536,10 @@ class ReconciliationPage(QWidget):
         if not occurrence_id:
             QMessageBox.information(self, "Rapprochements", "Sélectionne ou coche une occurrence.")
             return
-        self.service.cancel_match(occurrence_id)
-        self.refresh()
+        ok, message = self.service.cancel_match(occurrence_id)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Rapprochements", message)
+        if ok:
+            self.refresh()
 
     def ignore_occurrence(self) -> None:
         occurrence_id = self.selected_occurrence_id()
@@ -546,8 +548,53 @@ class ReconciliationPage(QWidget):
             return
         reason, ok = QInputDialog.getText(self, "Ignorer", "Motif d'ignorance :")
         if ok:
-            self.service.ignore_occurrence(occurrence_id, reason)
+            changed, message = self.service.ignore_occurrence(occurrence_id, reason)
+            (QMessageBox.information if changed else QMessageBox.warning)(self, "Rapprochements", message)
+            if changed:
+                self.refresh()
+
+    def restore_occurrence(self) -> None:
+        occurrence_id = self.selected_occurrence_id()
+        if not occurrence_id:
+            return
+        ok, message = self.service.restore_occurrence(occurrence_id)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Rapprochements", message)
+        if ok:
             self.refresh()
+
+    def cancel_occurrence(self) -> None:
+        occurrence_id = self.selected_occurrence_id()
+        if not occurrence_id:
+            return
+        if QMessageBox.question(
+            self,
+            "Annuler l’occurrence",
+            "Cette occurrence sera retirée de la liste À traiter mais restera dans l’historique. Continuer ?",
+        ) != QMessageBox.Yes:
+            return
+        reason, accepted = QInputDialog.getText(self, "Annuler l’occurrence", "Motif d’annulation (facultatif) :")
+        if not accepted:
+            return
+        ok, message = self.service.cancel_occurrence(occurrence_id, reason)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Rapprochements", message)
+        if ok:
+            self.refresh()
+
+    @staticmethod
+    def available_occurrence_actions(status: str, has_active_links: bool) -> list[str]:
+        if status == "ignored":
+            return ["restore", "info"]
+        if status == "cancelled":
+            return ["info"]
+        actions = []
+        if status in {"planned", "overdue", "to_review", "partially_matched"}:
+            actions.append("match")
+        if has_active_links:
+            actions.append("cancel_match")
+        elif status in {"planned", "overdue", "to_review"}:
+            actions.extend(["ignore", "cancel_occurrence"])
+        actions.append("info")
+        return actions
 
     def show_transactions_context_menu(self, pos: QPoint) -> None:
         row = self.transactions_table.rowAt(pos.y())
@@ -563,12 +610,28 @@ class ReconciliationPage(QWidget):
         row = self.occurrences_table.rowAt(pos.y())
         if row >= 0:
             self.occurrences_table.selectRow(row)
+        occurrence_id = self.selected_occurrence_id()
+        details = self.service.occurrence_details(occurrence_id) if occurrence_id else None
+        if not details:
+            return
+        status = str(details["occurrence"]["status"])
+        has_active_links = any(bool(link["active"]) for link in details["links"])
+        actions = self.available_occurrence_actions(status, has_active_links)
         menu = QMenu(self)
-        menu.addAction("Rapprocher avec la transaction cochée", self.match_checked)
-        menu.addAction("Annuler rapprochement", self.cancel_occurrence_match)
-        menu.addAction("Ignorer l’occurrence", self.ignore_occurrence)
-        menu.addSeparator()
-        menu.addAction("Afficher les informations", self.show_occurrence_info)
+        action_map = {
+            "match": ("Rapprocher avec la transaction cochée", self.match_checked),
+            "cancel_match": ("Annuler rapprochement", self.cancel_occurrence_match),
+            "ignore": ("Ignorer l’occurrence", self.ignore_occurrence),
+            "restore": ("Remettre à traiter", self.restore_occurrence),
+            "cancel_occurrence": ("Annuler l’occurrence", self.cancel_occurrence),
+        }
+        for key in actions:
+            if key == "info":
+                menu.addSeparator()
+                menu.addAction("Afficher les informations", self.show_occurrence_info)
+            else:
+                label, callback = action_map[key]
+                menu.addAction(label, callback)
         menu.exec(self.occurrences_table.viewport().mapToGlobal(pos))
 
     def show_transaction_info(self) -> None:
@@ -577,4 +640,43 @@ class ReconciliationPage(QWidget):
 
     def show_occurrence_info(self) -> None:
         occurrence_id = self.selected_occurrence_id()
-        QMessageBox.information(self, "Occurrence", f"Occurrence sélectionnée : {occurrence_id or 'aucune'}")
+        details = self.service.occurrence_details(occurrence_id) if occurrence_id else None
+        if not details:
+            QMessageBox.information(self, "Occurrence", "Aucune occurrence sélectionnée.")
+            return
+        occurrence = details["occurrence"]
+        source = occurrence.get("recurring_name") or ("Événement ponctuel" if occurrence["source_type"] == "one_off" else occurrence["source_type"])
+        lines = [
+            f"Date prévue : {format_date_fr(occurrence['expected_date'])}",
+            f"Compte : {occurrence.get('bank') or ''} — {occurrence.get('account_name') or 'Non affecté'}",
+            f"Libellé : {occurrence.get('expected_label') or ''}",
+            f"Montant prévu : {euro(float(occurrence.get('expected_amount') or 0))}",
+            f"Statut : {STATUS_LABELS.get(occurrence['status'], occurrence['status'])}",
+            f"Origine : {source}",
+        ]
+        if occurrence.get("ignored_reason"):
+            lines.append(f"Motif d’ignorance : {occurrence['ignored_reason']}")
+        if occurrence.get("cancelled_reason"):
+            lines.append(f"Motif d’annulation : {occurrence['cancelled_reason']}")
+        lines.append("")
+        lines.append("Rapprochements :")
+        if details["links"]:
+            for link in details["links"]:
+                match_label = "automatique" if link["match_type"] == "automatic" else "manuel"
+                link_state = "actif" if link["active"] else "annulé"
+                lines.append(
+                    f"• {format_date_fr(link['tx_date'])} — {link['tx_label']} — "
+                    f"{euro(float(link['tx_amount']))} ({match_label}, {link_state}, {link['created_at']})"
+                )
+        else:
+            lines.append("• Aucun rapprochement enregistré")
+        lines.append("")
+        lines.append("Historique :")
+        if details["history"]:
+            for event in details["history"][-10:]:
+                lines.append(f"• {event['created_at']} — {event['message']}")
+        else:
+            lines.append("• Aucun changement enregistré")
+        lines.append("")
+        lines.append(f"Identifiant technique : {occurrence_id}")
+        QMessageBox.information(self, "Informations de l’occurrence", "\n".join(lines))

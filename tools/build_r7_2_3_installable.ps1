@@ -92,6 +92,9 @@ python tools/test_r7_2_p0_baseline.py
 Write-Host "Tests techniques R7.2 - porte Previsionnel #8 / #12 / #17..."
 python tools/test_r7_2_forecast_lifecycle_gate.py
 
+Write-Host "Tests techniques R7.2 - cycle de vie Rapprochements #58 / #59 / #60 / #61..."
+python tools/test_r7_2_issues_58_61_lifecycle.py
+
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
 $PyInstallerArgs = @(

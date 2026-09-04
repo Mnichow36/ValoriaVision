@@ -874,6 +874,7 @@ class Database:
         })
         self.ensure_columns(conn, "forecast_occurrences", {
             "match_type": "TEXT",
+            "cancelled_reason": "TEXT",
         })
         # R7.2: the ambiguous status planned_confirmed is not accepted.
         # If an occurrence has no real transaction, it returns to planned/overdue.

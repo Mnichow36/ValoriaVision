@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from uuid import uuid4
@@ -146,15 +147,25 @@ class ForecastReconciliationService:
 
         filtered_transactions = []
         for tx in all_transactions:
-            # Active working list: hide transactions already consumed by an active/final link.
             fully_allocated = float(tx["allocated_amount"] or 0) >= abs(float(tx["amount"] or 0)) - 0.005
-            if status in {None, "", "active", "planned", "overdue", "to_review"} and tx["linked_occurrence_id"] and fully_allocated:
-                continue
-            if status in {None, "", "active", "planned", "overdue", "to_review"}:
+            if status in {None, "", "active", "all_active"}:
+                if tx["linked_occurrence_id"] and fully_allocated:
+                    continue
                 candidates = self.find_candidates(tx)
                 if not candidates or candidates[0]["score"] < self.REVIEW_THRESHOLD:
                     continue
-            filtered_transactions.append(tx)
+                filtered_transactions.append(tx)
+            elif status == "all":
+                filtered_transactions.append(tx)
+            elif status == "finalized":
+                if tx["linked_status"] in FINAL_STATUSES:
+                    filtered_transactions.append(tx)
+            elif status in {"auto_matched", "confirmed", "partially_matched"}:
+                if tx["linked_status"] == status:
+                    filtered_transactions.append(tx)
+            elif status == "to_review":
+                if tx["linked_status"] == "to_review" or tx["proposal_occurrence_id"] is not None:
+                    filtered_transactions.append(tx)
 
         filtered_occurrences = []
         for occ in all_occurrences:
@@ -226,6 +237,12 @@ class ForecastReconciliationService:
                            (SELECT COALESCE(SUM(l.applied_amount), 0)
                             FROM forecast_reconciliation_links l
                             WHERE l.transaction_id = t.id AND l.deleted_at IS NULL) AS allocated_amount
+                           ,(SELECT p.occurrence_id
+                             FROM forecast_reconciliation_proposals p
+                             JOIN forecast_occurrences po ON po.id = p.occurrence_id
+                             WHERE p.transaction_id = t.id AND p.deleted_at IS NULL AND p.status = 'to_review'
+                               AND po.deleted_at IS NULL AND po.status = 'to_review'
+                             ORDER BY p.score DESC, p.id LIMIT 1) AS proposal_occurrence_id
                     FROM transactions t
                     JOIN accounts a ON a.id = t.account_id
                     WHERE a.status = 'Actif'
@@ -277,6 +294,7 @@ class ForecastReconciliationService:
                     WHERE p.deleted_at IS NULL
                       AND p.status = 'to_review'
                       AND o.deleted_at IS NULL
+                      AND o.status = 'to_review'
                       AND o.expected_date BETWEEN ? AND ?
                       AND (? IS NULL OR o.account_id = ?)
                     ORDER BY p.score DESC, o.expected_date, p.id
@@ -433,6 +451,10 @@ class ForecastReconciliationService:
                     "UPDATE forecast_reconciliation_proposals SET score = ?, reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (int(scored["score"]), scored["reason"], existing["id"]),
                 )
+                conn.execute(
+                    "UPDATE forecast_occurrences SET status = 'to_review', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('planned', 'overdue')",
+                    (occurrence["id"],),
+                )
                 return True
             conn.execute(
                 """
@@ -441,6 +463,18 @@ class ForecastReconciliationService:
                 ) VALUES (?, ?, ?, ?, ?)
                 """,
                 (str(uuid4()), occurrence["id"], transaction["id"], int(scored["score"]), scored["reason"]),
+            )
+            conn.execute(
+                "UPDATE forecast_occurrences SET status = 'to_review', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('planned', 'overdue')",
+                (occurrence["id"],),
+            )
+            self.db.audit_event(
+                conn,
+                "reconciliation_proposed",
+                "forecast_occurrence",
+                str(occurrence["id"]),
+                "Proposition de rapprochement créée automatiquement.",
+                {"transaction_id": int(transaction["id"]), "score": int(scored["score"]), "reason": scored["reason"]},
             )
             return True
 
@@ -470,6 +504,12 @@ class ForecastReconciliationService:
 
     def reject_proposal(self, proposal_id: int) -> tuple[bool, str]:
         with self.db.connect() as conn:
+            proposal = conn.execute(
+                "SELECT occurrence_id, transaction_id FROM forecast_reconciliation_proposals WHERE id = ? AND deleted_at IS NULL AND status = 'to_review'",
+                (proposal_id,),
+            ).fetchone()
+            if not proposal:
+                return False, "Proposition introuvable ou déjà traitée."
             cursor = conn.execute(
                 """
                 UPDATE forecast_reconciliation_proposals
@@ -477,6 +517,28 @@ class ForecastReconciliationService:
                 WHERE id = ? AND deleted_at IS NULL AND status = 'to_review'
                 """,
                 (proposal_id,),
+            )
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM forecast_reconciliation_proposals WHERE occurrence_id = ? AND deleted_at IS NULL AND status = 'to_review'",
+                (proposal["occurrence_id"],),
+            ).fetchone()[0]
+            if not remaining:
+                occurrence = conn.execute(
+                    "SELECT expected_date FROM forecast_occurrences WHERE id = ?",
+                    (proposal["occurrence_id"],),
+                ).fetchone()
+                restored = "overdue" if occurrence and _parse_date(occurrence["expected_date"]) < date.today() else "planned"
+                conn.execute(
+                    "UPDATE forecast_occurrences SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'to_review'",
+                    (restored, proposal["occurrence_id"]),
+                )
+            self.db.audit_event(
+                conn,
+                "reconciliation_proposal_rejected",
+                "forecast_occurrence",
+                str(proposal["occurrence_id"]),
+                "Proposition de rapprochement rejetée.",
+                {"transaction_id": int(proposal["transaction_id"])},
             )
         return (True, "Proposition rejetée.") if cursor.rowcount else (False, "Proposition introuvable ou déjà traitée.")
 
@@ -646,6 +708,20 @@ class ForecastReconciliationService:
                 (str(uuid4()), occurrence_id, transaction_id, round(allocation, 2), match_type, confidence, reason),
             )
             self._refresh_occurrence_rollup(conn, occurrence_id)
+            self.db.audit_event(
+                conn,
+                "reconciliation_linked",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Transaction rapprochée avec l’occurrence.",
+                {
+                    "transaction_id": int(transaction_id),
+                    "match_type": match_type,
+                    "confidence": confidence,
+                    "applied_amount": round(allocation, 2),
+                    "reason": reason,
+                },
+            )
         return True, "Rapprochement ajouté et montants recalculés."
 
     def _refresh_occurrence_rollup(self, conn, occurrence_id: int) -> None:
@@ -711,6 +787,14 @@ class ForecastReconciliationService:
             if not cursor.rowcount:
                 return False, "Rapprochement introuvable."
             self._refresh_occurrence_rollup(conn, occurrence_id)
+            self.db.audit_event(
+                conn,
+                "reconciliation_unlinked",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Rapprochement annulé.",
+                {"transaction_id": int(transaction_id)},
+            )
         return True, "Rapprochement annulé et montants recalculés."
 
     def list_imported_transactions(self, start_date=None, end_date=None, account_id=None, limit: int | None = None) -> list:
@@ -750,10 +834,18 @@ class ForecastReconciliationService:
             conn.execute("UPDATE forecast_occurrences SET status = 'confirmed', match_type = 'manual', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (occurrence_id,))
         return 1, "Occurrence rapprochée manuellement."
 
-    def cancel_match(self, occurrence_id: int) -> None:
+    def cancel_match(self, occurrence_id: int) -> tuple[bool, str]:
         with self.db.connect() as conn:
-            row = conn.execute("SELECT expected_date FROM forecast_occurrences WHERE id = ?", (occurrence_id,)).fetchone()
-            status = "overdue" if row and _parse_date(row["expected_date"]) < date.today() else "planned"
+            row = conn.execute("SELECT expected_date FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL", (occurrence_id,)).fetchone()
+            if not row:
+                return False, "Occurrence introuvable."
+            cursor = conn.execute(
+                "UPDATE forecast_reconciliation_links SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE occurrence_id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            )
+            if not cursor.rowcount:
+                return False, "Aucun rapprochement actif à annuler."
+            status = "overdue" if _parse_date(row["expected_date"]) < date.today() else "planned"
             conn.execute(
                 """
                 UPDATE forecast_occurrences
@@ -765,26 +857,167 @@ class ForecastReconciliationService:
                     match_confidence = NULL,
                     match_reason = NULL,
                     match_type = NULL,
+                    matched_amount = 0,
+                    remaining_amount = ABS(expected_amount),
+                    overage_amount = 0,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (status, occurrence_id),
             )
+            self.db.audit_event(
+                conn,
+                "reconciliation_cancelled",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Tous les rapprochements actifs ont été annulés.",
+                {"restored_status": status},
+            )
+        return True, "Rapprochement annulé ; la transaction et l’occurrence sont de nouveau disponibles."
 
     def reject_match(self, occurrence_id: int) -> None:
         # Compatibility alias. UI R7.2 exposes this as “Annuler rapprochement”.
         self.cancel_match(occurrence_id)
 
-    def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> None:
+    def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[bool, str]:
         with self.db.connect() as conn:
+            row = conn.execute("SELECT status FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL", (occurrence_id,)).fetchone()
+            if not row:
+                return False, "Occurrence introuvable."
+            active_links = conn.execute(
+                "SELECT COUNT(*) FROM forecast_reconciliation_links WHERE occurrence_id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()[0]
+            if active_links:
+                return False, "Annule d’abord le rapprochement actif de cette occurrence."
+            conn.execute(
+                "UPDATE forecast_reconciliation_proposals SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE occurrence_id = ? AND deleted_at IS NULL AND status = 'to_review'",
+                (occurrence_id,),
+            )
             conn.execute(
                 """
                 UPDATE forecast_occurrences
                 SET status = 'ignored', ignored_reason = ?, actual_transaction_id = NULL,
                     actual_date = NULL, actual_amount = NULL, amount_delta = NULL,
                     match_confidence = NULL, match_reason = NULL, match_type = NULL,
+                    matched_amount = 0, remaining_amount = ABS(expected_amount), overage_amount = 0,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (reason, occurrence_id),
             )
+            self.db.audit_event(
+                conn,
+                "occurrence_ignored",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Occurrence ignorée.",
+                {"previous_status": row["status"], "reason": reason},
+            )
+        return True, "Occurrence ignorée et conservée dans l’historique."
+
+    def restore_occurrence(self, occurrence_id: int, reference_date: str | date | None = None) -> tuple[bool, str]:
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT expected_date, status, ignored_reason FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+            if not row or row["status"] != "ignored":
+                return False, "Cette occurrence n’est pas au statut Ignorée."
+            status = "overdue" if _parse_date(row["expected_date"]) < reference else "planned"
+            conn.execute(
+                "UPDATE forecast_occurrences SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, occurrence_id),
+            )
+            self.db.audit_event(
+                conn,
+                "occurrence_restored",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Occurrence remise à traiter.",
+                {"restored_status": status, "original_ignored_reason": row["ignored_reason"] or ""},
+            )
+        return True, "Occurrence remise à traiter avec son historique conservé."
+
+    def cancel_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[bool, str]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+            if not row:
+                return False, "Occurrence introuvable."
+            active_links = conn.execute(
+                "SELECT COUNT(*) FROM forecast_reconciliation_links WHERE occurrence_id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()[0]
+            if active_links:
+                return False, "Annule d’abord le rapprochement actif de cette occurrence."
+            if row["status"] not in ACTIVE_STATUSES:
+                return False, "Seule une occurrence à traiter peut être annulée."
+            conn.execute(
+                "UPDATE forecast_reconciliation_proposals SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE occurrence_id = ? AND deleted_at IS NULL AND status = 'to_review'",
+                (occurrence_id,),
+            )
+            conn.execute(
+                """
+                UPDATE forecast_occurrences
+                SET status = 'cancelled', cancelled_reason = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (reason, occurrence_id),
+            )
+            self.db.audit_event(
+                conn,
+                "occurrence_cancelled",
+                "forecast_occurrence",
+                str(occurrence_id),
+                "Occurrence annulée.",
+                {"previous_status": row["status"], "reason": reason},
+            )
+        return True, "Occurrence annulée et conservée dans l’historique."
+
+    def occurrence_details(self, occurrence_id: int) -> dict | None:
+        with self.db.connect() as conn:
+            occurrence = conn.execute(
+                """
+                SELECT o.*, a.name AS account_name, a.bank AS bank,
+                       r.name AS recurring_name, r.frequency AS recurring_frequency
+                FROM forecast_occurrences o
+                LEFT JOIN accounts a ON a.id = o.account_id
+                LEFT JOIN recurring_items r ON o.source_type = 'recurring' AND r.id = o.source_id
+                WHERE o.id = ? AND o.deleted_at IS NULL
+                """,
+                (occurrence_id,),
+            ).fetchone()
+            if not occurrence:
+                return None
+            links = list(conn.execute(
+                """
+                SELECT l.*, t.tx_date, t.label AS tx_label, t.amount AS tx_amount,
+                       CASE WHEN l.deleted_at IS NULL THEN 1 ELSE 0 END AS active
+                FROM forecast_reconciliation_links l
+                JOIN transactions t ON t.id = l.transaction_id
+                WHERE l.occurrence_id = ?
+                ORDER BY l.created_at, l.id
+                """,
+                (occurrence_id,),
+            ))
+            history_rows = list(conn.execute(
+                """
+                SELECT event_type, message, metadata_json, created_at
+                FROM audit_log
+                WHERE entity = 'forecast_occurrence' AND entity_id = ?
+                ORDER BY created_at, id
+                """,
+                (str(occurrence_id),),
+            ))
+        history = []
+        for row in history_rows:
+            try:
+                metadata = json.loads(row["metadata_json"] or "{}")
+            except Exception:
+                metadata = {}
+            history.append({"event_type": row["event_type"], "message": row["message"], "created_at": row["created_at"], "metadata": metadata})
+        return {"occurrence": dict(occurrence), "links": [dict(row) for row in links], "history": history}

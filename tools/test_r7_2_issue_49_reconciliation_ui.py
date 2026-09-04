@@ -45,22 +45,26 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
     assert page.proposals_table.rowCount() >= 1
     assert kpi_value(page, "active") == 2
     assert kpi_value(page, "all") == 3
-    assert kpi_value(page, "planned") == 1
-    assert kpi_value(page, "to_review") == 1
+    assert kpi_value(page, "planned") == 0
+    assert kpi_value(page, "to_review") == 2
     assert kpi_value(page, "confirmed") == 1
 
     page.set_status_filter("planned")
     app.processEvents()
-    assert page.occurrences_table.rowCount() == 1
-    assert int(page.occurrences_table.item(0, 1).data(256)) == planned_id
+    assert page.occurrences_table.rowCount() == 0
     assert kpi_value(page, "all") == 3
 
     page.set_status_filter("to_review")
     app.processEvents()
-    assert page.occurrences_table.rowCount() == 1
-    assert int(page.occurrences_table.item(0, 1).data(256)) == review_id
+    assert page.occurrences_table.rowCount() == 2
+    assert {
+        int(page.occurrences_table.item(row, 1).data(256))
+        for row in range(page.occurrences_table.rowCount())
+    } == {planned_id, review_id}
 
     # A new eligible row becomes visible on refresh; no application restart.
+    page.set_status_filter("active")
+    app.processEvents()
     assert db.insert_transaction(account_id, "2030-06-15", "AJOUT SANS REDEMARRAGE", "Test", -60, "Manuel")
     page.refresh()
     app.processEvents()
