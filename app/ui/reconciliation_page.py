@@ -41,7 +41,6 @@ class ReconciliationPage(QWidget):
         self.db = db
         self.service = ForecastReconciliationService(db)
         self.active_status_filter = "active"
-        self._refreshing_tables = False
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(28, 24, 28, 24)
@@ -160,7 +159,6 @@ class ReconciliationPage(QWidget):
         self.transactions_table.setColumnWidth(6, 65)
         self.transactions_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.transactions_table.customContextMenuRequested.connect(self.show_transactions_context_menu)
-        self.transactions_table.itemSelectionChanged.connect(self.update_selected_pair_proposal)
         layout.addWidget(self.transactions_table, stretch=1)
         return card
 
@@ -183,16 +181,15 @@ class ReconciliationPage(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Fixed)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         header.setSectionResizeMode(7, QHeaderView.Fixed)
-        self.occurrences_table.setColumnWidth(0, 34)
-        self.occurrences_table.setColumnWidth(1, 88)
-        self.occurrences_table.setColumnWidth(2, 110)
-        self.occurrences_table.setColumnWidth(4, 92)
-        self.occurrences_table.setColumnWidth(5, 125)
-        self.occurrences_table.setColumnWidth(6, 86)
-        self.occurrences_table.setColumnWidth(7, 86)
+        self.occurrences_table.setColumnWidth(0, 30)
+        self.occurrences_table.setColumnWidth(1, 82)
+        self.occurrences_table.setColumnWidth(2, 100)
+        self.occurrences_table.setColumnWidth(4, 88)
+        self.occurrences_table.setColumnWidth(5, 112)
+        self.occurrences_table.setColumnWidth(6, 82)
+        self.occurrences_table.setColumnWidth(7, 82)
         self.occurrences_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.occurrences_table.customContextMenuRequested.connect(self.show_occurrences_context_menu)
-        self.occurrences_table.itemSelectionChanged.connect(self.update_selected_pair_proposal)
         layout.addWidget(self.occurrences_table, stretch=1)
         return card
 
@@ -251,7 +248,7 @@ class ReconciliationPage(QWidget):
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(8)
         layout.addWidget(self.panel_title("Proposition de rapprochement", "Correspondances plausibles à valider explicitement."))
-        self.proposal_feedback = QLabel("Sélectionnez une transaction et une prévision pour calculer leur correspondance.")
+        self.proposal_feedback = QLabel("Le moteur recherche automatiquement les meilleures correspondances.")
         self.proposal_feedback.setWordWrap(True)
         self.proposal_feedback.setStyleSheet("color:#64748B;")
         layout.addWidget(self.proposal_feedback)
@@ -312,12 +309,16 @@ class ReconciliationPage(QWidget):
         # intentionally reserved for the dedicated action/import workflow.
         self.service.mark_overdue(date.today())
         dataset = self.current_dataset()
-        self._refreshing_tables = True
-        try:
-            self.refresh_transactions(dataset)
-            self.refresh_occurrences(dataset)
-        finally:
-            self._refreshing_tables = False
+        proposals = self.service.prepare_best_proposals(
+            self.qdate_to_iso(self.start_date),
+            self.qdate_to_iso(self.end_date),
+            self.account_filter.currentData(),
+            dataset["transactions"],
+        )
+        dataset["proposals"] = proposals
+        dataset["source_counts"]["proposals_loaded"] = len(proposals)
+        self.refresh_transactions(dataset)
+        self.refresh_occurrences(dataset)
         self.refresh_proposals(dataset)
         self.refresh_kpis(dataset)
 
@@ -364,7 +365,6 @@ class ReconciliationPage(QWidget):
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
             checkbox.setProperty("tx_id", int(row["id"]))
-            checkbox.stateChanged.connect(self.update_selected_pair_proposal)
             self.transactions_table.setCellWidget(row_index, 0, checkbox)
             allocated = float(row["allocated_amount"] or 0)
             linked = "Liée" if allocated >= abs(float(row["amount"] or 0)) - 0.005 else ("Partielle" if allocated else "")
@@ -393,14 +393,17 @@ class ReconciliationPage(QWidget):
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
             checkbox.setProperty("occurrence_id", int(row["id"]))
-            checkbox.stateChanged.connect(self.update_selected_pair_proposal)
             self.occurrences_table.setCellWidget(row_index, 0, checkbox)
             values = [
                 format_date_fr(row["expected_date"]),
                 row["account_name"] or "",
                 row["expected_label"] or "",
                 euro(float(row["expected_amount"] or 0)),
-                STATUS_LABELS.get(row["status"], row["status"]),
+                {
+                    "auto_matched": "Rapprochée auto",
+                    "confirmed": "Rapprochée manuelle",
+                    "partially_matched": "Partielle",
+                }.get(row["status"], STATUS_LABELS.get(row["status"], row["status"])),
                 euro(float(row["matched_amount"] or 0)) if float(row["matched_amount"] or 0) else "",
                 euro(float(row["remaining_amount"] or 0)) if row["remaining_amount"] is not None else "",
             ]
@@ -412,6 +415,8 @@ class ReconciliationPage(QWidget):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if col == 3:
                     item.setToolTip(str(value))
+                if col == 5:
+                    item.setToolTip(STATUS_LABELS.get(row["status"], row["status"]))
                 self.occurrences_table.setItem(row_index, col, item)
 
     def refresh_proposals(self, dataset: dict | None = None) -> None:
@@ -434,6 +439,15 @@ class ReconciliationPage(QWidget):
                 if col in {0, 3, 4}:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.proposals_table.setItem(row_index, col, item)
+        if rows:
+            best = rows[0]
+            self.proposals_table.selectRow(0)
+            self.proposal_feedback.setText(
+                f"{len(rows)} proposition(s) calculée(s) automatiquement. "
+                f"Meilleure correspondance : score {int(best['score'])}% — {best['reason']}."
+            )
+        else:
+            self.proposal_feedback.setText("Aucune correspondance suffisamment fiable n’a été trouvée automatiquement.")
 
     def selected_proposal_id(self) -> int | None:
         row = self.proposals_table.currentRow()
@@ -441,26 +455,6 @@ class ReconciliationPage(QWidget):
             return None
         item = self.proposals_table.item(row, 0)
         return int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
-
-    def update_selected_pair_proposal(self, *_args) -> None:
-        """Build the visible proposal as soon as one row is selected on each side."""
-        if self._refreshing_tables:
-            return
-        transaction_id = self.selected_transaction_id()
-        occurrence_id = self.selected_occurrence_id()
-        if not transaction_id or not occurrence_id:
-            self.proposal_feedback.setText("Sélectionnez une transaction et une prévision pour calculer leur correspondance.")
-            return
-        ok, message, proposal_id = self.service.propose_selected_pair(occurrence_id, transaction_id)
-        self.proposal_feedback.setText(message)
-        if not ok:
-            return
-        self.refresh_proposals(self.current_dataset())
-        for row in range(self.proposals_table.rowCount()):
-            item = self.proposals_table.item(row, 0)
-            if item and item.data(Qt.UserRole) == proposal_id:
-                self.proposals_table.selectRow(row)
-                break
 
     def confirm_selected_proposal(self) -> None:
         proposal_id = self.selected_proposal_id()

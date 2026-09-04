@@ -42,7 +42,7 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
 
     assert page.transactions_table.rowCount() == 2
     assert page.occurrences_table.rowCount() == 2
-    assert page.proposals_table.rowCount() == 1
+    assert page.proposals_table.rowCount() >= 1
     assert kpi_value(page, "active") == 2
     assert kpi_value(page, "all") == 3
     assert kpi_value(page, "planned") == 1
@@ -85,7 +85,7 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
     page.close()
 
 
-def test_reconciliation_target_layout_statuses_and_selected_pair_proposal() -> None:
+def test_reconciliation_target_layout_statuses_and_automatic_proposal() -> None:
     app = QApplication.instance() or QApplication([])
     db = make_db()
     account_id = int(db.list_accounts()[0]["id"])
@@ -109,16 +109,23 @@ def test_reconciliation_target_layout_statuses_and_selected_pair_proposal() -> N
     assert all(button.height() >= 36 for button in page.kpi_buttons.values())
     assert all(button.text().strip() and button.text().rsplit("  ", 1)[-1].isdigit() for button in page.kpi_buttons.values())
 
-    page.transactions_table.selectRow(0)
-    page.occurrences_table.selectRow(0)
-    app.processEvents()
+    assert page.transactions_table.currentRow() == -1
+    assert page.occurrences_table.currentRow() == -1
     assert page.proposals_table.rowCount() == 1
-    assert "Proposition calculée" in page.proposal_feedback.text()
+    assert "calculée(s) automatiquement" in page.proposal_feedback.text()
     assert page.selected_proposal_id() is not None
+
+    # A rejected pair must not be recreated during the next automatic refresh.
+    proposal_id = page.selected_proposal_id()
+    assert proposal_id is not None
+    assert page.service.reject_proposal(proposal_id)[0]
+    page.refresh()
+    app.processEvents()
+    assert page.proposals_table.rowCount() == 0
     page.close()
 
 
 if __name__ == "__main__":
     test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart()
-    test_reconciliation_target_layout_statuses_and_selected_pair_proposal()
+    test_reconciliation_target_layout_statuses_and_automatic_proposal()
     print("OK - issue #49 interface, filtres, KPI et rafraîchissement sans redémarrage")

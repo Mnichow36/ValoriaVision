@@ -286,6 +286,48 @@ class ForecastReconciliationService:
                 )
             )
 
+    def prepare_best_proposals(
+        self,
+        start_date: str | date,
+        end_date: str | date,
+        account_id: int | None = None,
+        transactions: list | None = None,
+    ) -> list:
+        """Materialize the best review proposal for each eligible transaction.
+
+        Proposals are produced by the engine before any UI selection. A rejected
+        pair is not silently recreated; the next eligible candidate may then be
+        proposed instead.
+        """
+        start = _parse_date(start_date)
+        end = _parse_date(end_date)
+        candidates_transactions = transactions if transactions is not None else self._eligible_transactions(start, end, account_id)
+
+        for transaction in candidates_transactions:
+            transaction_id = int(transaction["id"])
+            fully_allocated = float(transaction["allocated_amount"] or 0) >= abs(float(transaction["amount"] or 0)) - 0.005
+            if fully_allocated:
+                continue
+            with self.db.connect() as conn:
+                pending = conn.execute(
+                    """
+                    SELECT id FROM forecast_reconciliation_proposals
+                    WHERE transaction_id = ? AND deleted_at IS NULL AND status = 'to_review'
+                    LIMIT 1
+                    """,
+                    (transaction_id,),
+                ).fetchone()
+            if pending:
+                continue
+
+            for scored in self.find_candidates(transaction):
+                if int(scored["score"]) < self.REVIEW_THRESHOLD:
+                    break
+                if self._save_proposal(scored):
+                    break
+
+        return self._eligible_proposals(start, end, account_id)
+
     def reconcile_import_batch(self, import_batch_id: int) -> dict:
         transactions = self._imported_transactions(import_batch_id)
         if not transactions:
@@ -370,13 +412,16 @@ class ForecastReconciliationService:
         with self.db.connect() as conn:
             existing = conn.execute(
                 """
-                SELECT id FROM forecast_reconciliation_proposals
+                SELECT id, status FROM forecast_reconciliation_proposals
                 WHERE occurrence_id = ? AND transaction_id = ?
-                  AND deleted_at IS NULL AND status = 'to_review'
+                  AND deleted_at IS NULL
+                ORDER BY id DESC LIMIT 1
                 """,
                 (occurrence["id"], transaction["id"]),
             ).fetchone()
             if existing:
+                if existing["status"] != "to_review":
+                    return False
                 conn.execute(
                     "UPDATE forecast_reconciliation_proposals SET score = ?, reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (int(scored["score"]), scored["reason"], existing["id"]),
@@ -391,47 +436,6 @@ class ForecastReconciliationService:
                 (str(uuid4()), occurrence["id"], transaction["id"], int(scored["score"]), scored["reason"]),
             )
             return True
-
-    def propose_selected_pair(self, occurrence_id: int, transaction_id: int) -> tuple[bool, str, int | None]:
-        """Create or refresh the proposal explicitly requested from the UI."""
-        with self.db.connect() as conn:
-            occurrence = conn.execute(
-                """
-                SELECT o.*, a.name AS account_name
-                FROM forecast_occurrences o
-                LEFT JOIN accounts a ON a.id = o.account_id
-                WHERE o.id = ? AND o.deleted_at IS NULL
-                  AND o.status IN ('planned', 'overdue', 'to_review', 'partially_matched')
-                """,
-                (occurrence_id,),
-            ).fetchone()
-            transaction = conn.execute(
-                "SELECT * FROM transactions WHERE id = ?",
-                (transaction_id,),
-            ).fetchone()
-        if not occurrence or not transaction:
-            return False, "La transaction ou la prévision sélectionnée n’est plus disponible.", None
-
-        score, reason = self.compute_match_score(occurrence, transaction)
-        if score <= 0:
-            return False, f"Correspondance impossible : {reason}.", None
-        self._save_proposal({
-            "occurrence": occurrence,
-            "transaction": transaction,
-            "score": score,
-            "reason": reason,
-        })
-        with self.db.connect() as conn:
-            proposal = conn.execute(
-                """
-                SELECT id FROM forecast_reconciliation_proposals
-                WHERE occurrence_id = ? AND transaction_id = ?
-                  AND deleted_at IS NULL AND status = 'to_review'
-                """,
-                (occurrence_id, transaction_id),
-            ).fetchone()
-        proposal_id = int(proposal["id"]) if proposal else None
-        return True, f"Proposition calculée : score {score}% — {reason}.", proposal_id
 
     def confirm_proposal(self, proposal_id: int) -> tuple[bool, str]:
         with self.db.connect() as conn:

@@ -22,7 +22,9 @@ Version de recette consacrée à la consolidation du périmètre Rapprochements 
 - disposition conforme à la maquette sur deux lignes : listes en haut, proposition et statuts en bas ;
 - montants et informations métier visibles sans défilement horizontal à la largeur de recette ;
 - statuts et compteurs présentés sur deux colonnes pour éviter leur écrasement ;
-- calcul immédiat de la proposition après sélection d'une transaction et d'une occurrence.
+- calcul automatique des meilleures propositions avant toute sélection manuelle ;
+- présélection de la meilleure proposition pour validation ou rejet explicite ;
+- une proposition rejetée n'est pas recréée lors de l'actualisation suivante.
 
 ## Recette attendue
 
