@@ -392,6 +392,47 @@ class ForecastReconciliationService:
             )
             return True
 
+    def propose_selected_pair(self, occurrence_id: int, transaction_id: int) -> tuple[bool, str, int | None]:
+        """Create or refresh the proposal explicitly requested from the UI."""
+        with self.db.connect() as conn:
+            occurrence = conn.execute(
+                """
+                SELECT o.*, a.name AS account_name
+                FROM forecast_occurrences o
+                LEFT JOIN accounts a ON a.id = o.account_id
+                WHERE o.id = ? AND o.deleted_at IS NULL
+                  AND o.status IN ('planned', 'overdue', 'to_review', 'partially_matched')
+                """,
+                (occurrence_id,),
+            ).fetchone()
+            transaction = conn.execute(
+                "SELECT * FROM transactions WHERE id = ?",
+                (transaction_id,),
+            ).fetchone()
+        if not occurrence or not transaction:
+            return False, "La transaction ou la prévision sélectionnée n’est plus disponible.", None
+
+        score, reason = self.compute_match_score(occurrence, transaction)
+        if score <= 0:
+            return False, f"Correspondance impossible : {reason}.", None
+        self._save_proposal({
+            "occurrence": occurrence,
+            "transaction": transaction,
+            "score": score,
+            "reason": reason,
+        })
+        with self.db.connect() as conn:
+            proposal = conn.execute(
+                """
+                SELECT id FROM forecast_reconciliation_proposals
+                WHERE occurrence_id = ? AND transaction_id = ?
+                  AND deleted_at IS NULL AND status = 'to_review'
+                """,
+                (occurrence_id, transaction_id),
+            ).fetchone()
+        proposal_id = int(proposal["id"]) if proposal else None
+        return True, f"Proposition calculée : score {score}% — {reason}.", proposal_id
+
     def confirm_proposal(self, proposal_id: int) -> tuple[bool, str]:
         with self.db.connect() as conn:
             proposal = conn.execute(

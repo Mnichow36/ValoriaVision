@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -40,6 +41,7 @@ class ReconciliationPage(QWidget):
         self.db = db
         self.service = ForecastReconciliationService(db)
         self.active_status_filter = "active"
+        self._refreshing_tables = False
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(28, 24, 28, 24)
@@ -88,22 +90,32 @@ class ReconciliationPage(QWidget):
         filters_layout.addStretch(1)
         self.layout.addWidget(filters)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self.build_transactions_panel())
-        splitter.addWidget(self.build_occurrences_panel())
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
-        right_layout.addWidget(self.build_proposal_panel(), stretch=3)
+        # Target beta layout: two wide business lists on the first row, then
+        # proposal and statuses on a second row. This keeps amounts and other
+        # essential fields visible without squeezing three panels side by side.
+        self.top_splitter = QSplitter(Qt.Horizontal)
+        self.top_splitter.setChildrenCollapsible(False)
+        self.top_splitter.addWidget(self.build_transactions_panel())
+        self.top_splitter.addWidget(self.build_occurrences_panel())
+        self.top_splitter.setStretchFactor(0, 1)
+        self.top_splitter.setStretchFactor(1, 1)
+
+        self.bottom_splitter = QSplitter(Qt.Horizontal)
+        self.bottom_splitter.setChildrenCollapsible(False)
+        self.bottom_splitter.addWidget(self.build_proposal_panel())
         self.kpi_panel = self.build_kpi_panel()
-        right_layout.addWidget(self.kpi_panel, stretch=2)
-        splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 4)
-        splitter.setStretchFactor(2, 4)
-        self.layout.addWidget(splitter, stretch=1)
+        self.bottom_splitter.addWidget(self.kpi_panel)
+        self.bottom_splitter.setStretchFactor(0, 3)
+        self.bottom_splitter.setStretchFactor(1, 2)
+
+        self.main_splitter = QSplitter(Qt.Vertical)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(self.top_splitter)
+        self.main_splitter.addWidget(self.bottom_splitter)
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setSizes([520, 320])
+        self.layout.addWidget(self.main_splitter, stretch=1)
 
         self.refresh_accounts()
         self.refresh()
@@ -127,7 +139,7 @@ class ReconciliationPage(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(10)
-        layout.addWidget(self.panel_title("Transactions bancaires", "Opérations réelles non encore consommées par un rapprochement actif/final."))
+        layout.addWidget(self.panel_title("Transactions réalisées", "Opérations réelles non encore consommées par un rapprochement actif/final."))
 
         self.transactions_table = QTableWidget(0, 7)
         self.transactions_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Montant", "Catégorie", "Lien"])
@@ -140,14 +152,15 @@ class ReconciliationPage(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Fixed)
         header.setSectionResizeMode(5, QHeaderView.Fixed)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
-        self.transactions_table.setColumnWidth(0, 42)
-        self.transactions_table.setColumnWidth(1, 105)
-        self.transactions_table.setColumnWidth(2, 135)
-        self.transactions_table.setColumnWidth(4, 105)
-        self.transactions_table.setColumnWidth(5, 130)
-        self.transactions_table.setColumnWidth(6, 80)
+        self.transactions_table.setColumnWidth(0, 34)
+        self.transactions_table.setColumnWidth(1, 88)
+        self.transactions_table.setColumnWidth(2, 110)
+        self.transactions_table.setColumnWidth(4, 92)
+        self.transactions_table.setColumnWidth(5, 105)
+        self.transactions_table.setColumnWidth(6, 65)
         self.transactions_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.transactions_table.customContextMenuRequested.connect(self.show_transactions_context_menu)
+        self.transactions_table.itemSelectionChanged.connect(self.update_selected_pair_proposal)
         layout.addWidget(self.transactions_table, stretch=1)
         return card
 
@@ -170,15 +183,16 @@ class ReconciliationPage(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Fixed)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         header.setSectionResizeMode(7, QHeaderView.Fixed)
-        self.occurrences_table.setColumnWidth(0, 42)
-        self.occurrences_table.setColumnWidth(1, 105)
-        self.occurrences_table.setColumnWidth(2, 135)
-        self.occurrences_table.setColumnWidth(4, 105)
-        self.occurrences_table.setColumnWidth(5, 150)
-        self.occurrences_table.setColumnWidth(6, 105)
-        self.occurrences_table.setColumnWidth(7, 95)
+        self.occurrences_table.setColumnWidth(0, 34)
+        self.occurrences_table.setColumnWidth(1, 88)
+        self.occurrences_table.setColumnWidth(2, 110)
+        self.occurrences_table.setColumnWidth(4, 92)
+        self.occurrences_table.setColumnWidth(5, 125)
+        self.occurrences_table.setColumnWidth(6, 86)
+        self.occurrences_table.setColumnWidth(7, 86)
         self.occurrences_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.occurrences_table.customContextMenuRequested.connect(self.show_occurrences_context_menu)
+        self.occurrences_table.itemSelectionChanged.connect(self.update_selected_pair_proposal)
         layout.addWidget(self.occurrences_table, stretch=1)
         return card
 
@@ -204,7 +218,7 @@ class ReconciliationPage(QWidget):
         layout.addWidget(hint)
 
         self.kpi_buttons: dict[str, QPushButton] = {}
-        for key, label in [
+        status_items = [
             ("active", "À traiter"),
             ("all", "Historique complet"),
             ("planned", "Prévue"),
@@ -215,13 +229,19 @@ class ReconciliationPage(QWidget):
             ("confirmed", "Rapprochée manuelle"),
             ("ignored", "Ignorée"),
             ("cancelled", "Annulée"),
-        ]:
+        ]
+        status_grid = QGridLayout()
+        status_grid.setHorizontalSpacing(8)
+        status_grid.setVerticalSpacing(6)
+        for index, (key, label) in enumerate(status_items):
             button = QPushButton(label)
             button.setCursor(Qt.PointingHandCursor)
             button.setCheckable(True)
+            button.setMinimumHeight(36)
             button.clicked.connect(lambda checked=False, status=key: self.set_status_filter(status))
             self.kpi_buttons[key] = button
-            layout.addWidget(button)
+            status_grid.addWidget(button, index // 2, index % 2)
+        layout.addLayout(status_grid)
         layout.addStretch(1)
         return card
 
@@ -231,6 +251,10 @@ class ReconciliationPage(QWidget):
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(8)
         layout.addWidget(self.panel_title("Proposition de rapprochement", "Correspondances plausibles à valider explicitement."))
+        self.proposal_feedback = QLabel("Sélectionnez une transaction et une prévision pour calculer leur correspondance.")
+        self.proposal_feedback.setWordWrap(True)
+        self.proposal_feedback.setStyleSheet("color:#64748B;")
+        layout.addWidget(self.proposal_feedback)
         self.proposals_table = QTableWidget(0, 5)
         self.proposals_table.setHorizontalHeaderLabels(["Score", "Transaction", "Prévision", "Écart", "Reste"])
         self.prepare_table(self.proposals_table)
@@ -288,8 +312,12 @@ class ReconciliationPage(QWidget):
         # intentionally reserved for the dedicated action/import workflow.
         self.service.mark_overdue(date.today())
         dataset = self.current_dataset()
-        self.refresh_transactions(dataset)
-        self.refresh_occurrences(dataset)
+        self._refreshing_tables = True
+        try:
+            self.refresh_transactions(dataset)
+            self.refresh_occurrences(dataset)
+        finally:
+            self._refreshing_tables = False
         self.refresh_proposals(dataset)
         self.refresh_kpis(dataset)
 
@@ -336,6 +364,7 @@ class ReconciliationPage(QWidget):
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
             checkbox.setProperty("tx_id", int(row["id"]))
+            checkbox.stateChanged.connect(self.update_selected_pair_proposal)
             self.transactions_table.setCellWidget(row_index, 0, checkbox)
             allocated = float(row["allocated_amount"] or 0)
             linked = "Liée" if allocated >= abs(float(row["amount"] or 0)) - 0.005 else ("Partielle" if allocated else "")
@@ -364,6 +393,7 @@ class ReconciliationPage(QWidget):
         for row_index, row in enumerate(rows):
             checkbox = QCheckBox()
             checkbox.setProperty("occurrence_id", int(row["id"]))
+            checkbox.stateChanged.connect(self.update_selected_pair_proposal)
             self.occurrences_table.setCellWidget(row_index, 0, checkbox)
             values = [
                 format_date_fr(row["expected_date"]),
@@ -411,6 +441,26 @@ class ReconciliationPage(QWidget):
             return None
         item = self.proposals_table.item(row, 0)
         return int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
+
+    def update_selected_pair_proposal(self, *_args) -> None:
+        """Build the visible proposal as soon as one row is selected on each side."""
+        if self._refreshing_tables:
+            return
+        transaction_id = self.selected_transaction_id()
+        occurrence_id = self.selected_occurrence_id()
+        if not transaction_id or not occurrence_id:
+            self.proposal_feedback.setText("Sélectionnez une transaction et une prévision pour calculer leur correspondance.")
+            return
+        ok, message, proposal_id = self.service.propose_selected_pair(occurrence_id, transaction_id)
+        self.proposal_feedback.setText(message)
+        if not ok:
+            return
+        self.refresh_proposals(self.current_dataset())
+        for row in range(self.proposals_table.rowCount()):
+            item = self.proposals_table.item(row, 0)
+            if item and item.data(Qt.UserRole) == proposal_id:
+                self.proposals_table.selectRow(row)
+                break
 
     def confirm_selected_proposal(self) -> None:
         proposal_id = self.selected_proposal_id()

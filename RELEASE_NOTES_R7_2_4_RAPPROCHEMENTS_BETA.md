@@ -17,6 +17,13 @@ Version de recette consacrée à la consolidation du périmètre Rapprochements 
 - calcul du réalisé cumulé, du reste à couvrir et du dépassement ;
 - recalcul après annulation d'un lien.
 
+## Correctifs après recette écran
+
+- disposition conforme à la maquette sur deux lignes : listes en haut, proposition et statuts en bas ;
+- montants et informations métier visibles sans défilement horizontal à la largeur de recette ;
+- statuts et compteurs présentés sur deux colonnes pour éviter leur écrasement ;
+- calcul immédiat de la proposition après sélection d'une transaction et d'une occurrence.
+
 ## Recette attendue
 
 Vérifier les trois zones Transactions à rapprocher, Prévisions à traiter et Proposition de rapprochement, ainsi que les filtres, compteurs, validations, rejets et rapprochements partiels.

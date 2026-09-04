@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QApplication
 
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
@@ -85,6 +85,40 @@ def test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart() -> None:
     page.close()
 
 
+def test_reconciliation_target_layout_statuses_and_selected_pair_proposal() -> None:
+    app = QApplication.instance() or QApplication([])
+    db = make_db()
+    account_id = int(db.list_accounts()[0]["id"])
+    assert db.insert_transaction(account_id, "2030-06-12", "NETFLIX", "Abonnement", -15.99, "Manuel")
+    add_occurrence(db, account_id, day="2030-06-12", label="Netflix", amount=-15.99, source_id=301)
+
+    page = ReconciliationPage(db)
+    page.resize(1600, 950)
+    page.show()
+    page.start_date.setDate(QDate(2030, 6, 1))
+    page.end_date.setDate(QDate(2030, 6, 30))
+    page.account_filter.setCurrentIndex(page.account_filter.findData(account_id))
+    page.refresh()
+    app.processEvents()
+
+    assert page.main_splitter.orientation() == Qt.Vertical
+    assert page.top_splitter.orientation() == Qt.Horizontal
+    assert page.bottom_splitter.orientation() == Qt.Horizontal
+    assert page.transactions_table.horizontalScrollBar().maximum() == 0
+    assert page.occurrences_table.horizontalScrollBar().maximum() == 0
+    assert all(button.height() >= 36 for button in page.kpi_buttons.values())
+    assert all(button.text().strip() and button.text().rsplit("  ", 1)[-1].isdigit() for button in page.kpi_buttons.values())
+
+    page.transactions_table.selectRow(0)
+    page.occurrences_table.selectRow(0)
+    app.processEvents()
+    assert page.proposals_table.rowCount() == 1
+    assert "Proposition calculée" in page.proposal_feedback.text()
+    assert page.selected_proposal_id() is not None
+    page.close()
+
+
 if __name__ == "__main__":
     test_issue_49_ui_lists_filters_and_kpis_refresh_without_restart()
+    test_reconciliation_target_layout_statuses_and_selected_pair_proposal()
     print("OK - issue #49 interface, filtres, KPI et rafraîchissement sans redémarrage")
