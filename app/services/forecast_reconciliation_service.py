@@ -228,8 +228,7 @@ class ForecastReconciliationService:
                             WHERE l.transaction_id = t.id AND l.deleted_at IS NULL) AS allocated_amount
                     FROM transactions t
                     JOIN accounts a ON a.id = t.account_id
-                    WHERE t.source IN ('Import bancaire', 'Manuel')
-                      AND a.status = 'Actif'
+                    WHERE a.status = 'Actif'
                       AND t.tx_date BETWEEN ? AND ?
                       AND (? IS NULL OR t.account_id = ?)
                     ORDER BY t.tx_date DESC, t.id DESC
@@ -404,7 +403,15 @@ class ForecastReconciliationService:
         for occurrence in rows:
             score, reason = self.compute_match_score(occurrence, transaction)
             scored.append({"occurrence": occurrence, "transaction": transaction, "score": score, "reason": reason})
-        return sorted(scored, key=lambda row: row["score"], reverse=True)
+        return sorted(
+            scored,
+            key=lambda row: (
+                -int(row["score"]),
+                abs(abs(float(row["transaction"]["amount"] or 0)) - abs(float(row["occurrence"]["expected_amount"] or 0))),
+                abs((_parse_date(row["transaction"]["tx_date"]) - _parse_date(row["occurrence"]["expected_date"])).days),
+                int(row["occurrence"]["id"]),
+            ),
+        )
 
     def _save_proposal(self, scored: dict) -> bool:
         occurrence = scored["occurrence"]

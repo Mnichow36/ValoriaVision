@@ -24,7 +24,9 @@ Version de recette consacrée à la consolidation du périmètre Rapprochements 
 - statuts et compteurs présentés sur deux colonnes pour éviter leur écrasement ;
 - calcul automatique des meilleures propositions avant toute sélection manuelle ;
 - présélection de la meilleure proposition pour validation ou rejet explicite ;
-- une proposition rejetée n'est pas recréée lors de l'actualisation suivante.
+- une proposition rejetée n'est pas recréée lors de l'actualisation suivante ;
+- prise en compte des transactions réelles quelle que soit leur origine, y compris les données de démonstration ;
+- en cas de scores identiques, priorité au montant exact puis à la date exacte.
 
 ## Recette attendue
 

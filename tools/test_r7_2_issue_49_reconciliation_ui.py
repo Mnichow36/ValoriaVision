@@ -89,8 +89,12 @@ def test_reconciliation_target_layout_statuses_and_automatic_proposal() -> None:
     app = QApplication.instance() or QApplication([])
     db = make_db()
     account_id = int(db.list_accounts()[0]["id"])
-    assert db.insert_transaction(account_id, "2030-06-12", "NETFLIX", "Abonnement", -15.99, "Manuel")
-    add_occurrence(db, account_id, day="2030-06-12", label="Netflix", amount=-15.99, source_id=301)
+    # Reproduce the bundled demo case from acceptance testing: demo-origin
+    # transactions are real operations and must be eligible too. When two
+    # forecasts are plausible, exact amount and exact date win the tie-break.
+    assert db.insert_transaction(account_id, "2030-06-12", "NETFLIX", "Abonnement", -15.99, "Démo")
+    exact_occurrence_id = add_occurrence(db, account_id, day="2030-06-12", label="Netflix", amount=-15.99, source_id=301)
+    add_occurrence(db, account_id, day="2030-06-11", label="Netflix", amount=-16.00, source_id=302)
 
     page = ReconciliationPage(db)
     page.resize(1600, 950)
@@ -114,6 +118,12 @@ def test_reconciliation_target_layout_statuses_and_automatic_proposal() -> None:
     assert page.proposals_table.rowCount() == 1
     assert "calculée(s) automatiquement" in page.proposal_feedback.text()
     assert page.selected_proposal_id() is not None
+    with db.connect() as conn:
+        proposed_occurrence_id = conn.execute(
+            "SELECT occurrence_id FROM forecast_reconciliation_proposals WHERE id = ?",
+            (page.selected_proposal_id(),),
+        ).fetchone()["occurrence_id"]
+    assert int(proposed_occurrence_id) == exact_occurrence_id
 
     # A rejected pair must not be recreated during the next automatic refresh.
     proposal_id = page.selected_proposal_id()
@@ -121,7 +131,20 @@ def test_reconciliation_target_layout_statuses_and_automatic_proposal() -> None:
     assert page.service.reject_proposal(proposal_id)[0]
     page.refresh()
     app.processEvents()
-    assert page.proposals_table.rowCount() == 0
+    with db.connect() as conn:
+        rejected = conn.execute(
+            "SELECT status FROM forecast_reconciliation_proposals WHERE id = ?",
+            (proposal_id,),
+        ).fetchone()
+        recreated = conn.execute(
+            """
+            SELECT COUNT(*) FROM forecast_reconciliation_proposals
+            WHERE occurrence_id = ? AND deleted_at IS NULL AND status = 'to_review'
+            """,
+            (exact_occurrence_id,),
+        ).fetchone()[0]
+    assert rejected["status"] == "rejected"
+    assert recreated == 0
     page.close()
 
 
