@@ -86,6 +86,12 @@ python tools/test_r7_2_issue_82_partial_reconciliation.py
 Write-Host "Tests techniques R7.2 - regressions #2 / #78..."
 python tools/test_r7_2_regressions_2_78.py
 
+Write-Host "Tests techniques R7.2 - socle P0 #11 / #23 / #24 / #25..."
+python tools/test_r7_2_p0_baseline.py
+
+Write-Host "Tests techniques R7.2 - porte Previsionnel #8 / #12 / #17..."
+python tools/test_r7_2_forecast_lifecycle_gate.py
+
 Write-Host "Build PyInstaller..."
 $PlotlyRuntime = Join-Path $Root "data\runtime\plotly.min.js"
 $PyInstallerArgs = @(
