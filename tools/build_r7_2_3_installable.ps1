@@ -18,6 +18,8 @@ function python {
 
 $BuildStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $EffectiveReleaseName = $ReleaseName + "_" + $BuildStamp
+$BuildBranch = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { (& git rev-parse --abbrev-ref HEAD).Trim() }
+$BuildCommit = (& git rev-parse HEAD).Trim()
 
 Write-Host "Valoria Vision - build installable R7.2.4 Rapprochements beta"
 Write-Host ("Dossier racine : " + $Root)
@@ -123,13 +125,14 @@ Copy-Item (Join-Path $Root "RELEASE_NOTES_R7_2_4_RAPPROCHEMENTS_BETA.md") $Relea
 
 $Manifest = @{
     product = "Valoria Vision"
-    version = "V0.6.6-R7.2.4 Rapprochements beta"
+    version = "V0.6.6-R7.2.4 Recette consolidée"
     release_name = $EffectiveReleaseName
-    branch = "dev/r7.2.4-lot6.2-consolidation-previsionnel"
+    branch = $BuildBranch
+    commit = $BuildCommit
     build_date_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    scope = "Issues #49 et #82 : perimetre exhaustif, propositions, multi-liens et rapprochement partiel"
+    scope = "Issues #2, #49, #57 a #61, #78 et #82 - candidat de recette fonctionnelle #52"
     executable = "Valoria Vision/Valoria Vision.exe"
-    status = "Archive locale de recette Rapprochements beta"
+    status = "Archive locale candidate - conformite soumise a la recette utilisateur #52"
     local_build_strategy = "Dossiers horodates pour eviter les fichiers dist verrouilles"
 }
 $Manifest | ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $ReleaseDir "manifest_r7_2_4_rapprochements_beta.json") -Encoding utf8

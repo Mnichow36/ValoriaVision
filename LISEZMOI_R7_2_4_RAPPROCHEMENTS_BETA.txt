@@ -1,4 +1,4 @@
-VALORIA VISION - V0.6.6-R7.2.4 RAPPROCHEMENTS BETA
+VALORIA VISION - V0.6.6-R7.2.4 RECETTE CONSOLIDEE
 
 Cette archive est destinée à la recette fonctionnelle du module Rapprochements.
 
@@ -8,11 +8,20 @@ Lancement
 3. Lancer "Valoria Vision.exe".
 
 Périmètre principal
+- conservation du sens Débit / Crédit lors de la modification d'une transaction (#2) ;
+- titre neutre du Dashboard, sans prénom codé en dur (#78) ;
 - exhaustivité et cohérence des transactions/prévisions (#49) ;
 - file active limitée aux transactions disposant d'un candidat cohérent ;
 - propositions ambiguës à valider ou rejeter explicitement ;
+- règles de rapprochement configurables, sûres et auditables (#57) ;
+- cycle de vie Ignorer / Restaurer / Annuler et fiche métier détaillée (#58 à #61) ;
 - rapprochements partiels et multi-éléments (#82) ;
 - affichage du réalisé cumulé et du reste à couvrir.
+
+Décision de recette
+- cette archive est un candidat de test et non une version déclarée conforme ;
+- les résultats automatisés sont verts ;
+- la conformité de #52 reste soumise à la recette fonctionnelle utilisateur.
 
 Précaution
 Effectuer la recette sur une copie de la base ou après une sauvegarde complète.
