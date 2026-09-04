@@ -83,6 +83,9 @@ python tools/test_r7_2_issue_49_reconciliation_scope.py
 python tools/test_r7_2_issue_49_reconciliation_ui.py
 python tools/test_r7_2_issue_82_partial_reconciliation.py
 
+Write-Host "Tests techniques R7.2 - règles de rapprochement #57..."
+python tools/test_r7_2_issue_57_reconciliation_rules.py
+
 Write-Host "Tests techniques R7.2 - regressions #2 / #78..."
 python tools/test_r7_2_regressions_2_78.py
 

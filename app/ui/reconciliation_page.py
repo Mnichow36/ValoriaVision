@@ -8,6 +8,10 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -17,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -27,6 +32,100 @@ from app.database import Database
 from app.services.forecast_reconciliation_service import ForecastReconciliationService, STATUS_LABELS
 from app.theme import COLORS, euro, format_date_fr
 from app.widgets import Card, PageHeader, primary_button, secondary_button
+
+
+class ReconciliationRulesDialog(QDialog):
+    """Business-facing configuration for automatic reconciliation rules."""
+
+    def __init__(self, config: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Règles de rapprochement automatique")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        intro = QLabel(
+            "Ces critères sont appliqués au moteur avant tout rapprochement. "
+            "Les décisions restent explicables et annulables."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#64748B;")
+        layout.addWidget(intro)
+        form = QFormLayout()
+
+        self.require_same_account = QCheckBox("Critère obligatoire")
+        self.require_same_account.setChecked(bool(config["require_same_account"]))
+        self.require_same_account.setEnabled(False)
+        self.require_same_account.setToolTip("Protection obligatoire : un rapprochement entre deux comptes différents est interdit.")
+        self.require_same_direction = QCheckBox("Critère obligatoire")
+        self.require_same_direction.setChecked(bool(config["require_same_direction"]))
+        self.require_same_direction.setEnabled(False)
+        self.require_same_direction.setToolTip("Protection obligatoire : un débit ne peut jamais être rapproché d’un crédit.")
+
+        self.date_tolerance_days = QSpinBox()
+        self.date_tolerance_days.setRange(0, 60)
+        self.date_tolerance_days.setSuffix(" jour(s)")
+        self.date_tolerance_days.setValue(int(config["date_tolerance_days"]))
+
+        self.amount_tolerance_abs = QDoubleSpinBox()
+        self.amount_tolerance_abs.setRange(0, 100000)
+        self.amount_tolerance_abs.setDecimals(2)
+        self.amount_tolerance_abs.setSuffix(" €")
+        self.amount_tolerance_abs.setValue(float(config["amount_tolerance_abs"]))
+
+        self.amount_tolerance_percent = QDoubleSpinBox()
+        self.amount_tolerance_percent.setRange(0, 100)
+        self.amount_tolerance_percent.setDecimals(2)
+        self.amount_tolerance_percent.setSuffix(" %")
+        self.amount_tolerance_percent.setValue(float(config["amount_tolerance_percent"]))
+
+        self.label_similarity_min = QSpinBox()
+        self.label_similarity_min.setRange(0, 100)
+        self.label_similarity_min.setSuffix(" %")
+        self.label_similarity_min.setValue(int(config["label_similarity_min"]))
+
+        self.auto_threshold = QSpinBox()
+        self.auto_threshold.setRange(1, 100)
+        self.auto_threshold.setSuffix(" %")
+        self.auto_threshold.setValue(int(config["auto_threshold"]))
+
+        self.review_threshold = QSpinBox()
+        self.review_threshold.setRange(0, 99)
+        self.review_threshold.setSuffix(" %")
+        self.review_threshold.setValue(int(config["review_threshold"]))
+
+        form.addRow("Même compte bancaire", self.require_same_account)
+        form.addRow("Même sens Débit / Crédit", self.require_same_direction)
+        form.addRow("Tolérance de date", self.date_tolerance_days)
+        form.addRow("Tolérance de montant — euros", self.amount_tolerance_abs)
+        form.addRow("Tolérance de montant — pourcentage", self.amount_tolerance_percent)
+        form.addRow("Similarité minimale du libellé", self.label_similarity_min)
+        form.addRow("Seuil Rapprochée auto", self.auto_threshold)
+        form.addRow("Seuil À vérifier", self.review_threshold)
+        layout.addLayout(form)
+
+        note = QLabel(
+            "Compte et sens identiques sont toujours obligatoires. Les références bancaires "
+            "et catégories sont exploitées automatiquement lorsqu’elles sont disponibles."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#64748B;")
+        layout.addWidget(note)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def data(self) -> dict:
+        return {
+            "require_same_account": self.require_same_account.isChecked(),
+            "require_same_direction": self.require_same_direction.isChecked(),
+            "date_tolerance_days": self.date_tolerance_days.value(),
+            "amount_tolerance_abs": self.amount_tolerance_abs.value(),
+            "amount_tolerance_percent": self.amount_tolerance_percent.value(),
+            "label_similarity_min": self.label_similarity_min.value(),
+            "auto_threshold": self.auto_threshold.value(),
+            "review_threshold": self.review_threshold.value(),
+        }
 
 
 class ReconciliationPage(QWidget):
@@ -48,6 +147,8 @@ class ReconciliationPage(QWidget):
         self.build()
 
     def build(self) -> None:
+        self.rules_btn = secondary_button("Paramétrer les règles")
+        self.rules_btn.clicked.connect(self.open_rules_dialog)
         generate_btn = primary_button("Générer / mettre à jour")
         generate_btn.clicked.connect(self.generate_occurrences)
         overdue_btn = secondary_button("Marquer les retards")
@@ -57,7 +158,7 @@ class ReconciliationPage(QWidget):
             PageHeader(
                 "Rapprochements",
                 "Transactions réalisées et occurrences prévisionnelles — jeu complet puis filtres d’affichage",
-                [generate_btn, overdue_btn],
+                [self.rules_btn, generate_btn, overdue_btn],
             )
         )
 
@@ -514,6 +615,24 @@ class ReconciliationPage(QWidget):
         generated = self.service.generate_occurrences(self.qdate_to_iso(self.start_date), self.qdate_to_iso(self.end_date))
         overdue = self.service.mark_overdue(date.today())
         QMessageBox.information(self, "Rapprochements", f"{generated} occurrence(s) créée(s).\n{overdue} occurrence(s) marquée(s) en retard.")
+        self.refresh()
+
+    def open_rules_dialog(self) -> None:
+        dialog = ReconciliationRulesDialog(self.service.rules_config(), self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        try:
+            config = self.service.save_rules_config(dialog.data())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Règles de rapprochement", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Règles de rapprochement",
+            "Règles enregistrées.\n"
+            f"Rapprochée auto : score ≥ {config['auto_threshold']} %\n"
+            f"À vérifier : score ≥ {config['review_threshold']} %",
+        )
         self.refresh()
 
     def mark_overdue(self) -> None:

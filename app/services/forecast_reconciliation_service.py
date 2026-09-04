@@ -45,8 +45,102 @@ class ForecastReconciliationService:
     REVIEW_THRESHOLD = 60
     DATE_TOLERANCE_DAYS = 5
 
+    DEFAULT_RULES = {
+        "require_same_account": True,
+        "require_same_direction": True,
+        "date_tolerance_days": 5,
+        "amount_tolerance_abs": 1.0,
+        "amount_tolerance_percent": 2.0,
+        "label_similarity_min": 45,
+        "auto_threshold": 90,
+        "review_threshold": 60,
+    }
+
     def __init__(self, db) -> None:
         self.db = db
+        self._rules_cache: dict | None = None
+
+    @staticmethod
+    def _setting_number(value: str, default: int | float, *, integer: bool = False) -> int | float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return int(default) if integer else float(default)
+        return int(number) if integer else number
+
+    def rules_config(self, refresh: bool = False) -> dict:
+        if self._rules_cache is not None and not refresh:
+            return dict(self._rules_cache)
+        defaults = self.DEFAULT_RULES
+        config = {
+            # Issue #57: these are safeguards, not optional scoring bonuses.
+            # Even a manually altered settings row must never bypass them.
+            "require_same_account": True,
+            "require_same_direction": True,
+            "date_tolerance_days": self._setting_number(
+                self.db.get_setting("reconciliation.date_tolerance_days", str(defaults["date_tolerance_days"])),
+                defaults["date_tolerance_days"], integer=True,
+            ),
+            "amount_tolerance_abs": self._setting_number(
+                self.db.get_setting("reconciliation.amount_tolerance_abs", str(defaults["amount_tolerance_abs"])),
+                defaults["amount_tolerance_abs"],
+            ),
+            "amount_tolerance_percent": self._setting_number(
+                self.db.get_setting("reconciliation.amount_tolerance_percent", str(defaults["amount_tolerance_percent"])),
+                defaults["amount_tolerance_percent"],
+            ),
+            "label_similarity_min": self._setting_number(
+                self.db.get_setting("reconciliation.label_similarity_min", str(defaults["label_similarity_min"])),
+                defaults["label_similarity_min"], integer=True,
+            ),
+            "auto_threshold": self._setting_number(
+                self.db.get_setting("reconciliation.auto_threshold", str(defaults["auto_threshold"])),
+                defaults["auto_threshold"], integer=True,
+            ),
+            "review_threshold": self._setting_number(
+                self.db.get_setting("reconciliation.review_threshold", str(defaults["review_threshold"])),
+                defaults["review_threshold"], integer=True,
+            ),
+        }
+        config["date_tolerance_days"] = max(0, min(config["date_tolerance_days"], 60))
+        config["amount_tolerance_abs"] = max(0.0, config["amount_tolerance_abs"])
+        config["amount_tolerance_percent"] = max(0.0, min(config["amount_tolerance_percent"], 100.0))
+        config["label_similarity_min"] = max(0, min(config["label_similarity_min"], 100))
+        config["auto_threshold"] = max(1, min(config["auto_threshold"], 100))
+        config["review_threshold"] = max(0, min(config["review_threshold"], 99))
+        if config["review_threshold"] >= config["auto_threshold"]:
+            config["review_threshold"] = max(0, config["auto_threshold"] - 1)
+        self._rules_cache = config
+        return dict(config)
+
+    def save_rules_config(self, config: dict) -> dict:
+        merged = {**self.DEFAULT_RULES, **dict(config or {})}
+        auto_threshold = int(self._setting_number(merged["auto_threshold"], self.DEFAULT_RULES["auto_threshold"], integer=True))
+        review_threshold = int(self._setting_number(merged["review_threshold"], self.DEFAULT_RULES["review_threshold"], integer=True))
+        if review_threshold >= auto_threshold:
+            raise ValueError("Le seuil À vérifier doit être inférieur au seuil Rapprochée auto.")
+        keys = {
+            "require_same_account": "true",
+            "require_same_direction": "true",
+            "date_tolerance_days": str(self._setting_number(merged["date_tolerance_days"], self.DEFAULT_RULES["date_tolerance_days"], integer=True)),
+            "amount_tolerance_abs": str(self._setting_number(merged["amount_tolerance_abs"], self.DEFAULT_RULES["amount_tolerance_abs"])),
+            "amount_tolerance_percent": str(self._setting_number(merged["amount_tolerance_percent"], self.DEFAULT_RULES["amount_tolerance_percent"])),
+            "label_similarity_min": str(self._setting_number(merged["label_similarity_min"], self.DEFAULT_RULES["label_similarity_min"], integer=True)),
+            "auto_threshold": str(auto_threshold),
+            "review_threshold": str(review_threshold),
+        }
+        for key, value in keys.items():
+            self.db.set_setting(f"reconciliation.{key}", value)
+        self._rules_cache = None
+        return self.rules_config(refresh=True)
+
+    def decision_for_score(self, score: int) -> str:
+        rules = self.rules_config()
+        if int(score) >= int(rules["auto_threshold"]):
+            return "automatic"
+        if int(score) >= int(rules["review_threshold"]):
+            return "to_review"
+        return "unmatched"
 
     def status_label(self, status: str) -> str:
         return STATUS_LABELS.get(status, status)
@@ -152,7 +246,7 @@ class ForecastReconciliationService:
                 if tx["linked_occurrence_id"] and fully_allocated:
                     continue
                 candidates = self.find_candidates(tx)
-                if not candidates or candidates[0]["score"] < self.REVIEW_THRESHOLD:
+                if not candidates or self.decision_for_score(candidates[0]["score"]) == "unmatched":
                     continue
                 filtered_transactions.append(tx)
             elif status == "all":
@@ -338,7 +432,7 @@ class ForecastReconciliationService:
                 continue
 
             for scored in self.find_candidates(transaction):
-                if int(scored["score"]) < self.REVIEW_THRESHOLD:
+                if self.decision_for_score(int(scored["score"])) == "unmatched":
                     break
                 if self._save_proposal(scored):
                     break
@@ -350,8 +444,9 @@ class ForecastReconciliationService:
         if not transactions:
             return {"auto": 0, "to_review": 0, "unmatched": 0, "generated": 0}
 
-        min_day = min(_parse_date(tx["tx_date"]) for tx in transactions) - timedelta(days=self.DATE_TOLERANCE_DAYS)
-        max_day = max(_parse_date(tx["tx_date"]) for tx in transactions) + timedelta(days=self.DATE_TOLERANCE_DAYS)
+        date_tolerance = int(self.rules_config()["date_tolerance_days"])
+        min_day = min(_parse_date(tx["tx_date"]) for tx in transactions) - timedelta(days=date_tolerance)
+        max_day = max(_parse_date(tx["tx_date"]) for tx in transactions) + timedelta(days=date_tolerance)
         generated = self.generate_occurrences(min_day, max_day)
 
         summary = {"auto": 0, "to_review": 0, "unmatched": 0, "generated": generated}
@@ -361,12 +456,13 @@ class ForecastReconciliationService:
                 summary["unmatched"] += 1
                 continue
             best = candidates[0]
-            if best["score"] >= self.AUTO_THRESHOLD:
+            decision = self.decision_for_score(best["score"])
+            if decision == "automatic":
                 if self._link_occurrence(best["occurrence"]["id"], tx, best, AUTO_STATUS, "automatic"):
                     summary["auto"] += 1
                 else:
                     summary["unmatched"] += 1
-            elif best["score"] >= self.REVIEW_THRESHOLD:
+            elif decision == "to_review":
                 if self._save_proposal(best):
                     summary["to_review"] += 1
                 else:
@@ -393,9 +489,11 @@ class ForecastReconciliationService:
             )
 
     def find_candidates(self, transaction) -> list[dict]:
+        rules = self.rules_config()
         tx_date = _parse_date(transaction["tx_date"])
-        start = (tx_date - timedelta(days=self.DATE_TOLERANCE_DAYS)).isoformat()
-        end = (tx_date + timedelta(days=self.DATE_TOLERANCE_DAYS)).isoformat()
+        date_tolerance = int(rules["date_tolerance_days"])
+        start = (tx_date - timedelta(days=date_tolerance)).isoformat()
+        end = (tx_date + timedelta(days=date_tolerance)).isoformat()
         direction = "credit" if float(transaction["amount"] or 0) >= 0 else "debit"
 
         with self.db.connect() as conn:
@@ -407,13 +505,21 @@ class ForecastReconciliationService:
                     LEFT JOIN accounts a ON a.id = o.account_id
                     WHERE o.deleted_at IS NULL
                       AND o.status IN ('planned', 'overdue', 'to_review', 'partially_matched')
-                      AND o.account_id = ?
-                      AND o.direction = ?
+                      AND (? = 0 OR o.account_id = ?)
+                      AND (? = 0 OR o.direction = ?)
                       AND o.expected_date BETWEEN ? AND ?
                       AND (o.actual_transaction_id IS NULL OR o.actual_transaction_id = ?)
                     ORDER BY o.expected_date, o.id
                     """,
-                    (transaction["account_id"], direction, start, end, transaction["id"]),
+                    (
+                        1 if rules["require_same_account"] else 0,
+                        transaction["account_id"],
+                        1 if rules["require_same_direction"] else 0,
+                        direction,
+                        start,
+                        end,
+                        transaction["id"],
+                    ),
                 )
             )
 
@@ -543,27 +649,35 @@ class ForecastReconciliationService:
         return (True, "Proposition rejetée.") if cursor.rowcount else (False, "Proposition introuvable ou déjà traitée.")
 
     def compute_match_score(self, occurrence, transaction) -> tuple[int, str]:
+        rules = self.rules_config()
         score = 0
         reasons = []
 
         if occurrence["account_id"] == transaction["account_id"]:
             score += 30
             reasons.append("compte identique +30")
-        else:
+        elif rules["require_same_account"]:
             return 0, "compte différent"
+        else:
+            reasons.append("compte différent autorisé")
 
         occ_direction = occurrence["direction"]
         tx_direction = "credit" if float(transaction["amount"] or 0) >= 0 else "debit"
         if occ_direction == tx_direction:
             score += 25
             reasons.append("sens identique +25")
-        else:
+        elif rules["require_same_direction"]:
             return 0, "sens différent"
+        else:
+            reasons.append("sens différent autorisé")
 
         expected = abs(float(occurrence["expected_amount"] or 0))
         actual = abs(float(transaction["amount"] or 0))
         delta = abs(actual - expected)
-        tolerance = max(1.0, expected * 0.02)
+        tolerance = max(
+            float(rules["amount_tolerance_abs"]),
+            expected * float(rules["amount_tolerance_percent"]) / 100.0,
+        )
         wider = max(5.0, expected * 0.05)
         if delta <= 0.01:
             score += 25
@@ -584,7 +698,7 @@ class ForecastReconciliationService:
         elif days <= 3:
             score += 12
             reasons.append(f"date proche +12 ({days} j)")
-        elif days <= self.DATE_TOLERANCE_DAYS:
+        elif days <= int(rules["date_tolerance_days"]):
             score += 8
             reasons.append(f"date tolérée +8 ({days} j)")
         else:
@@ -595,7 +709,7 @@ class ForecastReconciliationService:
         if expected_label and tx_label:
             ratio = SequenceMatcher(None, expected_label, tx_label).ratio()
             token_hit = any(token and token in tx_label for token in expected_label.split() if len(token) >= 4)
-            if token_hit or ratio >= 0.45:
+            if token_hit or ratio * 100 >= int(rules["label_similarity_min"]):
                 score += 5
                 reasons.append("libellé compatible +5")
 
@@ -604,6 +718,11 @@ class ForecastReconciliationService:
         if occ_cat and tx_cat and occ_cat == tx_cat:
             score += 5
             reasons.append("catégorie identique +5")
+
+        source_identifier = _norm(transaction["source_identifier"] if "source_identifier" in transaction.keys() else "")
+        if source_identifier and expected_label and source_identifier in expected_label:
+            score += 5
+            reasons.append("référence bancaire compatible +5")
 
         return min(score, 100), "; ".join(reasons)
 
@@ -731,7 +850,8 @@ class ForecastReconciliationService:
         ).fetchone()
         links = conn.execute(
             """
-            SELECT l.transaction_id, l.applied_amount, l.match_type, t.tx_date
+            SELECT l.transaction_id, l.applied_amount, l.match_type,
+                   l.confidence, l.reason, t.tx_date
             FROM forecast_reconciliation_links l
             JOIN transactions t ON t.id = l.transaction_id
             WHERE l.occurrence_id = ? AND l.deleted_at IS NULL
@@ -743,7 +863,12 @@ class ForecastReconciliationService:
         realized = round(sum(float(link["applied_amount"] or 0) for link in links), 2)
         remaining = round(max(expected - realized, 0.0), 2)
         overage = round(max(realized - expected, 0.0), 2)
-        tolerance = max(0.01, expected * 0.02)
+        rules = self.rules_config()
+        tolerance = max(
+            0.01,
+            float(rules["amount_tolerance_abs"]),
+            expected * float(rules["amount_tolerance_percent"]) / 100.0,
+        )
         if not links:
             status = "overdue" if _parse_date(occurrence["expected_date"]) < date.today() else "planned"
         elif remaining > tolerance:
@@ -756,7 +881,7 @@ class ForecastReconciliationService:
             UPDATE forecast_occurrences
             SET status = ?, actual_transaction_id = ?, actual_date = ?, actual_amount = ?,
                 amount_delta = ?, matched_amount = ?, remaining_amount = ?, overage_amount = ?,
-                match_type = ?,
+                match_type = ?, match_confidence = ?, match_reason = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
@@ -770,6 +895,8 @@ class ForecastReconciliationService:
                 remaining,
                 overage,
                 "multi" if len(links) > 1 else (first["match_type"] if first else None),
+                first["confidence"] if first else None,
+                first["reason"] if first else None,
                 occurrence_id,
             ),
         )
