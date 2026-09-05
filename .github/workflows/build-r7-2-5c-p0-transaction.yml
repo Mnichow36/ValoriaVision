@@ -1,0 +1,37 @@
+name: Build R7.2.5c P0 transaction
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply R7.2.5c patch
+        run: python tools/patch_r7_2_5c_transaction_create.py
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build executable
+        run: pyinstaller --noconfirm --clean --windowed --name ValoriaVision main.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/ValoriaVision/* -DestinationPath ValoriaVision_R7_2_5c_P0_TRANSACTION.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ValoriaVision_R7_2_5c_P0_TRANSACTION
+          path: ValoriaVision_R7_2_5c_P0_TRANSACTION.zip
+          if-no-files-found: error
