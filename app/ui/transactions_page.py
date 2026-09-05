@@ -922,15 +922,31 @@ class TransactionsPage(QWidget):
         dialog = TransactionDialog(self.accounts, self.db.category_names(), self)
         if dialog.exec() == QDialog.Accepted:
             data = dialog.data()
-            self.db.insert_transaction(
-                data["account_id"],
-                data["tx_date"],
-                data["label"],
-                data["category"],
-                data["amount"],
-                "Manuel",
-            )
-            self.refresh()
+            try:
+                inserted = self.db.insert_transaction(
+                    data["account_id"],
+                    data["tx_date"],
+                    data["label"],
+                    data["category"],
+                    data["amount"],
+                    "Manuel",
+                )
+                if not inserted:
+                    QMessageBox.warning(
+                        self,
+                        "Nouvelle transaction",
+                        "Cette opération existe déjà pour ce compte, cette date, ce montant et ce libellé.\n\n"
+                        "Aucune nouvelle transaction n'a été créée.",
+                    )
+                    return
+                self.refresh()
+                QMessageBox.information(self, "Nouvelle transaction", "Transaction enregistrée.")
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "Nouvelle transaction",
+                    f"Impossible d'enregistrer la transaction.\n\n{exc}",
+                )
 
 
     def open_edit_transaction_dialog(self) -> None:
