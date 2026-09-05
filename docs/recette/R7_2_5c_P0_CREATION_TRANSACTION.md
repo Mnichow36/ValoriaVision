@@ -3,6 +3,32 @@
 ## Constat
 Le formulaire Nouvelle transaction s'ouvre, mais la validation peut ne produire aucun résultat visible.
 
+## Issue / PR
+- Issue anomalie : #89
+- PR correctif : #90
+
+## Qualification Project attendue
+
+### #89 — Issue anomalie
+- Status : En cours / Backlog selon état réel de traitement
+- Type : Anomalie
+- Module principal : Transactions
+- Version cible : V0.6.6-R7.2 — Imports & Rapprochements
+- Priorité : Critique
+- Validation : À retester
+- Label : priorité-P0
+- Milestone : V0.6.6-R7.2 — Imports & Rapprochements
+
+### #90 — PR correctif
+- Status : En cours tant que le correctif n'est pas validé
+- Type : Dette technique si le Project ne propose pas Correctif
+- Module principal : Transactions
+- Version cible : V0.6.6-R7.2 — Imports & Rapprochements
+- Priorité : Critique
+- Validation : À retester
+- Label : priorité-P0
+- Milestone : V0.6.6-R7.2 — Imports & Rapprochements
+
 ## Correctif visé
 - exploiter le booléen retourné par `Database.insert_transaction()` ;
 - afficher un message explicite si la transaction est rejetée comme doublon ;
@@ -21,3 +47,6 @@ Le formulaire Nouvelle transaction s'ouvre, mais la validation peut ne produire 
 
 ## Ordre de reprise
 P0 création transaction → mini-recette Transactions → issue #49 Rapprochements.
+
+## Point de vigilance
+Une issue ou PR Valoria Vision ne doit plus être considérée comme prête au pilotage tant que les champs Project ne sont pas renseignés : Status, Type, Module principal, Version cible, Priorité, Validation.
