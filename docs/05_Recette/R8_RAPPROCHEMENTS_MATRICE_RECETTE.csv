@@ -1,0 +1,72 @@
+ID,Domaine,Priorite,Automatisation,Precondition,Action,Resultat_attendu
+REC-MOT-001,Moteur,P0,Oui,Transaction et occurrence sur comptes différents,Calculer les candidats,Aucun rapprochement automatique
+REC-MOT-002,Moteur,P0,Oui,Transaction débit et occurrence crédit,Calculer les candidats,Aucun rapprochement automatique
+REC-MOT-003,Moteur,P0,Oui,Match exact unique,Qualifier transaction,Rapprochement automatique explicable
+REC-MOT-004,Moteur,P0,Oui,Dates autour de la tolérance,Calculer score,Score conforme aux seuils de date
+REC-MOT-005,Moteur,P0,Oui,Montants autour des tolérances,Calculer score,Score conforme aux tolérances
+REC-MOT-006,Moteur,P1,Oui,Variantes de libellés,Calculer score,Similarité déterministe et expliquée
+REC-MOT-007,Moteur,P1,Oui,Catégorie absente ou différente,Calculer score,Absence de catégorie non bloquante sauf règle explicite
+REC-MOT-008,Moteur,P0,Oui,Deux candidats 95 et 94,Qualifier transaction,Statut À vérifier et aucun auto
+REC-MOT-009,Moteur,P0,Oui,Aucun candidat plausible,Qualifier transaction,Qualification without_forecast persistée
+REC-MOT-010,Moteur,P0,Oui,Règles modifiées,Réévaluer,Qualification recalculée avec nouvelles règles
+REC-QLF-001,Qualification,P0,Oui,Import bancaire valide,Terminer import,Chaque transaction importée est qualifiée
+REC-QLF-002,Qualification,P0,Oui,Transaction manuelle créée,Valider saisie,Transaction qualifiée automatiquement
+REC-QLF-003,Qualification,P0,Oui,Transaction déjà qualifiée,Modifier donnée significative,Réévaluation déclenchée
+REC-QLF-004,Qualification,P0,Oui,Transaction without_forecast,Créer prévision compatible,Proposition ou rapprochement possible après réévaluation
+REC-QLF-005,Qualification,P0,Oui,Prévision existante,Modifier prévision,Réévaluation des transactions concernées
+REC-QLF-006,Qualification,P0,Oui,Transaction without_forecast,Créer récurrence compatible,Réévaluation via nouvelles occurrences
+REC-LIFE-001,Cycle,P0,Oui,Occurrence planned passée,Marquer retards,Occurrence overdue
+REC-LIFE-002,Cycle,P0,Oui,Candidat intermédiaire,Qualifier,Proposition proposed
+REC-LIFE-003,Cycle,P0,Oui,Proposition proposed,Valider,Rapprochement confirmed et proposition converted
+REC-LIFE-004,Cycle,P1,Oui,Proposition proposed,Rejeter,Proposition rejected et état cohérent
+REC-LIFE-005,Cycle,P0,Oui,Occurrence ignored,Remettre à traiter,Occurrence planned ou overdue selon date
+REC-LIFE-006,Cycle,P0,Oui,Occurrence planned ou overdue,Annuler occurrence,Occurrence cancelled
+REC-LIFE-007,Cycle,P0,Oui,Rapprochement automatic,Annuler rapprochement,Rapprochement cancelled et membres libérés
+REC-LIFE-008,Cycle,P0,Oui,Rapprochement confirmed,Annuler rapprochement,Rapprochement cancelled et membres libérés
+REC-LIFE-009,Cycle,P0,Oui,Transaction déjà membre d'un rapprochement incompatible,Tenter second rapprochement,Refus sans corruption
+REC-LIFE-010,Cycle,P1,Oui,État ne permettant pas une action,Tenter action,Action refusée par le service
+REC-PROP-001,Proposition,P1,Partiel,Proposition active,Ouvrir panneau,Transactions membres affichées
+REC-PROP-002,Proposition,P1,Partiel,Proposition active,Ouvrir panneau,Occurrences membres affichées
+REC-PROP-003,Proposition,P1,Partiel,Proposition active,Ouvrir panneau,Score et confiance affichés
+REC-PROP-004,Proposition,P1,Partiel,Proposition active,Ouvrir panneau,Écart de montant affiché
+REC-PROP-005,Proposition,P1,Partiel,Proposition active,Ouvrir panneau,Écart de date affiché
+REC-PROP-008,Proposition,P0,Oui,Proposition persistée,Comparer UI et snapshot,Explication égale aux données enregistrées
+REC-KPI-001,KPI,P0,Partiel,Propositions actives,Cliquer À vérifier,Compteur égal à la population
+REC-KPI-002,KPI,P0,Partiel,Prévisions ouvertes,Cliquer Prévisions ouvertes,Compteur égal à la population
+REC-KPI-003,KPI,P0,Partiel,Transactions without_forecast,Cliquer Sans prévision,Compteur égal à la population
+REC-KPI-004,KPI,P0,Partiel,Rapprochements actifs,Cliquer Rapprochées,Compteur égal à la population
+REC-VUE-001,Vues,P0,Partiel,Statut À vérifier,Filtrer,Transactions occurrences et propositions cohérentes
+REC-VUE-002,Vues,P0,Partiel,Statut Rapprochées,Filtrer,Seuls les membres liés sont affichés
+REC-VUE-003,Vues,P0,Partiel,Transactions without_forecast,Filtrer,Aucune action individuelle obligatoire
+REC-FLT-001,Filtres,P0,Partiel,Données multi-comptes,Sélectionner Tous les comptes,Population complète
+REC-FLT-002,Filtres,P0,Partiel,Données multi-comptes,Sélectionner un compte,Affichage filtré sans effet métier
+REC-FLT-003,Filtres,P0,Partiel,Données multi-périodes,Changer Du/Au,Affichage filtré sans effet métier
+REC-FLT-004,Filtres,P0,Partiel,Données variées,Combiner compte et période,Affichage cohérent
+REC-FLT-006,Filtres,P0,Oui,Plusieurs filtres successifs,Revenir global,Dataset global inchangé
+REC-AUD-001,Audit,P0,Oui,Proposition créée,Lire historique,Score critères date et membres présents
+REC-AUD-002,Audit,P0,Oui,Validation manuelle,Lire historique,Événement de confirmation présent
+REC-AUD-003,Audit,P0,Oui,Auto match, Lire historique,Événement automatique présent
+REC-AUD-004,Audit,P0,Oui,Rapprochement actif,Annuler avec motif,Événement d'annulation présent
+REC-AUD-005,Audit,P1,Oui,Occurrence active,Ignorer puis réactiver,Deux événements tracés
+REC-AUD-006,Audit,P1,Partiel,Occurrence ou rapprochement,Ouvrir détails,Informations métier complètes
+REC-GRP-001,N-N,P0,Oui,1 transaction et N occurrences compatibles,Créer groupe,Groupe valide avec totaux et membres
+REC-GRP-002,N-N,P0,Oui,N transactions et 1 occurrence compatibles,Créer groupe,Groupe valide avec totaux et membres
+REC-GRP-003,N-N,P0,Oui,N transactions et N occurrences,Créer groupe,Groupe valide et annulable
+REC-DATA-001,Intégrité,P0,Oui,Transaction source connue,Créer rapprochement,Aucun attribut financier source modifié
+REC-DATA-002,Intégrité,P0,Oui,Transaction rapprochée,Supprimer transaction,Liens nettoyés et occurrence cohérente
+REC-DATA-003,Intégrité,P0,Oui,Lot importé avec rapprochements,Supprimer lot,Liens nettoyés sans orphelins
+REC-DATA-004,Intégrité,P0,Oui,Transaction rapprochée,Changer compte ou sens,Rapprochement invalidé ou réévalué
+REC-DATA-005,Intégrité,P0,Oui,Annulations et suppressions,Contrôler relations,Aucun lien orphelin
+REC-FCST-001,Prévisionnel,P0,Oui,Rapprochement auto validé,Calculer prévisionnel,Pas de double comptage
+REC-FCST-002,Prévisionnel,P0,Oui,Rapprochement manuel validé,Calculer prévisionnel,Pas de double comptage
+REC-FCST-004,Prévisionnel,P0,Oui,Rapprochement annulé,Recalculer prévisionnel,État prévisionnel restauré
+REC-PERF-001,Performance,P1,Oui,10000 transactions,Ouvrir et filtrer,Aucune erreur ni blocage excessif
+REC-PERF-002,Performance,P0,Oui,501 éléments avec limite potentielle,Comparer KPI et accès,Aucune perte silencieuse
+REC-E2E-001,E2E,P0,Partiel,Récurrence et compte créés,Importer match exact,Auto puis annulation cohérente
+REC-E2E-002,E2E,P0,Partiel,Deux prévisions proches,Importer transaction,À vérifier puis confirmation
+REC-E2E-003,E2E,P0,Partiel,Aucune prévision,Importer puis créer récurrence,without_forecast puis réévaluation
+REC-E2E-004,E2E,P0,Partiel,Transaction manuelle,Créer puis qualifier,Même comportement qu'un import
+REC-E2E-005,Regression-58,P0,Partiel,Occurrence active,Ignorer puis réactiver,Réversibilité complète
+REC-E2E-006,Regression-59,P0,Partiel,Occurrence active,Annuler occurrence,Statut cancelled accessible et cohérent
+REC-E2E-007,Regression-60,P1,Partiel,Historique existant,Ouvrir informations,Détails métier et historique visibles
+REC-E2E-008,Regression-61,P0,Partiel,Rapprochement existant,Filtrer statut,Transactions et occurrences liées ensemble
