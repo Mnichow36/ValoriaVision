@@ -1,4 +1,5 @@
 from app.services.reconciliation.candidate_service import rank_candidates
+from app.services.reconciliation.database_service import qualify_and_persist_transaction
 from app.services.reconciliation.models import (
     CandidateScore,
     ForecastInput,
@@ -15,6 +16,6 @@ __all__ = [
     "ReconciliationRules",
     "TransactionInput",
     "qualify",
+    "qualify_and_persist_transaction",
     "rank_candidates",
 ]
-
