@@ -9,6 +9,7 @@ on:
       - "app/database.py"
       - "app/migrations/**"
       - "app/services/reconciliation/**"
+      - "tools/validate_r8_migration.py"
       - "tests/reconciliation/**"
       - ".github/workflows/r8-reconciliation-tests.yml"
 
@@ -28,6 +29,7 @@ jobs:
         run: |
           python -m py_compile app/database.py
           python -m py_compile app/migrations/r8_reconciliation.py
+          python -m py_compile tools/validate_r8_migration.py
 
       - name: Run R8 reconciliation tests
         run: python -m unittest discover -s tests/reconciliation -p "test_*.py" -v
