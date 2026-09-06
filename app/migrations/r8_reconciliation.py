@@ -201,7 +201,6 @@ def _migrate_legacy_confirmed_matches(conn: sqlite3.Connection) -> None:
                o.actual_date,
                o.match_confidence,
                o.match_reason,
-               o.match_type,
                o.created_at,
                o.updated_at,
                t.amount AS transaction_amount,
