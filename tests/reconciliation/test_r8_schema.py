@@ -15,6 +15,10 @@ class R8ReconciliationSchemaTests(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.db = object.__new__(Database)
+        # Keep the integration test on the same in-memory connection. Some
+        # legacy migration helpers read settings through Database.get_setting(),
+        # which would otherwise try to open the normal on-disk database.
+        self.db.get_setting = lambda _key, default=None: default
         self.db.create_schema(self.conn)
 
     def tearDown(self) -> None:
