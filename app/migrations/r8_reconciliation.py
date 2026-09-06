@@ -174,6 +174,187 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_reconciliation_events_type
             ON reconciliation_events(event_type, created_at);
+
+        CREATE TRIGGER IF NOT EXISTS trg_r8_unique_active_transaction
+        BEFORE INSERT ON reconciliation_members
+        WHEN NEW.transaction_id IS NOT NULL
+          AND (SELECT status FROM reconciliations WHERE id = NEW.reconciliation_id)
+              IN ('automatic', 'confirmed')
+          AND EXISTS (
+              SELECT 1
+              FROM reconciliation_members rm
+              JOIN reconciliations r ON r.id = rm.reconciliation_id
+              WHERE rm.transaction_id = NEW.transaction_id
+                AND rm.reconciliation_id <> NEW.reconciliation_id
+                AND r.status IN ('automatic', 'confirmed')
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'R8: transaction already belongs to an active reconciliation');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_r8_unique_active_occurrence
+        BEFORE INSERT ON reconciliation_members
+        WHEN NEW.occurrence_id IS NOT NULL
+          AND (SELECT status FROM reconciliations WHERE id = NEW.reconciliation_id)
+              IN ('automatic', 'confirmed')
+          AND EXISTS (
+              SELECT 1
+              FROM reconciliation_members rm
+              JOIN reconciliations r ON r.id = rm.reconciliation_id
+              WHERE rm.occurrence_id = NEW.occurrence_id
+                AND rm.reconciliation_id <> NEW.reconciliation_id
+                AND r.status IN ('automatic', 'confirmed')
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'R8: occurrence already belongs to an active reconciliation');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_r8_reconciliation_cancel_state
+        AFTER UPDATE OF status ON reconciliations
+        WHEN NEW.status = 'cancelled' AND OLD.status <> 'cancelled'
+        BEGIN
+            UPDATE transaction_reconciliation_state
+            SET status = 'unclassified',
+                reason = 'Rapprochement annulé : réévaluation requise',
+                last_evaluated_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE transaction_id IN (
+                SELECT transaction_id
+                FROM reconciliation_members
+                WHERE reconciliation_id = NEW.id
+                  AND transaction_id IS NOT NULL
+            );
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_r8_transaction_delete_cleanup
+        BEFORE DELETE ON transactions
+        BEGIN
+            INSERT OR IGNORE INTO reconciliation_events(
+                uuid, entity_type, entity_id, event_type, reason, payload_json, dedup_key
+            )
+            SELECT lower(hex(randomblob(16))),
+                   'reconciliation',
+                   r.id,
+                   'source_transaction_deleted',
+                   'Transaction source supprimée',
+                   json_object(
+                       'transaction_id', OLD.id,
+                       'tx_date', OLD.tx_date,
+                       'label', OLD.label,
+                       'amount', OLD.amount
+                   ),
+                   'r8:source-delete:transaction:' || OLD.id || ':reconciliation:' || r.id
+            FROM reconciliations r
+            JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+            WHERE rm.transaction_id = OLD.id
+              AND r.status IN ('automatic', 'confirmed');
+
+            UPDATE reconciliations
+            SET status = 'cancelled',
+                cancelled_at = CURRENT_TIMESTAMP,
+                cancel_reason = COALESCE(cancel_reason, 'Transaction source supprimée')
+            WHERE id IN (
+                SELECT reconciliation_id
+                FROM reconciliation_members
+                WHERE transaction_id = OLD.id
+            )
+              AND status IN ('automatic', 'confirmed');
+
+            INSERT OR IGNORE INTO reconciliation_events(
+                uuid, entity_type, entity_id, event_type, reason, payload_json, dedup_key
+            )
+            SELECT lower(hex(randomblob(16))),
+                   'proposal',
+                   p.id,
+                   'source_transaction_deleted',
+                   'Transaction source supprimée',
+                   json_object(
+                       'transaction_id', OLD.id,
+                       'tx_date', OLD.tx_date,
+                       'label', OLD.label,
+                       'amount', OLD.amount
+                   ),
+                   'r8:source-delete:transaction:' || OLD.id || ':proposal:' || p.id
+            FROM reconciliation_proposals p
+            JOIN reconciliation_proposal_members pm ON pm.proposal_id = p.id
+            WHERE pm.transaction_id = OLD.id
+              AND p.status = 'proposed';
+
+            UPDATE reconciliation_proposals
+            SET status = 'expired',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id IN (
+                SELECT proposal_id
+                FROM reconciliation_proposal_members
+                WHERE transaction_id = OLD.id
+            )
+              AND status = 'proposed';
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_r8_occurrence_delete_cleanup
+        BEFORE DELETE ON forecast_occurrences
+        BEGIN
+            INSERT OR IGNORE INTO reconciliation_events(
+                uuid, entity_type, entity_id, event_type, reason, payload_json, dedup_key
+            )
+            SELECT lower(hex(randomblob(16))),
+                   'reconciliation',
+                   r.id,
+                   'source_occurrence_deleted',
+                   'Occurrence source supprimée',
+                   json_object(
+                       'occurrence_id', OLD.id,
+                       'expected_date', OLD.expected_date,
+                       'expected_label', OLD.expected_label,
+                       'expected_amount', OLD.expected_amount
+                   ),
+                   'r8:source-delete:occurrence:' || OLD.id || ':reconciliation:' || r.id
+            FROM reconciliations r
+            JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+            WHERE rm.occurrence_id = OLD.id
+              AND r.status IN ('automatic', 'confirmed');
+
+            UPDATE reconciliations
+            SET status = 'cancelled',
+                cancelled_at = CURRENT_TIMESTAMP,
+                cancel_reason = COALESCE(cancel_reason, 'Occurrence source supprimée')
+            WHERE id IN (
+                SELECT reconciliation_id
+                FROM reconciliation_members
+                WHERE occurrence_id = OLD.id
+            )
+              AND status IN ('automatic', 'confirmed');
+
+            INSERT OR IGNORE INTO reconciliation_events(
+                uuid, entity_type, entity_id, event_type, reason, payload_json, dedup_key
+            )
+            SELECT lower(hex(randomblob(16))),
+                   'proposal',
+                   p.id,
+                   'source_occurrence_deleted',
+                   'Occurrence source supprimée',
+                   json_object(
+                       'occurrence_id', OLD.id,
+                       'expected_date', OLD.expected_date,
+                       'expected_label', OLD.expected_label,
+                       'expected_amount', OLD.expected_amount
+                   ),
+                   'r8:source-delete:occurrence:' || OLD.id || ':proposal:' || p.id
+            FROM reconciliation_proposals p
+            JOIN reconciliation_proposal_members pm ON pm.proposal_id = p.id
+            WHERE pm.occurrence_id = OLD.id
+              AND p.status = 'proposed';
+
+            UPDATE reconciliation_proposals
+            SET status = 'expired',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id IN (
+                SELECT proposal_id
+                FROM reconciliation_proposal_members
+                WHERE occurrence_id = OLD.id
+            )
+              AND status = 'proposed';
+        END;
         """
     )
 
