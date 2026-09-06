@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import re
+import unicodedata
+from difflib import SequenceMatcher
+
+from app.services.reconciliation.models import (
+    CandidateScore,
+    CriterionScore,
+    ForecastInput,
+    TransactionInput,
+)
+from app.services.reconciliation.rules import ReconciliationRules
+
+
+def normalize_label(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "")
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = normalized.casefold()
+    normalized = re.sub(r"\b(?:cb|carte|virement|vir|prlv|prelevement)\b", " ", normalized)
+    normalized = re.sub(r"\d{4,}", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def score_candidate(
+    transaction: TransactionInput,
+    forecast: ForecastInput,
+    rules: ReconciliationRules,
+) -> CandidateScore | None:
+    if rules.same_account_required and transaction.account_id != forecast.account_id:
+        return None
+    if rules.same_direction_required and transaction.direction != forecast.direction:
+        return None
+
+    date_delta = abs((transaction.tx_date - forecast.expected_date).days)
+    if date_delta > rules.date_tolerance_days:
+        return None
+
+    amount_delta = abs(abs(transaction.amount) - abs(forecast.expected_amount))
+    # The observed transaction is the fixed reference. A candidate must not
+    # enlarge its own acceptance window merely by carrying a higher amount.
+    reference_amount = max(abs(transaction.amount), 0.01)
+    amount_tolerance = max(
+        rules.amount_tolerance_absolute,
+        reference_amount * rules.amount_tolerance_relative,
+    )
+    if amount_delta > amount_tolerance:
+        return None
+
+    if rules.date_tolerance_days == 0:
+        date_ratio = 1.0
+    else:
+        date_ratio = 1.0 - (date_delta / (rules.date_tolerance_days + 1))
+    date_points = rules.date_weight * max(0.0, date_ratio)
+
+    if amount_tolerance == 0:
+        amount_ratio = 1.0
+    else:
+        amount_ratio = 1.0 - (amount_delta / (amount_tolerance + 0.01))
+    amount_points = rules.amount_weight * max(0.0, amount_ratio)
+
+    actual_label = normalize_label(transaction.label)
+    expected_label = normalize_label(forecast.expected_label)
+    label_ratio = (
+        SequenceMatcher(None, actual_label, expected_label).ratio()
+        if actual_label and expected_label
+        else 0.0
+    )
+    label_points = rules.label_weight * label_ratio
+
+    categories_match = bool(
+        transaction.category
+        and forecast.category
+        and normalize_label(transaction.category) == normalize_label(forecast.category)
+    )
+    category_points = rules.category_weight if categories_match else 0.0
+
+    criteria = (
+        CriterionScore(
+            "account",
+            0,
+            0,
+            f"Compte identique ({transaction.account_id})",
+        ),
+        CriterionScore(
+            "direction",
+            0,
+            0,
+            f"Sens identique ({transaction.direction})",
+        ),
+        CriterionScore(
+            "date",
+            round(date_points, 2),
+            rules.date_weight,
+            f"Écart de {date_delta} jour(s)",
+        ),
+        CriterionScore(
+            "amount",
+            round(amount_points, 2),
+            rules.amount_weight,
+            f"Écart de {amount_delta:.2f} €",
+        ),
+        CriterionScore(
+            "label",
+            round(label_points, 2),
+            rules.label_weight,
+            f"Similarité de libellé {label_ratio:.0%}",
+        ),
+        CriterionScore(
+            "category",
+            round(category_points, 2),
+            rules.category_weight,
+            "Catégorie identique" if categories_match else "Catégorie absente ou différente",
+        ),
+    )
+    total = min(100, max(0, round(sum(item.points for item in criteria))))
+    return CandidateScore(
+        forecast=forecast,
+        score=total,
+        date_delta_days=date_delta,
+        amount_delta=round(amount_delta, 2),
+        criteria=criteria,
+    )
