@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.security.crypto_service import CryptoService, SecurityIntegrityError
+from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "data"
@@ -17,7 +18,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
 DB_PATH = DATA_DIR / "valoria_vision.db"
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 @dataclass
@@ -533,6 +534,7 @@ class Database:
         self.apply_forecast_reconciliation_foundation(conn)
         self.apply_premium_foundation(conn)
         self.apply_r7_2_foundation(conn)
+        apply_r8_reconciliation_foundation(conn)
 
     def ensure_columns(self, conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
