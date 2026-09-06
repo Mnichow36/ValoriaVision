@@ -447,6 +447,288 @@ class R8ReconciliationSchemaTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["status"], "unclassified")
 
+    def test_transaction_cannot_belong_to_two_active_reconciliations(self) -> None:
+        account_id = self.create_account()
+        transaction_id = self.create_transaction(account_id)
+        occurrence_1 = self.create_occurrence(account_id, expected_label="Prévision A")
+        occurrence_2 = self.create_occurrence(account_id, expected_label="Prévision B")
+        apply_r8_reconciliation_foundation(self.conn)
+
+        first = self.conn.execute(
+            """
+            INSERT INTO reconciliations(uuid, status, match_type)
+            VALUES (?, 'confirmed', 'manual')
+            """,
+            (str(uuid4()),),
+        )
+        first_id = int(first.lastrowid)
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, transaction_id, role
+            )
+            VALUES (?, 'transaction', ?, 'actual')
+            """,
+            (first_id, transaction_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'forecast')
+            """,
+            (first_id, occurrence_1),
+        )
+
+        second = self.conn.execute(
+            """
+            INSERT INTO reconciliations(uuid, status, match_type)
+            VALUES (?, 'automatic', 'automatic')
+            """,
+            (str(uuid4()),),
+        )
+        second_id = int(second.lastrowid)
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.conn.execute(
+                """
+                INSERT INTO reconciliation_members(
+                    reconciliation_id, member_type, transaction_id, role
+                )
+                VALUES (?, 'transaction', ?, 'actual')
+                """,
+                (second_id, transaction_id),
+            )
+
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'forecast')
+            """,
+            (second_id, occurrence_2),
+        )
+
+    def test_cancelling_reconciliation_releases_state_and_allows_new_active_link(self) -> None:
+        account_id = self.create_account()
+        transaction_id = self.create_transaction(account_id)
+        occurrence_1 = self.create_occurrence(account_id, expected_label="Prévision A")
+        occurrence_2 = self.create_occurrence(account_id, expected_label="Prévision B")
+        apply_r8_reconciliation_foundation(self.conn)
+
+        first = self.conn.execute(
+            """
+            INSERT INTO reconciliations(uuid, status, match_type)
+            VALUES (?, 'confirmed', 'manual')
+            """,
+            (str(uuid4()),),
+        )
+        first_id = int(first.lastrowid)
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, transaction_id, role
+            )
+            VALUES (?, 'transaction', ?, 'actual')
+            """,
+            (first_id, transaction_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'forecast')
+            """,
+            (first_id, occurrence_1),
+        )
+        self.conn.execute(
+            """
+            UPDATE transaction_reconciliation_state
+            SET status = 'reconciled'
+            WHERE transaction_id = ?
+            """,
+            (transaction_id,),
+        )
+
+        self.conn.execute(
+            """
+            UPDATE reconciliations
+            SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (first_id,),
+        )
+
+        state = self.conn.execute(
+            """
+            SELECT status
+            FROM transaction_reconciliation_state
+            WHERE transaction_id = ?
+            """,
+            (transaction_id,),
+        ).fetchone()["status"]
+        self.assertEqual(state, "unclassified")
+
+        second = self.conn.execute(
+            """
+            INSERT INTO reconciliations(uuid, status, match_type)
+            VALUES (?, 'confirmed', 'manual')
+            """,
+            (str(uuid4()),),
+        )
+        second_id = int(second.lastrowid)
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, transaction_id, role
+            )
+            VALUES (?, 'transaction', ?, 'actual')
+            """,
+            (second_id, transaction_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'forecast')
+            """,
+            (second_id, occurrence_2),
+        )
+
+        member_count = self.conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM reconciliation_members
+            WHERE reconciliation_id = ?
+            """,
+            (second_id,),
+        ).fetchone()["c"]
+        self.assertEqual(member_count, 2)
+
+    def test_deleting_source_transaction_cancels_active_reconciliation_and_audits(self) -> None:
+        account_id = self.create_account()
+        transaction_id = self.create_transaction(account_id, label="Source à supprimer")
+        occurrence_id = self.create_occurrence(account_id)
+        apply_r8_reconciliation_foundation(self.conn)
+
+        cur = self.conn.execute(
+            """
+            INSERT INTO reconciliations(uuid, status, match_type, score)
+            VALUES (?, 'confirmed', 'manual', 100)
+            """,
+            (str(uuid4()),),
+        )
+        reconciliation_id = int(cur.lastrowid)
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, transaction_id, role,
+                amount_snapshot, label_snapshot
+            )
+            VALUES (?, 'transaction', ?, 'actual', -109.8, 'Source à supprimer')
+            """,
+            (reconciliation_id, transaction_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_members(
+                reconciliation_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'forecast')
+            """,
+            (reconciliation_id, occurrence_id),
+        )
+
+        self.conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+
+        reconciliation = self.conn.execute(
+            """
+            SELECT status, cancel_reason
+            FROM reconciliations
+            WHERE id = ?
+            """,
+            (reconciliation_id,),
+        ).fetchone()
+        self.assertEqual(reconciliation["status"], "cancelled")
+        self.assertEqual(reconciliation["cancel_reason"], "Transaction source supprimée")
+
+        event = self.conn.execute(
+            """
+            SELECT event_type, payload_json
+            FROM reconciliation_events
+            WHERE entity_type = 'reconciliation'
+              AND entity_id = ?
+              AND event_type = 'source_transaction_deleted'
+            """,
+            (reconciliation_id,),
+        ).fetchone()
+        self.assertIsNotNone(event)
+        payload = json.loads(event["payload_json"])
+        self.assertEqual(payload["transaction_id"], transaction_id)
+        self.assertEqual(payload["label"], "Source à supprimer")
+
+    def test_deleting_occurrence_expires_active_proposal(self) -> None:
+        account_id = self.create_account()
+        transaction_id = self.create_transaction(account_id)
+        occurrence_id = self.create_occurrence(account_id)
+        apply_r8_reconciliation_foundation(self.conn)
+
+        cur = self.conn.execute(
+            """
+            INSERT INTO reconciliation_proposals(
+                uuid, status, score, confidence_level
+            )
+            VALUES (?, 'proposed', 75, 'review')
+            """,
+            (str(uuid4()),),
+        )
+        proposal_id = int(cur.lastrowid)
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_proposal_members(
+                proposal_id, member_type, transaction_id, role
+            )
+            VALUES (?, 'transaction', ?, 'actual')
+            """,
+            (proposal_id, transaction_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO reconciliation_proposal_members(
+                proposal_id, member_type, occurrence_id, role
+            )
+            VALUES (?, 'occurrence', ?, 'candidate')
+            """,
+            (proposal_id, occurrence_id),
+        )
+
+        self.conn.execute(
+            "DELETE FROM forecast_occurrences WHERE id = ?",
+            (occurrence_id,),
+        )
+
+        status = self.conn.execute(
+            "SELECT status FROM reconciliation_proposals WHERE id = ?",
+            (proposal_id,),
+        ).fetchone()["status"]
+        self.assertEqual(status, "expired")
+
+        event = self.conn.execute(
+            """
+            SELECT event_type
+            FROM reconciliation_events
+            WHERE entity_type = 'proposal'
+              AND entity_id = ?
+              AND event_type = 'source_occurrence_deleted'
+            """,
+            (proposal_id,),
+        ).fetchone()
+        self.assertIsNotNone(event)
+
 
 if __name__ == "__main__":
     unittest.main()
