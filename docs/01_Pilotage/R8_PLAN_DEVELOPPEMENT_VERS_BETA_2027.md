@@ -4,7 +4,7 @@
 **Version :** 1.0  
 **Date de référence :** 7 septembre 2026  
 **Cible de publication :** 30 avril 2027  
-**Statut :** document de pilotage soumis à validation  
+**Statut :** document de pilotage validé — référentiel de pilotage  
 **Dépôt :** `Mnichow36/ValoriaVision`
 
 ---
@@ -801,7 +801,7 @@ Toute évolution doit indiquer :
 
 | Version | Date | Modification |
 |---|---|---|
-| 1.0 | 07/09/2026 | Création du plan exhaustif et fixation de la cible au 30/04/2027 |
+| 1.0 | 07/09/2026 | Création, validation du plan exhaustif et fixation de la cible au 30/04/2027 |
 
 ---
 
