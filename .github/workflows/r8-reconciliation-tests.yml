@@ -1,0 +1,35 @@
+name: R8 reconciliation tests
+
+on:
+  push:
+    branches:
+      - feat/r8-rapprochements-lot1-model-tests
+  pull_request:
+    paths:
+      - "app/database.py"
+      - "app/migrations/**"
+      - "app/services/reconciliation/**"
+      - "tools/validate_r8_migration.py"
+      - "tests/reconciliation/**"
+      - ".github/workflows/r8-reconciliation-tests.yml"
+
+jobs:
+  reconciliation-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile R8 database code
+        run: |
+          python -m py_compile app/database.py
+          python -m py_compile app/migrations/r8_reconciliation.py
+          python -m py_compile tools/validate_r8_migration.py
+
+      - name: Run R8 reconciliation tests
+        run: python -m unittest discover -s tests/reconciliation -p "test_*.py" -v
