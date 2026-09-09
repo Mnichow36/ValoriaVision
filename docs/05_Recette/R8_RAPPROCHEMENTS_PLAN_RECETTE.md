@@ -1,6 +1,8 @@
 # Valoria Vision — R8 Rapprochements
 ## Plan de tests et de recette
 
+**Statut :** validé comme plan directeur de recette R8  
+**Validation :** 9 septembre 2026 — issue #120  
 **Référentiel :** R8_RAPPROCHEMENTS_SPECIFICATION_FONCTIONNELLE.md  
 **Machine à états :** R8_RAPPROCHEMENTS_MACHINE_ETATS.md  
 **ADR :** ADR_R8_MODELE_RAPPROCHEMENTS.md

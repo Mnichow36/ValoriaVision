@@ -1,9 +1,10 @@
 # R8 Rapprochements — Lot 1 technique
 ## Modèle de données, migration et garde-fous
 
-**Branche :** `feat/r8-rapprochements-lot1-model-tests`  
-**PR :** #93  
-**Base fonctionnelle :** `docs/r8-rapprochements-fondations`
+**Statut :** intégré dans `main`  
+**PR :** #93 — fusionnée  
+**Commit d’intégration :** `639be23bdb415337431b3741a82ffdded9edeee1`  
+**Base fonctionnelle :** PR #92 — fusionnée
 
 ## 1. Objectif du lot
 
