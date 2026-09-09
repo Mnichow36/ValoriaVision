@@ -257,7 +257,7 @@ class R8PersistenceTests(unittest.TestCase):
     def test_failure_rolls_back_partial_persistence(self) -> None:
         transaction_id = self.transaction()
         self.occurrence()
-        initial_state = self.state(transaction_id)["status"]
+        self.assertIsNone(self.state(transaction_id))
         self.conn.execute(
             """
             CREATE TRIGGER fail_occurrence_member_for_rollback_test
@@ -272,7 +272,7 @@ class R8PersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(sqlite3.IntegrityError, "forced rollback test"):
             qualify_and_persist_transaction(self.conn, transaction_id)
 
-        self.assertEqual(self.state(transaction_id)["status"], initial_state)
+        self.assertIsNone(self.state(transaction_id))
         reconciliation_count = self.conn.execute(
             """
             SELECT COUNT(*)
