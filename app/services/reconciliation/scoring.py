@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from decimal import Decimal
 from difflib import SequenceMatcher
 
 from app.services.reconciliation.models import (
@@ -37,13 +38,18 @@ def score_candidate(
     if date_delta > rules.date_tolerance_days:
         return None
 
-    amount_delta = abs(abs(transaction.amount) - abs(forecast.expected_amount))
+    # Convert through str to avoid binary floating-point artefacts at the
+    # exact acceptance boundaries while keeping the public input API compatible.
+    transaction_amount = abs(Decimal(str(transaction.amount)))
+    forecast_amount = abs(Decimal(str(forecast.expected_amount)))
+    amount_delta = abs(transaction_amount - forecast_amount)
+
     # The observed transaction is the fixed reference. A candidate must not
     # enlarge its own acceptance window merely by carrying a higher amount.
-    reference_amount = max(abs(transaction.amount), 0.01)
+    reference_amount = max(transaction_amount, Decimal("0.01"))
     amount_tolerance = max(
-        rules.amount_tolerance_absolute,
-        reference_amount * rules.amount_tolerance_relative,
+        Decimal(str(rules.amount_tolerance_absolute)),
+        reference_amount * Decimal(str(rules.amount_tolerance_relative)),
     )
     if amount_delta > amount_tolerance:
         return None
@@ -57,7 +63,9 @@ def score_candidate(
     if amount_tolerance == 0:
         amount_ratio = 1.0
     else:
-        amount_ratio = 1.0 - (amount_delta / (amount_tolerance + 0.01))
+        amount_ratio = float(
+            Decimal("1") - (amount_delta / (amount_tolerance + Decimal("0.01")))
+        )
     amount_points = rules.amount_weight * max(0.0, amount_ratio)
 
     actual_label = normalize_label(transaction.label)
@@ -119,6 +127,6 @@ def score_candidate(
         forecast=forecast,
         score=total,
         date_delta_days=date_delta,
-        amount_delta=round(amount_delta, 2),
+        amount_delta=float(amount_delta.quantize(Decimal("0.01"))),
         criteria=criteria,
     )
