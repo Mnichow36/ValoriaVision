@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from difflib import SequenceMatcher
 
 from app.services.reconciliation.models import (
@@ -40,8 +40,13 @@ def score_candidate(
 
     # Convert through str to avoid binary floating-point artefacts at the
     # exact acceptance boundaries while keeping the public input API compatible.
-    transaction_amount = abs(Decimal(str(transaction.amount)))
-    forecast_amount = abs(Decimal(str(forecast.expected_amount)))
+    cent = Decimal("0.01")
+    transaction_amount = abs(
+        Decimal(str(transaction.amount)).quantize(cent, rounding=ROUND_HALF_UP)
+    )
+    forecast_amount = abs(
+        Decimal(str(forecast.expected_amount)).quantize(cent, rounding=ROUND_HALF_UP)
+    )
     amount_delta = abs(transaction_amount - forecast_amount)
 
     # The observed transaction is the fixed reference. A candidate must not
