@@ -35,7 +35,28 @@ def _score_details(candidate: CandidateScore | None) -> str:
     )
 
 
-def _expire_active_proposals(conn: sqlite3.Connection, transaction_id: int) -> None:
+def _expire_active_proposals(
+    conn: sqlite3.Connection,
+    transaction_id: int,
+) -> tuple[int, ...]:
+    proposal_ids = tuple(
+        int(row[0])
+        for row in conn.execute(
+            """
+            SELECT rp.id
+            FROM reconciliation_proposals rp
+            JOIN reconciliation_proposal_members rpm
+              ON rpm.proposal_id = rp.id
+            WHERE rp.status = 'proposed'
+              AND rpm.transaction_id = ?
+            ORDER BY rp.id
+            """,
+            (transaction_id,),
+        ).fetchall()
+    )
+    if not proposal_ids:
+        return ()
+
     conn.execute(
         """
         UPDATE reconciliation_proposals
@@ -49,6 +70,7 @@ def _expire_active_proposals(conn: sqlite3.Connection, transaction_id: int) -> N
         """,
         (transaction_id,),
     )
+    return proposal_ids
 
 
 def _upsert_state(
@@ -147,8 +169,17 @@ def persist_qualification(
                 entity_id=int(existing["id"]),
             )
 
-        _expire_active_proposals(conn, transaction.id)
+        expired_proposal_ids = _expire_active_proposals(conn, transaction.id)
         rules_json = json.dumps(rules.snapshot(), ensure_ascii=False, sort_keys=True)
+        for proposal_id in expired_proposal_ids:
+            _event(
+                conn,
+                "proposal",
+                proposal_id,
+                "proposal_expired",
+                "Proposition expirée avant réévaluation",
+                {"transaction_id": transaction.id},
+            )
 
         if result.status == "without_forecast":
             _upsert_state(conn, transaction.id, "without_forecast", result.reason)
@@ -156,10 +187,12 @@ def persist_qualification(
                 conn,
                 "transaction",
                 transaction.id,
-                "qualified_without_forecast",
+                "qualification_calculated",
                 result.reason,
-                {"transaction_id": transaction.id},
-                f"r8:without-forecast:{transaction.id}",
+                {
+                    "transaction_id": transaction.id,
+                    "qualification": "without_forecast",
+                },
             )
             persisted = PersistedQualification("without_forecast", None, None)
 
@@ -289,7 +322,7 @@ def persist_qualification(
                 conn,
                 "reconciliation",
                 reconciliation_id,
-                "automatic_reconciliation_created",
+                "reconciliation_created_auto",
                 result.reason,
                 {
                     "transaction_id": transaction.id,

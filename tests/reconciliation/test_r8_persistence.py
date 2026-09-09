@@ -100,11 +100,26 @@ class R8PersistenceTests(unittest.TestCase):
             SELECT COUNT(*) FROM reconciliation_events
             WHERE entity_type = 'transaction'
               AND entity_id = ?
-              AND event_type = 'qualified_without_forecast'
+              AND event_type = 'qualification_calculated'
             """,
             (transaction_id,),
         ).fetchone()[0]
         self.assertEqual(event_count, 1)
+
+    def test_repeated_without_forecast_reevaluation_is_fully_audited(self) -> None:
+        transaction_id = self.transaction()
+        qualify_and_persist_transaction(self.conn, transaction_id)
+        qualify_and_persist_transaction(self.conn, transaction_id)
+        event_count = self.conn.execute(
+            """
+            SELECT COUNT(*) FROM reconciliation_events
+            WHERE entity_type = 'transaction'
+              AND entity_id = ?
+              AND event_type = 'qualification_calculated'
+            """,
+            (transaction_id,),
+        ).fetchone()[0]
+        self.assertEqual(event_count, 2)
 
     def test_automatic_result_creates_reconciliation_members_and_snapshots(self) -> None:
         transaction_id = self.transaction()
@@ -139,6 +154,16 @@ class R8PersistenceTests(unittest.TestCase):
             {row["occurrence_id"] for row in members if row["occurrence_id"]},
             {occurrence_id},
         )
+        event_count = self.conn.execute(
+            """
+            SELECT COUNT(*) FROM reconciliation_events
+            WHERE entity_type = 'reconciliation'
+              AND entity_id = ?
+              AND event_type = 'reconciliation_created_auto'
+            """,
+            (persisted.entity_id,),
+        ).fetchone()[0]
+        self.assertEqual(event_count, 1)
 
     def test_ambiguous_result_creates_one_proposal_with_all_candidates(self) -> None:
         transaction_id = self.transaction()
@@ -185,6 +210,20 @@ class R8PersistenceTests(unittest.TestCase):
             (first.entity_id,),
         ).fetchone()[0]
         self.assertEqual(old_status, "expired")
+        expiration_event = self.conn.execute(
+            """
+            SELECT payload_json FROM reconciliation_events
+            WHERE entity_type = 'proposal'
+              AND entity_id = ?
+              AND event_type = 'proposal_expired'
+            """,
+            (first.entity_id,),
+        ).fetchone()
+        self.assertIsNotNone(expiration_event)
+        self.assertEqual(
+            json.loads(expiration_event["payload_json"])["transaction_id"],
+            transaction_id,
+        )
         tx_after = tuple(
             self.conn.execute(
                 "SELECT account_id, tx_date, amount, label FROM transactions WHERE id = ?",
@@ -217,34 +256,40 @@ class R8PersistenceTests(unittest.TestCase):
 
     def test_failure_rolls_back_partial_persistence(self) -> None:
         transaction_id = self.transaction()
-        occurrence_id = self.occurrence()
-        blocker_transaction = self.transaction(label="AUTRE")
-        blocker_reconciliation = self.conn.execute(
-            """
-            INSERT INTO reconciliations(uuid, status, match_type)
-            VALUES (?, 'confirmed', 'manual')
-            """,
-            (str(uuid4()),),
-        ).lastrowid
+        self.occurrence()
+        initial_state = self.state(transaction_id)["status"]
         self.conn.execute(
             """
-            INSERT INTO reconciliation_members(
-                reconciliation_id, member_type, transaction_id, role
-            ) VALUES (?, 'transaction', ?, 'actual')
-            """,
-            (blocker_reconciliation, blocker_transaction),
-        )
-        self.conn.execute(
+            CREATE TRIGGER fail_occurrence_member_for_rollback_test
+            BEFORE INSERT ON reconciliation_members
+            WHEN NEW.member_type = 'occurrence'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced rollback test');
+            END
             """
-            INSERT INTO reconciliation_members(
-                reconciliation_id, member_type, occurrence_id, role
-            ) VALUES (?, 'occurrence', ?, 'forecast')
-            """,
-            (blocker_reconciliation, occurrence_id),
         )
-        result = qualify_and_persist_transaction(self.conn, transaction_id)
-        self.assertEqual(result.status, "without_forecast")
-        self.assertEqual(self.state(transaction_id)["status"], "without_forecast")
+
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "forced rollback test"):
+            qualify_and_persist_transaction(self.conn, transaction_id)
+
+        self.assertEqual(self.state(transaction_id)["status"], initial_state)
+        reconciliation_count = self.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM reconciliations r
+            JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+            WHERE rm.transaction_id = ?
+            """,
+            (transaction_id,),
+        ).fetchone()[0]
+        self.assertEqual(reconciliation_count, 0)
+        event_count = self.conn.execute(
+            """
+            SELECT COUNT(*) FROM reconciliation_events
+            WHERE entity_type = 'reconciliation'
+            """
+        ).fetchone()[0]
+        self.assertEqual(event_count, 0)
 
 
 if __name__ == "__main__":
