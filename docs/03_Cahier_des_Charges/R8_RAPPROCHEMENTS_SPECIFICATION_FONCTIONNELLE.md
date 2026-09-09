@@ -1,9 +1,10 @@
 # Valoria Vision — R8 Rapprochements
 ## Spécification fonctionnelle de référence
 
-**Statut :** proposition de référence pour refonte
+**Statut :** validé — référentiel fonctionnel R8
 **Dépôt :** Mnichow36/ValoriaVision
-**Branche de préparation :** docs/r8-rapprochements-fondations
+**Validation :** 9 septembre 2026 — issue #120
+**Source versionnée :** PR #92, fusionnée dans `main`
 **Référence précédente :** R7.2 — Écran cible Rapprochements et qualification automatique
 
 ## 1. Objectif

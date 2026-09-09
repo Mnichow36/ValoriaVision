@@ -1,7 +1,9 @@
 # ADR — R8 Modèle de données des rapprochements
 
-**Statut :** proposé
+**Statut :** accepté — fondation R8
 **Décision :** séparer occurrences, propositions et rapprochements
+**Validation :** 9 septembre 2026 — issue #120
+**Implémentation de référence :** PR #93, #94 et #97
 
 ## Contexte
 

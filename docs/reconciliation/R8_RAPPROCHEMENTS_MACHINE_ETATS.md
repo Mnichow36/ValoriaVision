@@ -1,5 +1,9 @@
 # R8 Rapprochements — Machine à états
 
+**Statut :** validé — fondation R8  
+**Validation :** 9 septembre 2026 — issue #120  
+**Implémentation partielle :** PR #93 et #97
+
 Ce document sépare explicitement les cycles de vie des **transactions**, **occurrences**, **propositions** et **rapprochements**.
 
 ## 1. Principe
