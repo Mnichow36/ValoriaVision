@@ -119,12 +119,12 @@ class R8ConfigurableRulesTests(unittest.TestCase):
 
     def test_thresholds_produce_auto_review_and_without_forecast(self) -> None:
         transaction = self.transaction(
-            label="AUTRE LIBELLÉ",
+            label="",
             counterparty=None,
             external_reference=None,
         )
         forecast = self.forecast(
-            expected_label="PRÉVISION",
+            expected_label="",
             counterparty=None,
             external_reference=None,
         )
