@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from app.database import Database
 from app.services.forecast_chart_service import ForecastChartService
-from app.theme import COLORS, euro
+from app.theme import COLORS, euro, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 from app.ui.plotly_runtime import build_plotly_html
 
