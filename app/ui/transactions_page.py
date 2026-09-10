@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
 from app.database import Database
 from app.services.business_rules import is_uncategorized_transaction
 from app.services.categorization_rule_service import CategorizationRuleService
-from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.imports.import_service import BankImportService, ImportedTransaction
 from app.imports.csv_parser import payload_to_json
 from app.theme import euro, format_date_fr, qdate_to_iso
@@ -1214,7 +1213,7 @@ class TransactionsPage(QWidget):
                 duplicates += 1
         self.db.update_import_batch(batch_id, imported, duplicates, errors)
         categorization_summary = CategorizationRuleService(self.db).apply_rules_to_import_batch(batch_id)
-        reconciliation_summary = ForecastReconciliationService(self.db).reconcile_import_batch(batch_id)
+        reconciliation_summary = self.db.reconciliation_summary_for_import_batch(batch_id)
         QMessageBox.information(
             self,
             "Import terminé",
@@ -1224,7 +1223,7 @@ class TransactionsPage(QWidget):
             f"À catégoriser : {categorization_summary['to_categorize']}\n\n"
             f"Rapprochements automatiques : {reconciliation_summary['auto']}\n"
             f"Rapprochements à vérifier : {reconciliation_summary['to_review']}\n"
-            f"Occurrences générées : {reconciliation_summary['generated']}"
+            f"Sans prévision : {reconciliation_summary['without_forecast']}"
         )
         self.preview_rows = []
         self.current_import_path = None

@@ -9,6 +9,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
+from app.services.forecast_reconciliation_service import ForecastReconciliationService
+from app.services.reconciliation import ReconciliationRules, qualify_and_persist_transaction
 from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
@@ -1775,11 +1777,17 @@ class Database:
             categorized_by = "import_default" if category else None
             categorized_at = None
         signature = self.make_signature(account_id, tx_date, label, amount)
+        rules = ReconciliationRules()
+        transaction_day = date.fromisoformat(tx_date)
+        ForecastReconciliationService(self).generate_occurrences(
+            transaction_day - timedelta(days=rules.date_tolerance_days),
+            transaction_day + timedelta(days=rules.date_tolerance_days),
+        )
         with self.connect() as conn:
             exists = conn.execute("SELECT id FROM transactions WHERE signature = ?", (signature,)).fetchone()
             if exists:
                 return False
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
                                          categorization_status, categorized_by, categorization_rule_id, categorized_at,
@@ -1790,7 +1798,33 @@ class Database:
                  categorization_status, categorized_by, categorized_at,
                  currency or 'EUR', source_line, source_profile, raw_payload, source_identifier),
             )
+            qualify_and_persist_transaction(conn, int(cursor.lastrowid), rules)
             return True
+
+    def reconciliation_summary_for_import_batch(self, import_batch_id: int) -> dict[str, int]:
+        summary = {"auto": 0, "to_review": 0, "without_forecast": 0}
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT state.status, COUNT(*) AS item_count
+                FROM transaction_reconciliation_state state
+                JOIN transactions transaction_row
+                  ON transaction_row.id = state.transaction_id
+                WHERE transaction_row.import_batch_id = ?
+                GROUP BY state.status
+                """,
+                (import_batch_id,),
+            ).fetchall()
+        mapping = {
+            "reconciled": "auto",
+            "has_proposal": "to_review",
+            "without_forecast": "without_forecast",
+        }
+        for row in rows:
+            key = mapping.get(str(row["status"]))
+            if key is not None:
+                summary[key] = int(row["item_count"])
+        return summary
 
 
     def get_transaction(self, transaction_id: int) -> sqlite3.Row | None:
