@@ -10,7 +10,11 @@ from uuid import uuid4
 
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
-from app.services.reconciliation import ReconciliationRules, qualify_and_persist_transaction
+from app.services.reconciliation import (
+    ReconciliationRules,
+    qualify_and_persist_transaction,
+    reevaluate_transaction,
+)
 from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
@@ -1917,6 +1921,11 @@ class Database:
                     "transaction_id": transaction_id,
                 },
             )
+            reevaluate_transaction(
+                conn,
+                transaction_id,
+                reason="Transaction modifiée",
+            )
         self.seal_database_to_encrypted_vault()
 
 
@@ -1939,6 +1948,11 @@ class Database:
                 WHERE id = ?
                 """,
                 (category, amount, tx_type, status, categorization_status, categorized_by, transaction_id),
+            )
+            reevaluate_transaction(
+                conn,
+                transaction_id,
+                reason="Catégorie de transaction modifiée",
             )
 
     def delete_transaction(self, transaction_id: int) -> None:
@@ -1969,6 +1983,12 @@ class Database:
                 conn.execute(
                     f"UPDATE transactions SET amount = {sign_sql}, tx_type = CASE WHEN {sign_sql} >= 0 THEN 'Crédit' ELSE 'Débit' END, updated_at = CURRENT_TIMESTAMP WHERE source = 'Manuel' AND id IN ({placeholders})",
                     transaction_ids,
+                )
+            for transaction_id in transaction_ids:
+                reevaluate_transaction(
+                    conn,
+                    int(transaction_id),
+                    reason="Catégorie de transaction modifiée en lot",
                 )
             return int(cur.rowcount or 0)
 
