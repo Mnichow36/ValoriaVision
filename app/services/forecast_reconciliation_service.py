@@ -4,6 +4,8 @@ from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from uuid import uuid4
 
+from app.services.reconciliation.reevaluation_service import reevaluate_for_occurrences
+
 
 STATUS_LABELS = {
     "planned": "Prévue",
@@ -85,7 +87,8 @@ class ForecastReconciliationService:
         with self.db.connect() as conn:
             existing = conn.execute(
                 """
-                SELECT id, status, actual_transaction_id
+                SELECT id, status, actual_transaction_id, account_id,
+                       expected_amount, expected_label, expected_category, direction
                 FROM forecast_occurrences
                 WHERE source_type = ? AND source_id = ? AND expected_date = ? AND deleted_at IS NULL
                 """,
@@ -93,6 +96,17 @@ class ForecastReconciliationService:
             ).fetchone()
             if existing:
                 if existing["status"] in {"auto_matched", "confirmed", "to_review", "ignored", "cancelled"}:
+                    return False
+                changed = any(
+                    (
+                        existing["account_id"] != payload["account_id"],
+                        float(existing["expected_amount"]) != float(payload["expected_amount"]),
+                        existing["expected_label"] != payload["expected_label"],
+                        existing["expected_category"] != payload["expected_category"],
+                        existing["direction"] != payload["direction"],
+                    )
+                )
+                if not changed:
                     return False
                 conn.execute(
                     """
@@ -110,9 +124,15 @@ class ForecastReconciliationService:
                         existing["id"],
                     ),
                 )
+                reevaluate_for_occurrences(
+                    conn,
+                    [int(existing["id"])],
+                    self.db.reconciliation_rules(conn),
+                    reason="Occurrence prévisionnelle modifiée",
+                )
                 return False
 
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO forecast_occurrences(
                     uuid, source_type, source_id, account_id, expected_date, expected_amount,
@@ -122,6 +142,12 @@ class ForecastReconciliationService:
                         :expected_label, :expected_category, :direction, 'planned', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 payload,
+            )
+            reevaluate_for_occurrences(
+                conn,
+                [int(cursor.lastrowid)],
+                self.db.reconciliation_rules(conn),
+                reason="Occurrence prévisionnelle créée",
             )
             return True
 

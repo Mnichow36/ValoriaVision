@@ -104,10 +104,15 @@ class R8TransactionFlowTests(unittest.TestCase):
                     account_id = self.account()
                     for index in range(occurrence_count):
                         self.occurrence(account_id, label=f"Loyer {index}")
+                    label = (
+                        "Loyer 0"
+                        if scenario == "automatic"
+                        else f"LOYER {source} {scenario}"
+                    )
                     transaction_id = self.create_transaction(
                         account_id,
                         source,
-                        f"LOYER {source} {scenario}",
+                        label,
                     )
                     self.assertEqual(self.state(transaction_id), expected_status)
 

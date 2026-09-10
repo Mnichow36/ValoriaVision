@@ -10,7 +10,14 @@ from uuid import uuid4
 
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
-from app.services.reconciliation import ReconciliationRules, qualify_and_persist_transaction
+from app.services.reconciliation import (
+    ReconciliationRules,
+    affected_transactions_for_occurrences,
+    qualify_and_persist_transaction,
+    reevaluate_all_transactions,
+    reevaluate_for_occurrences,
+    reevaluate_transaction,
+)
 from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
@@ -1777,7 +1784,7 @@ class Database:
             categorized_by = "import_default" if category else None
             categorized_at = None
         signature = self.make_signature(account_id, tx_date, label, amount)
-        rules = ReconciliationRules()
+        rules = self.reconciliation_rules()
         transaction_day = date.fromisoformat(tx_date)
         ForecastReconciliationService(self).generate_occurrences(
             transaction_day - timedelta(days=rules.date_tolerance_days),
@@ -1917,6 +1924,12 @@ class Database:
                     "transaction_id": transaction_id,
                 },
             )
+            reevaluate_transaction(
+                conn,
+                transaction_id,
+                self.reconciliation_rules(conn),
+                reason="Transaction modifiée",
+            )
         self.seal_database_to_encrypted_vault()
 
 
@@ -1939,6 +1952,12 @@ class Database:
                 WHERE id = ?
                 """,
                 (category, amount, tx_type, status, categorization_status, categorized_by, transaction_id),
+            )
+            reevaluate_transaction(
+                conn,
+                transaction_id,
+                self.reconciliation_rules(conn),
+                reason="Catégorie de transaction modifiée",
             )
 
     def delete_transaction(self, transaction_id: int) -> None:
@@ -1969,6 +1988,13 @@ class Database:
                 conn.execute(
                     f"UPDATE transactions SET amount = {sign_sql}, tx_type = CASE WHEN {sign_sql} >= 0 THEN 'Crédit' ELSE 'Débit' END, updated_at = CURRENT_TIMESTAMP WHERE source = 'Manuel' AND id IN ({placeholders})",
                     transaction_ids,
+                )
+            for transaction_id in transaction_ids:
+                reevaluate_transaction(
+                    conn,
+                    int(transaction_id),
+                    self.reconciliation_rules(conn),
+                    reason="Catégorie de transaction modifiée en lot",
                 )
             return int(cur.rowcount or 0)
 
@@ -2452,6 +2478,18 @@ class Database:
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
         payload["item_id"] = item_id
         with self.connect() as conn:
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
             conn.execute(
                 """
                 UPDATE recurring_items
@@ -2469,14 +2507,103 @@ class Database:
                 """,
                 payload,
             )
+            if occurrence_ids:
+                placeholders = ",".join("?" for _ in occurrence_ids)
+                direction = "credit" if float(payload["amount"]) >= 0 else "debit"
+                occurrence_status = (
+                    "planned" if payload.get("status") == "Actif" else "cancelled"
+                )
+                conn.execute(
+                    f"""
+                    UPDATE forecast_occurrences
+                    SET account_id = ?, expected_amount = ?, expected_label = ?,
+                        expected_category = ?, direction = ?, status = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                    """,
+                    (
+                        payload["account_id"],
+                        payload["amount"],
+                        payload["name"],
+                        payload.get("category") or "Prévisionnel",
+                        direction,
+                        occurrence_status,
+                        *occurrence_ids,
+                    ),
+                )
+                reevaluate_for_occurrences(
+                    conn,
+                    occurrence_ids,
+                    self.reconciliation_rules(conn),
+                    reason="Prévision récurrente modifiée",
+                )
 
     def delete_recurring_item(self, item_id: int) -> None:
         with self.connect() as conn:
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring' AND source_id = ?
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
+            affected_transaction_ids = affected_transactions_for_occurrences(
+                conn, occurrence_ids, self.reconciliation_rules(conn)
+            )
+            conn.execute(
+                """
+                DELETE FROM forecast_occurrences
+                WHERE source_type = 'recurring' AND source_id = ?
+                """,
+                (item_id,),
+            )
             conn.execute("DELETE FROM recurring_items WHERE id = ?", (item_id,))
+            for transaction_id in affected_transaction_ids:
+                reevaluate_transaction(
+                    conn,
+                    transaction_id,
+                    self.reconciliation_rules(conn),
+                    reason="Prévision récurrente supprimée",
+                )
 
     def update_recurring_item_status(self, item_id: int, status: str) -> None:
         with self.connect() as conn:
-            conn.execute("UPDATE recurring_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, item_id))
+            conn.execute(
+                "UPDATE recurring_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, item_id),
+            )
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
+            if occurrence_ids:
+                placeholders = ",".join("?" for _ in occurrence_ids)
+                occurrence_status = "planned" if status == "Actif" else "cancelled"
+                conn.execute(
+                    f"""
+                    UPDATE forecast_occurrences
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                    """,
+                    (occurrence_status, *occurrence_ids),
+                )
+                reevaluate_for_occurrences(
+                    conn,
+                    occurrence_ids,
+                    self.reconciliation_rules(conn),
+                    reason="Statut de prévision récurrente modifié",
+                )
 
     @staticmethod
     def add_period(source: date, frequency: str) -> date:
@@ -2876,6 +3003,40 @@ class Database:
             "open_banking_prepared": self.get_user_preference("open_banking.prepared", "false") == "true",
         }
 
+    RECONCILIATION_SETTING_CASTS = {
+        "reconciliation.auto_threshold": int,
+        "reconciliation.review_threshold": int,
+        "reconciliation.ambiguity_min_delta": int,
+        "reconciliation.date_tolerance_days": int,
+        "reconciliation.amount_tolerance_absolute": float,
+        "reconciliation.amount_tolerance_relative": float,
+        "reconciliation.date_weight": int,
+        "reconciliation.amount_weight": int,
+        "reconciliation.label_weight": int,
+        "reconciliation.category_weight": int,
+    }
+
+    def reconciliation_rules(
+        self,
+        conn: sqlite3.Connection | None = None,
+    ) -> ReconciliationRules:
+        defaults = ReconciliationRules()
+        if conn is None:
+            with self.connect() as owned_conn:
+                return self.reconciliation_rules(owned_conn)
+        values = {}
+        for key, cast in self.RECONCILIATION_SETTING_CASTS.items():
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            field_name = key.removeprefix("reconciliation.")
+            values[field_name] = (
+                cast(row["value"]) if row is not None
+                else getattr(defaults, field_name)
+            )
+        return ReconciliationRules(**values)
+
     def get_setting(self, key: str, default: str = "") -> str:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -2883,6 +3044,10 @@ class Database:
 
     def set_setting(self, key: str, value: str) -> None:
         with self.connect() as conn:
+            previous = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (key,),
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -2890,6 +3055,15 @@ class Database:
                 """,
                 (key, value),
             )
+            if (
+                key in self.RECONCILIATION_SETTING_CASTS
+                and (previous is None or str(previous["value"]) != str(value))
+            ):
+                reevaluate_all_transactions(
+                    conn,
+                    self.reconciliation_rules(conn),
+                    reason=f"Paramètre de rapprochement modifié : {key}",
+                )
 
     def create_backup(self, target_dir: str | Path | None = None) -> Path:
         """Create an encrypted Valoria backup (.vvb).
