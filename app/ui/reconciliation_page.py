@@ -612,9 +612,23 @@ class ReconciliationPage(QWidget):
         return int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
 
     def generate_occurrences(self) -> None:
-        generated = self.service.generate_occurrences(self.qdate_to_iso(self.start_date), self.qdate_to_iso(self.end_date))
+        start = self.qdate_to_iso(self.start_date)
+        end = self.qdate_to_iso(self.end_date)
+        generated = self.service.generate_occurrences(start, end)
         overdue = self.service.mark_overdue(date.today())
-        QMessageBox.information(self, "Rapprochements", f"{generated} occurrence(s) créée(s).\n{overdue} occurrence(s) marquée(s) en retard.")
+        proposals = self.service.prepare_best_proposals(
+            start,
+            end,
+            self.account_filter.currentData(),
+            reconsider_rejected=True,
+        )
+        QMessageBox.information(
+            self,
+            "Rapprochements",
+            f"{generated} occurrence(s) créée(s).\n"
+            f"{overdue} occurrence(s) marquée(s) en retard.\n"
+            f"{len(proposals)} proposition(s) disponible(s) après recalcul.",
+        )
         self.refresh()
 
     def open_rules_dialog(self) -> None:
