@@ -49,8 +49,24 @@ class StableUiRegressionTests(unittest.TestCase):
             "self.add_recurring_btn.clicked.connect(self.open_add_recurring_dialog)",
             "self.edit_btn.clicked.connect(self.edit_selected)",
             "self.table.doubleClicked.connect(lambda _index: self.edit_selected())",
+            "dialog.show()",
+            "dialog.raise_()",
+            "dialog.activateWindow()",
             "def edit_recurring_item(",
             "def open_recurring_list_dialog(",
+        ):
+            self.assertIn(contract, source)
+
+
+    def test_recurring_tab_routes_to_recurrence_editor(self) -> None:
+        source = self.source("app/ui/transactions_page.py")
+        for contract in (
+            'item.setData(Qt.UserRole, int(row["id"]))',
+            "if table is self.table_recurring:",
+            'menu.addAction("Modifier cette transaction")',
+            "self.open_edit_recurring_dialog(recurring_id)",
+            "def open_edit_recurring_dialog(",
+            "self.db.update_recurring_item(recurring_id, dialog.data())",
         ):
             self.assertIn(contract, source)
 
