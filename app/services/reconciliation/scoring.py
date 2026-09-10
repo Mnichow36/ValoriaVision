@@ -24,6 +24,10 @@ def normalize_label(value: str | None) -> str:
     return " ".join(normalized.split())
 
 
+def normalize_reference(value: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+
+
 def score_candidate(
     transaction: TransactionInput,
     forecast: ForecastInput,
@@ -80,7 +84,36 @@ def score_candidate(
         if actual_label and expected_label
         else 0.0
     )
+    if (
+        rules.label_similarity_minimum > 0
+        and actual_label
+        and expected_label
+        and label_ratio < rules.label_similarity_minimum
+    ):
+        return None
     label_points = rules.label_weight * label_ratio
+
+    actual_counterparty = normalize_label(transaction.counterparty)
+    expected_counterparty = normalize_label(forecast.counterparty)
+    counterparties_match = bool(
+        actual_counterparty
+        and expected_counterparty
+        and actual_counterparty == expected_counterparty
+    )
+    counterparty_points = (
+        rules.counterparty_match_bonus if counterparties_match else 0.0
+    )
+
+    actual_reference = normalize_reference(transaction.external_reference)
+    expected_reference = normalize_reference(forecast.external_reference)
+    references_match = bool(
+        actual_reference
+        and expected_reference
+        and actual_reference == expected_reference
+    )
+    reference_points = (
+        rules.external_reference_match_bonus if references_match else 0.0
+    )
 
     categories_match = bool(
         transaction.category
@@ -125,6 +158,22 @@ def score_candidate(
             round(category_points, 2),
             rules.category_weight,
             "Catégorie identique" if categories_match else "Catégorie absente ou différente",
+        ),
+        CriterionScore(
+            "counterparty",
+            round(counterparty_points, 2),
+            rules.counterparty_match_bonus,
+            "Bénéficiaire/émetteur identique"
+            if counterparties_match
+            else "Bénéficiaire/émetteur indisponible ou différent",
+        ),
+        CriterionScore(
+            "external_reference",
+            round(reference_points, 2),
+            rules.external_reference_match_bonus,
+            "Référence bancaire identique"
+            if references_match
+            else "Référence bancaire indisponible ou différente",
         ),
     )
     total = min(100, max(0, round(sum(item.points for item in criteria))))
