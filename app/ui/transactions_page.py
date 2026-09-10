@@ -691,7 +691,10 @@ class TransactionsPage(QWidget):
             table.setRowHeight(row_index, 42)
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
-                item.setData(Qt.UserRole, None)
+                # Recurrence rows carry their recurring_items identifier. They
+                # are not transaction IDs, so the dedicated context menu below
+                # routes them to RecurringDialog instead of TransactionDialog.
+                item.setData(Qt.UserRole, int(row["id"]))
                 if col == 0:
                     item.setFlags(Qt.ItemIsEnabled)
                     item.setText("")
@@ -792,10 +795,29 @@ class TransactionsPage(QWidget):
 
     def open_table_context_menu(self, table: QTableWidget, pos: QPoint) -> None:
         row_index = table.rowAt(pos.y())
-        if row_index >= 0:
+        if row_index < 0:
+            return
+
+        if table is self.table_recurring:
+            table.selectRow(row_index)
             item = table.item(row_index, 0)
-            if item and not self.selected_transaction_ids():
-                item.setCheckState(Qt.Checked)
+            recurring_id = int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else None
+            if not recurring_id:
+                QMessageBox.warning(self, "Récurrence", "La récurrence sélectionnée est introuvable.")
+                return
+            menu = QMenu(self)
+            action_edit = menu.addAction("Modifier cette transaction")
+            action_delete = menu.addAction("Supprimer cette récurrence")
+            selected = menu.exec(table.viewport().mapToGlobal(pos))
+            if selected == action_edit:
+                self.open_edit_recurring_dialog(recurring_id)
+            elif selected == action_delete:
+                self.delete_recurring_item(recurring_id)
+            return
+
+        item = table.item(row_index, 0)
+        if item and not self.selected_transaction_ids():
+            item.setCheckState(Qt.Checked)
 
         menu = QMenu(self)
         action_edit = menu.addAction("Modifier cette transaction")
@@ -939,6 +961,38 @@ class TransactionsPage(QWidget):
                 "Manuel",
                 preserve_direction=True,
             )
+            self.refresh()
+
+
+    def open_edit_recurring_dialog(self, recurring_id: int) -> None:
+        from app.ui.forecast_page import RecurringDialog
+
+        row = self.db.get_recurring_item(recurring_id)
+        if not row:
+            QMessageBox.warning(self, "Modifier", "Récurrence introuvable.")
+            return
+        dialog = RecurringDialog(
+            self.db.list_accounts(),
+            parent=self,
+            row=row,
+            categories=self.db.category_names(),
+        )
+        if dialog.exec() == QDialog.Accepted:
+            self.db.update_recurring_item(recurring_id, dialog.data())
+            QMessageBox.information(self, "Modifier", "Récurrence mise à jour.")
+            self.refresh()
+
+    def delete_recurring_item(self, recurring_id: int) -> None:
+        row = self.db.get_recurring_item(recurring_id)
+        if not row:
+            QMessageBox.warning(self, "Récurrence", "Récurrence introuvable.")
+            return
+        if QMessageBox.question(
+            self,
+            "Supprimer la récurrence",
+            f"Supprimer la récurrence « {row['name']} » ?",
+        ) == QMessageBox.Yes:
+            self.db.delete_recurring_item(recurring_id)
             self.refresh()
 
 
