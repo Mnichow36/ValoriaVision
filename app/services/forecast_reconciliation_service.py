@@ -4,7 +4,10 @@ from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from uuid import uuid4
 
-from app.services.reconciliation.reevaluation_service import reevaluate_for_occurrences
+from app.services.reconciliation.reevaluation_service import (
+    cancel_reconciliations_for_occurrence,
+    reevaluate_for_occurrences,
+)
 
 
 STATUS_LABELS = {
@@ -539,6 +542,11 @@ class ForecastReconciliationService:
         with self.db.connect() as conn:
             row = conn.execute("SELECT expected_date FROM forecast_occurrences WHERE id = ?", (occurrence_id,)).fetchone()
             status = "overdue" if row and _parse_date(row["expected_date"]) < date.today() else "planned"
+            cancel_reconciliations_for_occurrence(
+                conn,
+                occurrence_id,
+                reason="Rapprochement annulé par l’utilisateur",
+            )
             conn.execute(
                 """
                 UPDATE forecast_occurrences
