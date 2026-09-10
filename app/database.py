@@ -12,6 +12,7 @@ from app.services.business_rules import balance_at_date, is_current_expense, is_
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.services.reconciliation import (
     ReconciliationRules,
+    affected_transactions_for_occurrences,
     qualify_and_persist_transaction,
     reevaluate_for_occurrences,
     reevaluate_transaction,
@@ -2534,6 +2535,19 @@ class Database:
 
     def delete_recurring_item(self, item_id: int) -> None:
         with self.connect() as conn:
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring' AND source_id = ?
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
+            affected_transaction_ids = affected_transactions_for_occurrences(
+                conn, occurrence_ids
+            )
             conn.execute(
                 """
                 DELETE FROM forecast_occurrences
@@ -2542,6 +2556,12 @@ class Database:
                 (item_id,),
             )
             conn.execute("DELETE FROM recurring_items WHERE id = ?", (item_id,))
+            for transaction_id in affected_transaction_ids:
+                reevaluate_transaction(
+                    conn,
+                    transaction_id,
+                    reason="Prévision récurrente supprimée",
+                )
 
     def update_recurring_item_status(self, item_id: int, status: str) -> None:
         with self.connect() as conn:
