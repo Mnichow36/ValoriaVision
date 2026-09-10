@@ -24,7 +24,8 @@ def _direction(value: str | None, amount: float) -> str:
 def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> TransactionInput:
     row = conn.execute(
         """
-        SELECT id, account_id, tx_date, amount, label, tx_type, category
+        SELECT id, account_id, tx_date, amount, label, tx_type, category,
+               source_identifier
         FROM transactions
         WHERE id = ?
         """,
@@ -41,6 +42,7 @@ def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> Transact
         label=row["label"] or "",
         direction=_direction(row["tx_type"], amount),
         category=row["category"],
+        external_reference=row["source_identifier"],
     )
 
 
