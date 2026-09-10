@@ -41,6 +41,20 @@ class StableUiRegressionTests(unittest.TestCase):
         self.assertIn('not data.get("direction_explicit", False)', database_source)
 
 
+    def test_forecast_keeps_recurrence_management_access(self) -> None:
+        source = self.source("app/ui/forecast_page.py")
+        for contract in (
+            'self.manage_recurring_btn = secondary_button("Gérer les récurrences")',
+            "self.manage_recurring_btn.clicked.connect(self.open_recurring_list_dialog)",
+            "self.add_recurring_btn.clicked.connect(self.open_add_recurring_dialog)",
+            "self.edit_btn.clicked.connect(self.edit_selected)",
+            "self.table.doubleClicked.connect(lambda _index: self.edit_selected())",
+            "def edit_recurring_item(",
+            "def open_recurring_list_dialog(",
+        ):
+            self.assertIn(contract, source)
+
+
     def test_reconciliation_screen_keeps_r725b_proposal_workflow(self) -> None:
         source = self.source("app/ui/reconciliation_page.py")
         for label in (
