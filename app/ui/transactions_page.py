@@ -213,6 +213,9 @@ class TransactionDialog(QDialog):
         self.category = QComboBox()
         self.category.addItems([""] + list(categories or []))
 
+        self.direction = QComboBox()
+        self.direction.addItems(["Débit", "Crédit"])
+
         self.amount = QDoubleSpinBox()
         self.amount.setRange(0, 100000000)
         self.amount.setDecimals(2)
@@ -226,13 +229,14 @@ class TransactionDialog(QDialog):
             ("Date", self.date),
             ("Libellé", self.label),
             ("Catégorie", self.category),
+            ("Sens", self.direction),
             ("Montant", self.amount),
             ("Statut", self.status),
         ]:
             form.addRow(label, widget)
 
         layout.addLayout(form)
-        help_label = QLabel("Tous les champs sont modifiables. Saisissez un montant positif : le sens Recette/Dépense de la catégorie applique automatiquement le signe pour les transactions manuelles.")
+        help_label = QLabel("Tous les champs sont modifiables. Saisissez le montant en valeur absolue puis choisissez explicitement Débit ou Crédit.")
         help_label.setWordWrap(True)
         help_label.setStyleSheet("color:#64748B;")
         layout.addWidget(help_label)
@@ -259,7 +263,10 @@ class TransactionDialog(QDialog):
                 self.category.addItem(row["category"])
                 index = self.category.findText(row["category"])
             self.category.setCurrentIndex(index)
-        self.amount.setValue(abs(float(row["amount"] or 0)))
+        amount = float(row["amount"] or 0)
+        direction = row["tx_type"] if "tx_type" in row.keys() and row["tx_type"] else ("Crédit" if amount >= 0 else "Débit")
+        self.direction.setCurrentText(direction)
+        self.amount.setValue(abs(amount))
         self.status.setCurrentText(row["status"] or "Validée")
 
     def data(self) -> dict:
@@ -268,7 +275,9 @@ class TransactionDialog(QDialog):
             "tx_date": self.date.date().toString("yyyy-MM-dd"),
             "label": self.label.text().strip() or "Nouvelle opération",
             "category": self.category.currentText() or None,
-            "amount": float(self.amount.value()),
+            "amount": -abs(float(self.amount.value())) if self.direction.currentText() == "Débit" else abs(float(self.amount.value())),
+            "tx_type": self.direction.currentText(),
+            "direction_explicit": True,
             "status": self.status.currentText(),
         }
 
@@ -928,6 +937,7 @@ class TransactionsPage(QWidget):
                 data["category"],
                 data["amount"],
                 "Manuel",
+                preserve_direction=True,
             )
             self.refresh()
 
