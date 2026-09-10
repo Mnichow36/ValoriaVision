@@ -10,9 +10,9 @@ permissions:
   contents: write
 
 jobs:
-  test-and-package-windows:
-    name: Test and package Windows installable ZIP
-    runs-on: windows-latest
+  test-r8:
+    name: Validate R8 reconciliation
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout release source
@@ -24,8 +24,16 @@ jobs:
           python-version: "3.12"
 
       - name: Run R8 reconciliation tests
-        shell: pwsh
         run: python -m unittest discover -s tests/reconciliation -p "test_*.py" -v
+
+  package-windows:
+    name: Package Windows installable ZIP
+    needs: test-r8
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
 
       - name: Build sanitized installable ZIP
         shell: pwsh
