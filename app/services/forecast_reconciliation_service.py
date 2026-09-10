@@ -684,18 +684,22 @@ class ForecastReconciliationService:
             float(rules["amount_tolerance_abs"]),
             expected * float(rules["amount_tolerance_percent"]) / 100.0,
         )
-        wider = max(5.0, expected * 0.05)
+        # The configured amount interval is a hard eligibility rule. A close
+        # date or label must never compensate for an amount outside tolerance.
+        if delta > tolerance:
+            return 0, (
+                f"montant hors tolérance, écart {delta:.2f}, "
+                f"tolérance {tolerance:.2f}"
+            )
         if delta <= 0.01:
             score += 25
             reasons.append("montant exact +25")
-        elif delta <= tolerance:
-            score += 20
-            reasons.append(f"montant proche +20, écart {delta:.2f}")
-        elif delta <= wider:
-            score += 12
-            reasons.append(f"montant à vérifier +12, écart {delta:.2f}")
         else:
-            reasons.append(f"montant hors tolérance, écart {delta:.2f}")
+            score += 20
+            reasons.append(
+                f"montant dans la tolérance +20, écart {delta:.2f}, "
+                f"tolérance {tolerance:.2f}"
+            )
 
         days = abs((_parse_date(transaction["tx_date"]) - _parse_date(occurrence["expected_date"])).days)
         if days <= 1:
