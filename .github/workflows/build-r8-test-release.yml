@@ -42,13 +42,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $arguments = @("--noconfirm", "--clean", "--windowed", "--onedir", "--name", "Valoria Vision", "--collect-all", "plotly", "--hidden-import", "keyring.backends.Windows")
+          $arguments = @("--noconfirm", "--clean", "--windowed", "--onefile", "--name", "Valoria Vision", "--collect-all", "plotly", "--hidden-import", "keyring.backends.Windows")
           if (Test-Path "data/runtime/plotly.min.js") {
             $arguments += @("--add-data", "data/runtime/plotly.min.js;data/runtime")
           }
           $arguments += "main.py"
           python -m PyInstaller @arguments
-          $forbiddenIcu = Get-ChildItem -Path "dist/Valoria Vision" -Recurse -File | Where-Object { $_.Name -in @("icuuc.dll", "icudt78.dll") }
+          $forbiddenIcu = Get-ChildItem -Path "dist" -Recurse -File | Where-Object { $_.Name -in @("icuuc.dll", "icudt78.dll") }
           if ($forbiddenIcu) {
             throw "DLL ICU parasite détectée : $($forbiddenIcu.FullName -join ', ')"
           }
@@ -57,7 +57,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Resolve-Path "dist/Valoria Vision/Valoria Vision.exe"
+          $exe = Resolve-Path "dist/Valoria Vision.exe"
           $smokeDir = Join-Path $env:RUNNER_TEMP "valoria-r8-test2-smoke"
           New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
           $process = Start-Process -FilePath $exe -WorkingDirectory $smokeDir -PassThru
@@ -75,18 +75,8 @@ jobs:
           $packageName = "ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2"
           $releaseDir = Join-Path $PWD "release"
           $packageDir = Join-Path $releaseDir $packageName
-          $applicationDir = Join-Path $packageDir "Valoria Vision"
-          New-Item -ItemType Directory -Force -Path $applicationDir | Out-Null
-          Copy-Item -Path "dist/Valoria Vision/*" -Destination $applicationDir -Recurse -Force
-          $mutableData = Get-ChildItem -Path $applicationDir -Recurse -File | Where-Object {
-            $_.Extension -in @(".db", ".sqlite", ".sqlite3", ".vvdb", ".vvb", ".key", ".pem", ".p12", ".pfx") -or
-            $_.FullName -match '[\\/](secure|backups)[\\/]'
-          }
-          $mutableData | Remove-Item -Force
-          Get-ChildItem -Path $applicationDir -Recurse -Directory |
-            Sort-Object FullName -Descending |
-            Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force) } |
-            Remove-Item -Force
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item -LiteralPath "dist/Valoria Vision.exe" -Destination (Join-Path $packageDir "Valoria Vision.exe") -Force
           @"
           VALORIA VISION V0.6.6-R8 TEST 2
           Base stable : V0.6.6-R7.2.5b validée par l'utilisateur
@@ -97,7 +87,7 @@ jobs:
 
           Installation :
           1. Décompresser entièrement le ZIP dans un nouveau dossier.
-          2. Ouvrir le dossier "Valoria Vision".
+          2. Ouvrir le dossier décompressé.
           3. Lancer "Valoria Vision.exe".
           4. Ne jamais écraser une installation précédente.
           5. Utiliser une copie de sauvegarde des données pour la recette.
@@ -147,7 +137,7 @@ jobs:
           - menus contextuels du module Comptes ;
           - choix explicite et conservation du sens Débit/Crédit.
 
-          Le ZIP contient une application Windows autonome avec Valoria Vision.exe.
+          Le ZIP contient un exécutable Windows autonome unique : Valoria Vision.exe.
           Il ne contient aucune base, sauvegarde ou clé locale.
           "@ | Set-Content -LiteralPath "release-notes.txt" -Encoding UTF8
           gh release create $tag $zip $hash --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 2 — base stable restaurée" --notes-file "release-notes.txt"
