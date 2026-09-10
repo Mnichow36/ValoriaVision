@@ -18,6 +18,8 @@ class TransactionInput:
     label: str
     direction: Direction
     category: str | None = None
+    counterparty: str | None = None
+    external_reference: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,8 @@ class ForecastInput:
     expected_label: str
     direction: Direction
     category: str | None = None
+    counterparty: str | None = None
+    external_reference: str | None = None
 
 
 @dataclass(frozen=True)
