@@ -64,7 +64,7 @@ def _load_open_forecasts(
         FROM forecast_occurrences fo
         WHERE fo.deleted_at IS NULL
           AND fo.status IN ('planned', 'overdue')
-          AND fo.account_id = ?
+          AND (? = 0 OR fo.account_id = ?)
           AND fo.expected_date BETWEEN ? AND ?
           AND NOT EXISTS (
               SELECT 1
@@ -75,7 +75,12 @@ def _load_open_forecasts(
           )
         ORDER BY fo.expected_date, fo.id
         """,
-        (transaction.account_id, start, end),
+        (
+            int(rules.same_account_required),
+            transaction.account_id,
+            start,
+            end,
+        ),
     ).fetchall()
     return tuple(
         ForecastInput(
