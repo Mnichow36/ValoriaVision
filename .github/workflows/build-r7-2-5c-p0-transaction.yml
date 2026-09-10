@@ -1,0 +1,79 @@
+name: Build R7.2.5c P0 transaction
+
+on:
+  push:
+    branches:
+      - fix/r7-2-5c-p0-transaction-create
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize_patch:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/r7-2-5c-p0-transaction-create
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply R7.2.5c patch into source files
+        run: python tools/patch_r7_2_5c_transaction_create.py
+
+      - name: Verify modified files compile
+        run: python -m py_compile app/database.py app/ui/transactions_page.py
+
+      - name: Commit materialized source changes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/database.py app/ui/transactions_page.py
+          if (git diff --cached --quiet) {
+            Write-Host "No source changes to commit."
+          } else {
+            git commit -m "R7.2.5c: corrige la création de transaction manuelle"
+            git push origin HEAD:fix/r7-2-5c-p0-transaction-create
+          }
+
+  build:
+    needs: materialize_patch
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/r7-2-5c-p0-transaction-create
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Verify compile
+        run: python -m py_compile app/database.py app/ui/transactions_page.py
+
+      - name: Build executable
+        run: pyinstaller --noconfirm --clean --windowed --name ValoriaVision main.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/ValoriaVision/* -DestinationPath ValoriaVision_R7_2_5c_P0_TRANSACTION.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ValoriaVision_R7_2_5c_P0_TRANSACTION
+          path: ValoriaVision_R7_2_5c_P0_TRANSACTION.zip
+          if-no-files-found: error

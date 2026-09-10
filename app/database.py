@@ -1790,7 +1790,8 @@ class Database:
                  categorization_status, categorized_by, categorized_at,
                  currency or 'EUR', source_line, source_profile, raw_payload, source_identifier),
             )
-            return True
+        self.seal_database_to_encrypted_vault()
+        return True
 
 
     def get_transaction(self, transaction_id: int) -> sqlite3.Row | None:
