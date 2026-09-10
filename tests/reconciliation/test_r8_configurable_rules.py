@@ -202,6 +202,65 @@ class R8ConfigurableRulesTests(unittest.TestCase):
                 )
             self.assertEqual(db.reconciliation_rules(), before)
 
+    def test_database_candidate_query_honors_optional_account_rule(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        db = object.__new__(Database)
+        db.create_schema(conn)
+        apply_r8_reconciliation_foundation(conn)
+        account_ids = []
+        for name in ("Compte A", "Compte B"):
+            account_ids.append(
+                int(
+                    conn.execute(
+                        """
+                        INSERT INTO accounts(
+                            name, bank, account_type, identifier,
+                            reference_balance, reference_date, status
+                        )
+                        VALUES (?, 'Banque test', 'Courant', ?, 0,
+                                '2026-01-01', 'Actif')
+                        """,
+                        (name, str(uuid4())),
+                    ).lastrowid
+                )
+            )
+        transaction_id = int(
+            conn.execute(
+                """
+                INSERT INTO transactions(
+                    account_id, tx_date, label, category, amount,
+                    tx_type, status, source, signature
+                )
+                VALUES (?, '2026-06-10', 'LOYER', 'Logement', -100,
+                        'Débit', 'Validée', 'Import bancaire', ?)
+                """,
+                (account_ids[0], str(uuid4())),
+            ).lastrowid
+        )
+        conn.execute(
+            """
+            INSERT INTO forecast_occurrences(
+                uuid, source_type, account_id, expected_date,
+                expected_amount, expected_label, expected_category,
+                direction, status
+            )
+            VALUES (?, 'manual', ?, '2026-06-10', -100, 'LOYER',
+                    'Logement', 'debit', 'planned')
+            """,
+            (str(uuid4()), account_ids[1]),
+        )
+
+        result = qualify_and_persist_transaction(
+            conn,
+            transaction_id,
+            ReconciliationRules(same_account_required=False),
+        )
+
+        self.assertEqual(result.status, "reconciled")
+        conn.close()
+
     def test_cancellation_releases_transaction_and_occurrence(self) -> None:
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
