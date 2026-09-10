@@ -105,6 +105,47 @@ class T04ExactProposalTests(unittest.TestCase):
             self.assertEqual('to_review', proposals[0]['status'])
 
 
+    def test_amount_outside_configured_tolerance_is_excluded(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            database = Database(Path(temp_dir) / "t04-amount-tolerance.db")
+            with database.connect() as connection:
+                database.create_schema(connection)
+                database.apply_migrations(connection)
+                account_id = connection.execute(
+                    """
+                    INSERT INTO accounts(name, bank, account_type, reference_date)
+                    VALUES ('Société Générale CC', 'Société Générale', 'Compte courant', '2026-09-01')
+                    """
+                ).lastrowid
+                connection.execute(
+                    """
+                    INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, source)
+                    VALUES (?, '2026-09-01', 'Retraite 2', 'Revenus', 901.60, 'Crédit', 'Saisie')
+                    """,
+                    (account_id,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO forecast_occurrences(
+                        uuid, source_type, source_id, account_id, expected_date,
+                        expected_amount, expected_label, expected_category, direction, status
+                    ) VALUES (?, 'recurring', 2, ?, '2026-09-01',
+                              801.55, 'Retraite 2', 'Revenus', 'credit', 'overdue')
+                    """,
+                    (str(uuid4()), account_id),
+                )
+
+            service = ForecastReconciliationService(database)
+            self.assertEqual(
+                [],
+                service.prepare_best_proposals(
+                    '2026-06-01',
+                    '2026-09-30',
+                    account_id=account_id,
+                ),
+            )
+
+
 
 if __name__ == '__main__':
     unittest.main()
