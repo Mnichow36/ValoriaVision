@@ -1,9 +1,9 @@
-name: Build R8 test release
+name: Build R8 standalone test release
 
 on:
   push:
     branches:
-      - "release/r8-test-1"
+      - "release/r8-test-2"
   workflow_dispatch:
 
 permissions:
@@ -11,159 +11,134 @@ permissions:
 
 jobs:
   test-r8:
-    name: Validate R8 reconciliation
+    name: Validate R8 and stable UI regressions
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout release source
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Run R8 reconciliation tests
+      - name: Run automated tests
         run: python -m unittest discover -s tests/reconciliation -p "test_*.py" -v
 
   package-windows:
-    name: Package Windows installable ZIP
+    name: Build and smoke-test standalone Windows application
     needs: test-r8
     runs-on: windows-latest
-
     steps:
-      - name: Checkout release source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Build sanitized installable ZIP
+      - name: Install locked runtime and packager
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-lock.txt
+          python -m pip install "pyinstaller==6.16.0"
+
+      - name: Build standalone executable
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $version = "V0_6_6_R8_TEST1"
-          $packageName = "ValoriaVision_INSTALLABLE_$version"
-          $releaseDir = Join-Path $PWD "release"
-          $packageDir = Join-Path $releaseDir $packageName
-
-          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-
-          $forbidden = @(
-            '^\.github/',
-            '^tests/',
-            '^release/',
-            '(^|/)__pycache__/',
-            '(^|/)\.venv/',
-            '^data/secure/',
-            '^data/backups/',
-            '\.(db|sqlite|sqlite3|vvdb|vvb|key|pem|p12|pfx)$'
-          )
-
-          foreach ($relativePath in (git ls-files)) {
-            $normalized = $relativePath -replace '\\', '/'
-            $exclude = $false
-            foreach ($pattern in $forbidden) {
-              if ($normalized -match $pattern) {
-                $exclude = $true
-                break
-              }
-            }
-            if ($exclude) { continue }
-
-            $destination = Join-Path $packageDir $relativePath
-            $destinationParent = Split-Path -Parent $destination
-            if ($destinationParent) {
-              New-Item -ItemType Directory -Force -Path $destinationParent | Out-Null
-            }
-            Copy-Item -LiteralPath $relativePath -Destination $destination -Force
+          $arguments = @("--noconfirm", "--clean", "--windowed", "--onedir", "--name", "Valoria Vision", "--collect-all", "plotly", "--hidden-import", "keyring.backends.Windows")
+          if (Test-Path "data/runtime/plotly.min.js") {
+            $arguments += @("--add-data", "data/runtime/plotly.min.js;data/runtime")
+          }
+          $arguments += "main.py"
+          python -m PyInstaller @arguments
+          $forbiddenIcu = Get-ChildItem -Path "dist/Valoria Vision" -Recurse -File | Where-Object { $_.Name -in @("icuuc.dll", "icudt78.dll") }
+          if ($forbiddenIcu) {
+            throw "DLL ICU parasite détectée : $($forbiddenIcu.FullName -join ', ')"
           }
 
-          $installPath = Join-Path $packageDir "install.bat"
-          $installText = Get-Content -LiteralPath $installPath -Raw
-          $installText = $installText -replace 'Installation Valoria Vision V0\.6\.6-R7\.2\.2\.1\.1', 'Installation Valoria Vision V0.6.6-R8 TEST 1'
-          $installText = $installText -replace 'Correctif installation pip / dependances verrouillees', 'Release de test R8 / dependances verrouillees'
-          Set-Content -LiteralPath $installPath -Value $installText -Encoding ASCII
+      - name: Smoke-test packaged executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Resolve-Path "dist/Valoria Vision/Valoria Vision.exe"
+          $smokeDir = Join-Path $env:RUNNER_TEMP "valoria-r8-test2-smoke"
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          $process = Start-Process -FilePath $exe -WorkingDirectory $smokeDir -PassThru
+          Start-Sleep -Seconds 12
+          if ($process.HasExited) {
+            throw "L'exécutable s'est arrêté prématurément avec le code $($process.ExitCode)."
+          }
+          Stop-Process -Id $process.Id -Force
+          Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
 
+      - name: Package sanitized installable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageName = "ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2"
+          $releaseDir = Join-Path $PWD "release"
+          $packageDir = Join-Path $releaseDir $packageName
+          $applicationDir = Join-Path $packageDir "Valoria Vision"
+          New-Item -ItemType Directory -Force -Path $applicationDir | Out-Null
+          Copy-Item -Path "dist/Valoria Vision/*" -Destination $applicationDir -Recurse -Force
           @"
-          VALORIA VISION V0.6.6-R8 TEST 1
+          VALORIA VISION V0.6.6-R8 TEST 2
+          Base stable : V0.6.6-R7.2.5b validée par l'utilisateur
           Commit : $env:GITHUB_SHA
           Généré : $(Get-Date -Format "yyyy-MM-dd HH:mm:ss 'UTC'")
 
-          Cette version est destinée à la recette fonctionnelle R8.
-          Installation Windows :
-          1. Décompresser intégralement le ZIP.
-          2. Exécuter install.bat.
-          3. Exécuter run.bat.
-          4. Utiliser une copie de sauvegarde des données pour la recette.
-          "@ | Set-Content -LiteralPath (Join-Path $packageDir "LISEZ_MOI_R8_TEST1.txt") -Encoding UTF8
+          Cette version est une candidate de recette, pas une version de production.
 
-          $required = @("main.py", "install.bat", "run.bat", "requirements-lock.txt", "app")
-          foreach ($item in $required) {
-            if (-not (Test-Path (Join-Path $packageDir $item))) {
-              throw "Fichier requis absent du paquet : $item"
-            }
+          Installation :
+          1. Décompresser entièrement le ZIP dans un nouveau dossier.
+          2. Ouvrir le dossier "Valoria Vision".
+          3. Lancer "Valoria Vision.exe".
+          4. Ne jamais écraser une installation précédente.
+          5. Utiliser une copie de sauvegarde des données pour la recette.
+
+          Non-régressions contrôlées :
+          - Dashboard sans prénom codé en dur ;
+          - menus contextuels du module Comptes ;
+          - choix et conservation du sens Débit/Crédit ;
+          - tests automatiques R8.
+          "@ | Set-Content -LiteralPath (Join-Path $packageDir "LISEZ_MOI_R8_TEST2.txt") -Encoding UTF8
+          $unsafe = Get-ChildItem -Path $packageDir -Recurse -File | Where-Object {
+            $_.Extension -in @(".db", ".sqlite", ".sqlite3", ".vvdb", ".vvb", ".key", ".pem", ".p12", ".pfx") -or
+            $_.FullName -match '[\\/](secure|backups)[\\/]'
           }
-
+          if ($unsafe) {
+            throw "Le paquet contient des données ou secrets interdits : $($unsafe.FullName -join ', ')"
+          }
           $zipPath = Join-Path $releaseDir "$packageName.zip"
           Compress-Archive -Path $packageDir -DestinationPath $zipPath -CompressionLevel Optimal -Force
-
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-          try {
-            $unsafeEntries = $archive.Entries | Where-Object {
-              $_.FullName -match '(^|/)(secure|backups)/' -or
-              $_.FullName -match '\.(db|sqlite|sqlite3|vvdb|vvb|key|pem|p12|pfx)$'
-            }
-            if ($unsafeEntries) {
-              throw "Le ZIP contient des fichiers interdits : $($unsafeEntries.FullName -join ', ')"
-            }
-          }
-          finally {
-            $archive.Dispose()
-          }
-
           $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath
-          "$($hash.Hash.ToLower())  $packageName.zip" |
-            Set-Content -LiteralPath (Join-Path $releaseDir "$packageName.sha256.txt") -Encoding ASCII
+          "$($hash.Hash.ToLower())  $packageName.zip" | Set-Content -LiteralPath (Join-Path $releaseDir "$packageName.sha256.txt") -Encoding ASCII
 
-      - name: Upload build artifact
+      - name: Upload standalone artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST1
+          name: ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2
           path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST1.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST1.sha256.txt
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2.zip
+            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2.sha256.txt
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish GitHub prerelease
+      - name: Publish corrected GitHub prerelease
         if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.6.6-r8-test.1"
-          $zip = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST1.zip"
-          $hash = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST1.sha256.txt"
-          $notes = @"
-          Release de recette R8, non destinée à la production.
+          $tag = "v0.6.6-r8-test.2"
+          $zip = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2.zip"
+          $hash = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST2.sha256.txt"
+          @"
+          Candidate de recette R8 reconstruite au-dessus de la base R7.2.5b validée.
 
-          Contenu principal :
-          - fondations du nouveau moteur de rapprochement ;
-          - migration et retour arrière sécurisés ;
-          - règles paramétrables et seuils de confiance ;
-          - annulation auditée des rapprochements ;
-          - tests automatiques exécutés avant publication.
+          Corrections rétablies :
+          - Dashboard sans prénom codé en dur ;
+          - menus contextuels du module Comptes ;
+          - choix explicite et conservation du sens Débit/Crédit.
 
-          Installation :
-          1. Télécharger puis décompresser le ZIP.
-          2. Lancer install.bat.
-          3. Lancer run.bat.
-          4. Tester uniquement avec une copie de sauvegarde des données.
-          "@
-          $notes | Set-Content -LiteralPath "release-notes.txt" -Encoding UTF8
-
-          if (gh release view $tag 2>$null) {
-            gh release upload $tag $zip $hash --clobber
-          }
-          else {
-            gh release create $tag $zip $hash --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 1" --notes-file "release-notes.txt"
-          }
+          Le ZIP contient une application Windows autonome avec Valoria Vision.exe.
+          Il ne contient aucune base, sauvegarde ou clé locale.
+          "@ | Set-Content -LiteralPath "release-notes.txt" -Encoding UTF8
+          gh release create $tag $zip $hash --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 2 — base stable restaurée" --notes-file "release-notes.txt"
