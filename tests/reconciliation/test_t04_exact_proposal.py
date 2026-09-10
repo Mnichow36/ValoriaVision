@@ -55,5 +55,56 @@ class T04ExactProposalTests(unittest.TestCase):
             self.assertGreaterEqual(int(proposals[0]['score']), 90)
 
 
+    def test_explicit_regeneration_reconsiders_a_rejected_exact_pair(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            database = Database(Path(temp_dir) / "t04-rejected.db")
+            with database.connect() as connection:
+                database.create_schema(connection)
+                database.apply_migrations(connection)
+                account_id = connection.execute(
+                    """
+                    INSERT INTO accounts(name, bank, account_type, reference_date)
+                    VALUES ('Société Générale CC', 'Société Générale', 'Compte courant', '2026-09-01')
+                    """
+                ).lastrowid
+                transaction_id = connection.execute(
+                    """
+                    INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, source)
+                    VALUES (?, '2026-09-06', 'VIR RECU DE: URSSAF', 'Revenus', 180.0, 'Crédit', 'Import')
+                    """,
+                    (account_id,),
+                ).lastrowid
+                occurrence_id = connection.execute(
+                    """
+                    INSERT INTO forecast_occurrences(
+                        uuid, source_type, source_id, account_id, expected_date,
+                        expected_amount, expected_label, expected_category, direction, status
+                    ) VALUES (?, 'recurring', 1, ?, '2026-09-06',
+                              180.0, 'Salaire', 'Revenus', 'credit', 'overdue')
+                    """,
+                    (str(uuid4()), account_id),
+                ).lastrowid
+                connection.execute(
+                    """
+                    INSERT INTO forecast_reconciliation_proposals(
+                        uuid, occurrence_id, transaction_id, score, reason, status
+                    ) VALUES (?, ?, ?, 95, 'rejet historique', 'rejected')
+                    """,
+                    (str(uuid4()), occurrence_id, transaction_id),
+                )
+
+            service = ForecastReconciliationService(database)
+            self.assertEqual([], service.prepare_best_proposals('2026-06-01', '2026-09-30', account_id=account_id))
+            proposals = service.prepare_best_proposals(
+                '2026-06-01',
+                '2026-09-30',
+                account_id=account_id,
+                reconsider_rejected=True,
+            )
+            self.assertEqual(1, len(proposals))
+            self.assertEqual('to_review', proposals[0]['status'])
+
+
+
 if __name__ == '__main__':
     unittest.main()
