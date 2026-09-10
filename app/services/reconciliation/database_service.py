@@ -24,7 +24,8 @@ def _direction(value: str | None, amount: float) -> str:
 def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> TransactionInput:
     row = conn.execute(
         """
-        SELECT id, account_id, tx_date, amount, label, tx_type, category
+        SELECT id, account_id, tx_date, amount, label, tx_type, category,
+               source_identifier
         FROM transactions
         WHERE id = ?
         """,
@@ -41,6 +42,7 @@ def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> Transact
         label=row["label"] or "",
         direction=_direction(row["tx_type"], amount),
         category=row["category"],
+        external_reference=row["source_identifier"],
     )
 
 
@@ -62,7 +64,7 @@ def _load_open_forecasts(
         FROM forecast_occurrences fo
         WHERE fo.deleted_at IS NULL
           AND fo.status IN ('planned', 'overdue')
-          AND fo.account_id = ?
+          AND (? = 0 OR fo.account_id = ?)
           AND fo.expected_date BETWEEN ? AND ?
           AND NOT EXISTS (
               SELECT 1
@@ -73,7 +75,12 @@ def _load_open_forecasts(
           )
         ORDER BY fo.expected_date, fo.id
         """,
-        (transaction.account_id, start, end),
+        (
+            int(rules.same_account_required),
+            transaction.account_id,
+            start,
+            end,
+        ),
     ).fetchall()
     return tuple(
         ForecastInput(

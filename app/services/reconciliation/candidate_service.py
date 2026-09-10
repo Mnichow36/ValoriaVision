@@ -17,7 +17,6 @@ def rank_candidates(
         candidate
         for forecast in forecasts
         if (candidate := score_candidate(transaction, forecast, rules)) is not None
-        and candidate.score >= rules.review_threshold
     ]
     return tuple(
         sorted(

@@ -3010,10 +3010,15 @@ class Database:
         "reconciliation.date_tolerance_days": int,
         "reconciliation.amount_tolerance_absolute": float,
         "reconciliation.amount_tolerance_relative": float,
+        "reconciliation.label_similarity_minimum": float,
+        "reconciliation.same_account_required": lambda value: str(value).strip().casefold() in {"1", "true", "oui", "yes"},
+        "reconciliation.same_direction_required": lambda value: str(value).strip().casefold() in {"1", "true", "oui", "yes"},
         "reconciliation.date_weight": int,
         "reconciliation.amount_weight": int,
         "reconciliation.label_weight": int,
         "reconciliation.category_weight": int,
+        "reconciliation.counterparty_match_bonus": int,
+        "reconciliation.external_reference_match_bonus": int,
     }
 
     def reconciliation_rules(
@@ -3037,17 +3042,62 @@ class Database:
             )
         return ReconciliationRules(**values)
 
+    def set_reconciliation_settings(self, values: dict[str, object]) -> ReconciliationRules:
+        """Validate and save a complete rule edit in one SQLite transaction."""
+        unknown = sorted(set(values) - set(self.RECONCILIATION_SETTING_CASTS))
+        if unknown:
+            raise ValueError("Paramètres de rapprochement inconnus : " + ", ".join(unknown))
+        with self.connect() as conn:
+            current = self.reconciliation_rules(conn).snapshot()
+            merged = dict(current)
+            for key, raw_value in values.items():
+                field_name = key.removeprefix("reconciliation.")
+                merged[field_name] = self.RECONCILIATION_SETTING_CASTS[key](raw_value)
+            validated = ReconciliationRules(**merged)
+            changed = False
+            for field_name, normalized in validated.snapshot().items():
+                key = f"reconciliation.{field_name}"
+                if key not in values:
+                    continue
+                stored = (
+                    "true" if normalized is True
+                    else "false" if normalized is False
+                    else str(normalized)
+                )
+                previous = conn.execute(
+                    "SELECT value FROM settings WHERE key = ?",
+                    (key,),
+                ).fetchone()
+                if previous is None or str(previous["value"]) != stored:
+                    changed = True
+                conn.execute(
+                    """
+                    INSERT INTO settings(key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (key, stored),
+                )
+            if changed:
+                reevaluate_all_transactions(
+                    conn,
+                    validated,
+                    reason="Règles de rapprochement modifiées",
+                )
+            return validated
+
     def get_setting(self, key: str, default: str = "") -> str:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
     def set_setting(self, key: str, value: str) -> None:
+        if key in self.RECONCILIATION_SETTING_CASTS:
+            self.set_reconciliation_settings({key: value})
+            return
         with self.connect() as conn:
-            previous = conn.execute(
-                "SELECT value FROM settings WHERE key = ?",
-                (key,),
-            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -3055,15 +3105,6 @@ class Database:
                 """,
                 (key, value),
             )
-            if (
-                key in self.RECONCILIATION_SETTING_CASTS
-                and (previous is None or str(previous["value"]) != str(value))
-            ):
-                reevaluate_all_transactions(
-                    conn,
-                    self.reconciliation_rules(conn),
-                    reason=f"Paramètre de rapprochement modifié : {key}",
-                )
 
     def create_backup(self, target_dir: str | Path | None = None) -> Path:
         """Create an encrypted Valoria backup (.vvb).

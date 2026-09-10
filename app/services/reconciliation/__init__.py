@@ -10,6 +10,7 @@ from app.services.reconciliation.qualification_service import qualify
 from app.services.reconciliation.reevaluation_service import (
     ReevaluationSummary,
     affected_transactions_for_occurrences,
+    cancel_reconciliations_for_occurrence,
     reevaluate_all_transactions,
     reevaluate_for_occurrences,
     reevaluate_transaction,
@@ -24,6 +25,7 @@ __all__ = [
     "TransactionInput",
     "ReevaluationSummary",
     "affected_transactions_for_occurrences",
+    "cancel_reconciliations_for_occurrence",
     "reevaluate_all_transactions",
     "reevaluate_for_occurrences",
     "reevaluate_transaction",

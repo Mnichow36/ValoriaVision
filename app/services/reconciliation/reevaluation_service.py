@@ -75,11 +75,16 @@ def _input_fingerprint(
         SELECT id, account_id, expected_date, expected_amount, expected_label,
                direction, expected_category, status, deleted_at
         FROM forecast_occurrences
-        WHERE account_id = ?
+        WHERE (? = 0 OR account_id = ?)
           AND expected_date BETWEEN ? AND ?
         ORDER BY id
         """,
-        (transaction["account_id"], start_end[0], start_end[1]),
+        (
+            int(rules.same_account_required),
+            transaction["account_id"],
+            start_end[0],
+            start_end[1],
+        ),
     ).fetchall()
     payload = {
         "transaction": dict(transaction),
@@ -185,6 +190,61 @@ def _invalidate_transaction_decision(
         )
 
 
+def cancel_reconciliations_for_occurrence(
+    conn: sqlite3.Connection,
+    occurrence_id: int,
+    *,
+    reason: str = "Rapprochement annulé par l’utilisateur",
+) -> tuple[int, ...]:
+    """Cancel active R8 links for one occurrence and release their members."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT r.id, rm_tx.transaction_id
+        FROM reconciliations r
+        JOIN reconciliation_members rm_occ
+          ON rm_occ.reconciliation_id = r.id
+         AND rm_occ.occurrence_id = ?
+        LEFT JOIN reconciliation_members rm_tx
+          ON rm_tx.reconciliation_id = r.id
+         AND rm_tx.transaction_id IS NOT NULL
+        WHERE r.status IN ('automatic', 'confirmed')
+        ORDER BY r.id, rm_tx.transaction_id
+        """,
+        (occurrence_id,),
+    ).fetchall()
+    reconciliation_ids = tuple(dict.fromkeys(int(row["id"]) for row in rows))
+    transaction_ids = tuple(
+        dict.fromkeys(
+            int(row["transaction_id"])
+            for row in rows
+            if row["transaction_id"] is not None
+        )
+    )
+    for reconciliation_id in reconciliation_ids:
+        conn.execute(
+            """
+            UPDATE reconciliations
+            SET status = 'cancelled',
+                cancelled_at = CURRENT_TIMESTAMP,
+                cancel_reason = ?
+            WHERE id = ? AND status IN ('automatic', 'confirmed')
+            """,
+            (reason, reconciliation_id),
+        )
+        _event(
+            conn,
+            "reconciliation",
+            reconciliation_id,
+            "reconciliation_cancelled",
+            reason,
+            {
+                "occurrence_id": occurrence_id,
+                "released_transaction_ids": list(transaction_ids),
+            },
+        )
+    return transaction_ids
+
+
 def reevaluate_transaction(
     conn: sqlite3.Connection,
     transaction_id: int,
@@ -265,7 +325,7 @@ def affected_transactions_for_occurrences(
             FROM transactions t
             JOIN forecast_occurrences fo
               ON fo.id IN ({placeholders})
-             AND fo.account_id = t.account_id
+             AND (? = 0 OR fo.account_id = t.account_id)
              AND julianday(t.tx_date) BETWEEN
                  julianday(fo.expected_date) - ?
                  AND julianday(fo.expected_date) + ?
@@ -274,7 +334,14 @@ def affected_transactions_for_occurrences(
         WHERE transaction_id IS NOT NULL
         ORDER BY transaction_id
         """,
-        (*ids, *ids, *ids, rules.date_tolerance_days, rules.date_tolerance_days),
+        (
+            *ids,
+            *ids,
+            *ids,
+            int(rules.same_account_required),
+            rules.date_tolerance_days,
+            rules.date_tolerance_days,
+        ),
     ).fetchall()
     return tuple(int(row[0]) for row in rows)
 

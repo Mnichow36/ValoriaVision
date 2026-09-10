@@ -26,6 +26,18 @@ def qualify(
 
     best = candidates[0]
     delta = float(best.score - candidates[1].score) if len(candidates) > 1 else 100.0
+    if best.score < rules.review_threshold:
+        return QualificationResult(
+            status="without_forecast",
+            transaction_id=transaction.id,
+            best_candidate=best,
+            candidates=candidates,
+            ambiguity_delta=delta,
+            reason=(
+                f"Meilleur score {best.score}/100 inférieur au seuil "
+                f"À vérifier {rules.review_threshold}/100"
+            ),
+        )
     if best.score >= rules.auto_threshold and delta >= rules.ambiguity_min_delta:
         return QualificationResult(
             status="automatic",

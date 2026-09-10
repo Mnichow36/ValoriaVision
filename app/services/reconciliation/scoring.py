@@ -24,6 +24,10 @@ def normalize_label(value: str | None) -> str:
     return " ".join(normalized.split())
 
 
+def normalize_reference(value: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+
+
 def score_candidate(
     transaction: TransactionInput,
     forecast: ForecastInput,
@@ -38,19 +42,10 @@ def score_candidate(
     if date_delta > rules.date_tolerance_days:
         return None
 
-    # Convert through str to avoid binary floating-point artefacts at the
-    # exact acceptance boundaries while keeping the public input API compatible.
     cent = Decimal("0.01")
-    transaction_amount = abs(
-        Decimal(str(transaction.amount)).quantize(cent, rounding=ROUND_HALF_UP)
-    )
-    forecast_amount = abs(
-        Decimal(str(forecast.expected_amount)).quantize(cent, rounding=ROUND_HALF_UP)
-    )
+    transaction_amount = abs(Decimal(str(transaction.amount)).quantize(cent, rounding=ROUND_HALF_UP))
+    forecast_amount = abs(Decimal(str(forecast.expected_amount)).quantize(cent, rounding=ROUND_HALF_UP))
     amount_delta = abs(transaction_amount - forecast_amount)
-
-    # The observed transaction is the fixed reference. A candidate must not
-    # enlarge its own acceptance window merely by carrying a higher amount.
     reference_amount = max(transaction_amount, Decimal("0.01"))
     amount_tolerance = max(
         Decimal(str(rules.amount_tolerance_absolute)),
@@ -59,79 +54,52 @@ def score_candidate(
     if amount_delta > amount_tolerance:
         return None
 
-    if rules.date_tolerance_days == 0:
-        date_ratio = 1.0
-    else:
-        date_ratio = 1.0 - (date_delta / (rules.date_tolerance_days + 1))
+    date_ratio = 1.0 if rules.date_tolerance_days == 0 else 1.0 - (date_delta / (rules.date_tolerance_days + 1))
     date_points = rules.date_weight * max(0.0, date_ratio)
-
-    if amount_tolerance == 0:
-        amount_ratio = 1.0
-    else:
-        amount_ratio = float(
-            Decimal("1") - (amount_delta / (amount_tolerance + Decimal("0.01")))
-        )
+    amount_ratio = 1.0 if amount_tolerance == 0 else float(Decimal("1") - (amount_delta / (amount_tolerance + Decimal("0.01"))))
     amount_points = rules.amount_weight * max(0.0, amount_ratio)
 
     actual_label = normalize_label(transaction.label)
     expected_label = normalize_label(forecast.expected_label)
-    label_ratio = (
-        SequenceMatcher(None, actual_label, expected_label).ratio()
-        if actual_label and expected_label
-        else 0.0
-    )
+    label_ratio = SequenceMatcher(None, actual_label, expected_label).ratio() if actual_label and expected_label else 0.0
+    if rules.label_similarity_minimum > 0 and actual_label and expected_label and label_ratio < rules.label_similarity_minimum:
+        return None
     label_points = rules.label_weight * label_ratio
 
-    categories_match = bool(
-        transaction.category
-        and forecast.category
-        and normalize_label(transaction.category) == normalize_label(forecast.category)
-    )
+    actual_counterparty = normalize_label(transaction.counterparty)
+    expected_counterparty = normalize_label(forecast.counterparty)
+    counterparties_available = bool(actual_counterparty and expected_counterparty)
+    counterparties_match = counterparties_available and actual_counterparty == expected_counterparty
+    counterparty_points = rules.counterparty_match_bonus if counterparties_match else 0.0
+
+    actual_reference = normalize_reference(transaction.external_reference)
+    expected_reference = normalize_reference(forecast.external_reference)
+    references_available = bool(actual_reference and expected_reference)
+    references_match = references_available and actual_reference == expected_reference
+    reference_points = rules.external_reference_match_bonus if references_match else 0.0
+
+    categories_match = bool(transaction.category and forecast.category and normalize_label(transaction.category) == normalize_label(forecast.category))
     category_points = rules.category_weight if categories_match else 0.0
 
-    criteria = (
-        CriterionScore(
-            "account",
-            0,
-            0,
-            f"Compte identique ({transaction.account_id})",
-        ),
-        CriterionScore(
-            "direction",
-            0,
-            0,
-            f"Sens identique ({transaction.direction})",
-        ),
-        CriterionScore(
-            "date",
-            round(date_points, 2),
-            rules.date_weight,
-            f"Écart de {date_delta} jour(s)",
-        ),
-        CriterionScore(
-            "amount",
-            round(amount_points, 2),
-            rules.amount_weight,
-            f"Écart de {amount_delta:.2f} €",
-        ),
-        CriterionScore(
-            "label",
-            round(label_points, 2),
-            rules.label_weight,
-            f"Similarité de libellé {label_ratio:.0%}",
-        ),
-        CriterionScore(
-            "category",
-            round(category_points, 2),
-            rules.category_weight,
-            "Catégorie identique" if categories_match else "Catégorie absente ou différente",
-        ),
-    )
-    total = min(100, max(0, round(sum(item.points for item in criteria))))
+    criteria = [
+        CriterionScore("account", 0, 0, f"Compte identique ({transaction.account_id})"),
+        CriterionScore("direction", 0, 0, f"Sens identique ({transaction.direction})"),
+        CriterionScore("date", round(date_points, 2), rules.date_weight, f"Écart de {date_delta} jour(s)"),
+        CriterionScore("amount", round(amount_points, 2), rules.amount_weight, f"Écart de {amount_delta:.2f} €"),
+        CriterionScore("label", round(label_points, 2), rules.label_weight, f"Similarité de libellé {label_ratio:.0%}"),
+        CriterionScore("category", round(category_points, 2), rules.category_weight, "Catégorie identique" if categories_match else "Catégorie absente ou différente"),
+    ]
+    if counterparties_available:
+        criteria.append(CriterionScore("counterparty", round(counterparty_points, 2), rules.counterparty_match_bonus, "Bénéficiaire/émetteur identique" if counterparties_match else "Bénéficiaire/émetteur différent"))
+    if references_available:
+        criteria.append(CriterionScore("external_reference", round(reference_points, 2), rules.external_reference_match_bonus, "Référence bancaire identique" if references_match else "Référence bancaire différente"))
+
+    criteria_tuple = tuple(criteria)
+    total = min(100, max(0, round(sum(item.points for item in criteria_tuple))))
     return CandidateScore(
         forecast=forecast,
         score=total,
         date_delta_days=date_delta,
         amount_delta=float(amount_delta.quantize(Decimal("0.01"))),
-        criteria=criteria,
+        criteria=criteria_tuple,
     )
