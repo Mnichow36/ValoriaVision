@@ -49,6 +49,13 @@ class StableUiRegressionTests(unittest.TestCase):
             "self.add_recurring_btn.clicked.connect(self.open_add_recurring_dialog)",
             "self.edit_btn.clicked.connect(self.edit_selected)",
             "self.table.doubleClicked.connect(lambda _index: self.edit_selected())",
+            'item.setData(Qt.UserRole, int(row["id"]))',
+            "if table is self.table_recurring:",
+            "self.open_edit_recurring_dialog(recurring_id)",
+            "def open_edit_recurring_dialog(",
+            "dialog.show()",
+            "dialog.raise_()",
+            "dialog.activateWindow()",
             "def edit_recurring_item(",
             "def open_recurring_list_dialog(",
         ):
