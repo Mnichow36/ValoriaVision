@@ -320,7 +320,7 @@ def affected_transactions_for_occurrences(
             FROM transactions t
             JOIN forecast_occurrences fo
               ON fo.id IN ({placeholders})
-             AND fo.account_id = t.account_id
+             AND (? = 0 OR fo.account_id = t.account_id)
              AND julianday(t.tx_date) BETWEEN
                  julianday(fo.expected_date) - ?
                  AND julianday(fo.expected_date) + ?
@@ -329,7 +329,14 @@ def affected_transactions_for_occurrences(
         WHERE transaction_id IS NOT NULL
         ORDER BY transaction_id
         """,
-        (*ids, *ids, *ids, rules.date_tolerance_days, rules.date_tolerance_days),
+        (
+            *ids,
+            *ids,
+            *ids,
+            int(rules.same_account_required),
+            rules.date_tolerance_days,
+            rules.date_tolerance_days,
+        ),
     ).fetchall()
     return tuple(int(row[0]) for row in rows)
 
