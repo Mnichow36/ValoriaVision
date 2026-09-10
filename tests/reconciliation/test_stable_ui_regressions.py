@@ -43,6 +43,7 @@ class StableUiRegressionTests(unittest.TestCase):
 
     def test_forecast_keeps_recurrence_management_access(self) -> None:
         source = self.source("app/ui/forecast_page.py")
+        self.assertIn("from app.theme import COLORS, euro, format_date_fr", source)
         for contract in (
             'self.manage_recurring_btn = secondary_button("Gérer les récurrences")',
             "self.manage_recurring_btn.clicked.connect(self.open_recurring_list_dialog)",
