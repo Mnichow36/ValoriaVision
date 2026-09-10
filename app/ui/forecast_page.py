@@ -953,9 +953,23 @@ class ForecastPage(QWidget):
             self.refresh()
 
     def open_recurring_list_dialog(self) -> None:
-        dialog = RecurringListDialog(self.db, self)
-        if dialog.exec():
-            self.refresh()
+        try:
+            # Keep a reference for the whole lifetime of the non-blocking
+            # dialog; otherwise Qt may destroy it immediately after this slot.
+            dialog = RecurringListDialog(self.db, self)
+            self.recurring_list_dialog = dialog
+            dialog.setModal(True)
+            dialog.finished.connect(lambda _result: self.refresh())
+            dialog.finished.connect(lambda _result: setattr(self, "recurring_list_dialog", None))
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Gestion des récurrences",
+                f"Impossible d’ouvrir la gestion des récurrences.\n\n{exc}",
+            )
 
     def edit_recurring_item(self, recurring_id: int) -> None:
         row = self.db.get_recurring_item(recurring_id)
