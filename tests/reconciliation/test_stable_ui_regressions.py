@@ -41,5 +41,19 @@ class StableUiRegressionTests(unittest.TestCase):
         self.assertIn('not data.get("direction_explicit", False)', database_source)
 
 
+    def test_reconciliation_screen_keeps_r725b_proposal_workflow(self) -> None:
+        source = self.source("app/ui/reconciliation_page.py")
+        for label in (
+            "Transactions réalisées",
+            "Occurrences prévisionnelles",
+            "Proposition de rapprochement",
+            "Valider",
+            "Rejeter",
+            "Partiellement rapproché",
+        ):
+            self.assertIn(label, source)
+
+
+
 if __name__ == "__main__":
     unittest.main()
