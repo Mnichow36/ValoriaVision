@@ -1,0 +1,44 @@
+{
+  "all_r8_tables_created": true,
+  "backup_created_before_migration": true,
+  "backup_integrity": "ok",
+  "backup_sha256_verified": true,
+  "changed_legacy_tables": [],
+  "counts_reconciled": true,
+  "idempotent": true,
+  "integrity_after": "ok",
+  "integrity_before": "ok",
+  "legacy_table_count": 20,
+  "migrated_counts": {
+    "orphan_proposal_members": 0,
+    "orphan_reconciliation_members": 0,
+    "proposals": 1,
+    "reconciliations": 2,
+    "transaction_states": 3
+  },
+  "no_orphan_members": true,
+  "r8_counts": {
+    "reconciliation_events": 3,
+    "reconciliation_members": 4,
+    "reconciliation_proposal_members": 2,
+    "reconciliation_proposals": 1,
+    "reconciliations": 2,
+    "transaction_reconciliation_state": 3
+  },
+  "rollback_integrity": "ok",
+  "rollback_matches_source": true,
+  "rollback_tested": true,
+  "source_counts": {
+    "legacy_auto": 1,
+    "legacy_confirmed": 1,
+    "legacy_to_review": 1,
+    "occurrences": 7,
+    "transactions": 3
+  },
+  "source_identifier": "sha256:89823b83fd4c",
+  "source_size_bytes": 208896,
+  "success": true,
+  "temporary_copies_deleted_after_validation": true,
+  "test_suite": "33/33 passed",
+  "validation_scope": "synthetic_r7_2_representative"
+}

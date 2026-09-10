@@ -9,6 +9,9 @@ data/valoria_vision.db
 data/secure/
 data/security/
 data/backups/
+*.db
+*.sqlite
+*.sqlite3
 *.vvdb
 *.key
 *.log
