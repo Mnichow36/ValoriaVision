@@ -13,6 +13,7 @@ from app.services.forecast_reconciliation_service import ForecastReconciliationS
 from app.services.reconciliation import (
     ReconciliationRules,
     qualify_and_persist_transaction,
+    reevaluate_for_occurrences,
     reevaluate_transaction,
 )
 from app.security.crypto_service import CryptoService, SecurityIntegrityError
@@ -2472,6 +2473,18 @@ class Database:
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
         payload["item_id"] = item_id
         with self.connect() as conn:
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
             conn.execute(
                 """
                 UPDATE recurring_items
@@ -2489,14 +2502,81 @@ class Database:
                 """,
                 payload,
             )
+            if occurrence_ids:
+                placeholders = ",".join("?" for _ in occurrence_ids)
+                direction = "credit" if float(payload["amount"]) >= 0 else "debit"
+                occurrence_status = (
+                    "planned" if payload.get("status") == "Actif" else "cancelled"
+                )
+                conn.execute(
+                    f"""
+                    UPDATE forecast_occurrences
+                    SET account_id = ?, expected_amount = ?, expected_label = ?,
+                        expected_category = ?, direction = ?, status = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                    """,
+                    (
+                        payload["account_id"],
+                        payload["amount"],
+                        payload["name"],
+                        payload.get("category") or "Prévisionnel",
+                        direction,
+                        occurrence_status,
+                        *occurrence_ids,
+                    ),
+                )
+                reevaluate_for_occurrences(
+                    conn,
+                    occurrence_ids,
+                    reason="Prévision récurrente modifiée",
+                )
 
     def delete_recurring_item(self, item_id: int) -> None:
         with self.connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM forecast_occurrences
+                WHERE source_type = 'recurring' AND source_id = ?
+                """,
+                (item_id,),
+            )
             conn.execute("DELETE FROM recurring_items WHERE id = ?", (item_id,))
 
     def update_recurring_item_status(self, item_id: int, status: str) -> None:
         with self.connect() as conn:
-            conn.execute("UPDATE recurring_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, item_id))
+            conn.execute(
+                "UPDATE recurring_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, item_id),
+            )
+            occurrence_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM forecast_occurrences
+                    WHERE source_type = 'recurring'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (item_id,),
+                ).fetchall()
+            ]
+            if occurrence_ids:
+                placeholders = ",".join("?" for _ in occurrence_ids)
+                occurrence_status = "planned" if status == "Actif" else "cancelled"
+                conn.execute(
+                    f"""
+                    UPDATE forecast_occurrences
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                    """,
+                    (occurrence_status, *occurrence_ids),
+                )
+                reevaluate_for_occurrences(
+                    conn,
+                    occurrence_ids,
+                    reason="Statut de prévision récurrente modifié",
+                )
 
     @staticmethod
     def add_period(source: date, frequency: str) -> date:
