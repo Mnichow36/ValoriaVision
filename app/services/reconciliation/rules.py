@@ -11,12 +11,15 @@ class ReconciliationRules:
     date_tolerance_days: int = 5
     amount_tolerance_absolute: float = 1.00
     amount_tolerance_relative: float = 0.01
+    label_similarity_minimum: float = 0.0
     same_account_required: bool = True
     same_direction_required: bool = True
     date_weight: int = 25
     amount_weight: int = 35
     label_weight: int = 30
     category_weight: int = 10
+    counterparty_match_bonus: int = 5
+    external_reference_match_bonus: int = 10
 
     def __post_init__(self) -> None:
         if not 0 <= self.review_threshold <= self.auto_threshold <= 100:
@@ -27,6 +30,10 @@ class ReconciliationRules:
             raise ValueError("La tolérance de date doit être positive")
         if self.amount_tolerance_absolute < 0 or self.amount_tolerance_relative < 0:
             raise ValueError("Les tolérances de montant doivent être positives")
+        if not 0 <= self.label_similarity_minimum <= 1:
+            raise ValueError("La similarité minimale du libellé doit être comprise entre 0 et 1")
+        if self.counterparty_match_bonus < 0 or self.external_reference_match_bonus < 0:
+            raise ValueError("Les bonus de rapprochement doivent être positifs")
         if sum(self.weights.values()) != 100:
             raise ValueError("La somme des poids doit être égale à 100")
 
