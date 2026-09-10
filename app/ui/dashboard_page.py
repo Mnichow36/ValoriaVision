@@ -26,7 +26,7 @@ class DashboardPage(QWidget):
     def build(self) -> None:
         self.layout.addWidget(
             PageHeader(
-                "Bonjour François 👋",
+                "Bonjour 👋",
                 "Voici votre situation financière — budget, patrimoine et alertes clés",
             )
         )
