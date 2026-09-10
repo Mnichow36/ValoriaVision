@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from app.database import Database
 from app.services.forecast_chart_service import ForecastChartService
 from app.theme import COLORS, euro
-from app.widgets import Card, KpiCard, PageHeader, primary_button
+from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 from app.ui.plotly_runtime import build_plotly_html
 
 try:
@@ -482,25 +482,31 @@ class ForecastPage(QWidget):
         self.build()
 
     def build(self) -> None:
-        add_btn = primary_button("+ Ajouter événement / récurrence")
-        add_btn.clicked.connect(self.open_add_recurring_dialog)
+        self.add_recurring_btn = primary_button("+ Ajouter événement / récurrence")
+        self.add_recurring_btn.clicked.connect(self.open_add_recurring_dialog)
 
-        self.analysis_btn = QPushButton("Analyse de la période")
-        self.analysis_btn.setCursor(Qt.PointingHandCursor)
+        self.analysis_btn = secondary_button("Analyse de la période")
         self.analysis_btn.clicked.connect(self.toggle_analysis_drawer)
-        self.analysis_btn.setStyleSheet(
-            "QPushButton {background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:14px; padding:12px 18px; font-size:15px; font-weight: bold;} "
-            "QPushButton:hover {background:#F8FAFC; border-color:#2563EB; color:#2563EB;}"
-        )
 
-        manage_btn = QPushButton("Gérer les récurrences")
-        manage_btn.setCursor(Qt.PointingHandCursor)
-        manage_btn.clicked.connect(self.open_recurring_list_dialog)
-        manage_btn.setStyleSheet(
-            "QPushButton {background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:14px; padding:12px 18px; font-size:15px; font-weight: bold;} "
-            "QPushButton:hover {background:#F8FAFC;}"
+        # Keep recurrence management in a dedicated full-width action row.
+        # Header actions can be clipped by window width or display scaling.
+        self.manage_recurring_btn = secondary_button("Gérer les récurrences")
+        self.manage_recurring_btn.setMinimumWidth(190)
+        self.manage_recurring_btn.clicked.connect(self.open_recurring_list_dialog)
+
+        self.layout.addWidget(
+            PageHeader(
+                "Prévisionnel de trésorerie",
+                "Solde quotidien, opérations réelles et prévisionnelles",
+            )
         )
-        self.layout.addWidget(PageHeader("Prévisionnel de trésorerie", "Solde quotidien, opérations réelles et prévisionnelles", [self.analysis_btn, manage_btn, add_btn]))
+        recurring_actions = QHBoxLayout()
+        recurring_actions.setSpacing(10)
+        recurring_actions.addStretch(1)
+        recurring_actions.addWidget(self.analysis_btn)
+        recurring_actions.addWidget(self.manage_recurring_btn)
+        recurring_actions.addWidget(self.add_recurring_btn)
+        self.layout.addLayout(recurring_actions)
 
         filters = Card()
         filter_layout = QGridLayout(filters)
@@ -1194,6 +1200,7 @@ class RecurringListDialog(QDialog):
             "QHeaderView::section { background:#F8FAFC; color:#64748B; font-weight: bold; border:none; border-bottom:1px solid #E5E7EB; padding:8px; }"
         )
         self.table.customContextMenuRequested.connect(self.open_context_menu)
+        self.table.doubleClicked.connect(lambda _index: self.edit_selected())
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
