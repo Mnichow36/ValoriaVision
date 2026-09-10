@@ -55,5 +55,23 @@ class StableUiRegressionTests(unittest.TestCase):
 
 
 
+    def test_reconciliation_service_exposes_r725b_screen_contract(self) -> None:
+        source = self.source("app/services/forecast_reconciliation_service.py")
+        for method_name in (
+            "prepare_best_proposals",
+            "confirm_proposal",
+            "reject_proposal",
+            "rules_config",
+            "save_rules_config",
+            "add_reconciliation_link",
+            "cancel_reconciliation_link",
+            "restore_occurrence",
+            "cancel_occurrence",
+            "occurrence_details",
+        ):
+            self.assertIn(f"def {method_name}(", source)
+
+
+
 if __name__ == "__main__":
     unittest.main()
