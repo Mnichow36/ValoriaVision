@@ -127,6 +127,7 @@ class ForecastReconciliationService:
                 reevaluate_for_occurrences(
                     conn,
                     [int(existing["id"])],
+                    self.db.reconciliation_rules(conn),
                     reason="Occurrence prévisionnelle modifiée",
                 )
                 return False
@@ -145,6 +146,7 @@ class ForecastReconciliationService:
             reevaluate_for_occurrences(
                 conn,
                 [int(cursor.lastrowid)],
+                self.db.reconciliation_rules(conn),
                 reason="Occurrence prévisionnelle créée",
             )
             return True
