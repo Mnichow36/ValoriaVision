@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QMenu,
     QScrollArea,
     QSplitter,
     QStackedWidget,
@@ -68,6 +69,9 @@ class AccountsPage(QWidget):
         self.table.setColumnWidth(6, 120)
         self.table.setColumnWidth(7, 110)
         self.table.itemSelectionChanged.connect(self.update_detail)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.open_table_context_menu)
+        self.table.cellClicked.connect(self.open_actions_cell)
         self.table.verticalHeader().setDefaultSectionSize(42)
         self.bank_filter.currentTextChanged.connect(self.refresh)
         self.type_filter.currentTextChanged.connect(self.refresh)
@@ -198,6 +202,11 @@ class AccountsPage(QWidget):
             meta.setStyleSheet("color:#64748B; font-size:12px;")
             btn = secondary_button("Voir transactions")
             btn.clicked.connect(lambda _checked=False, account_id=row["id"]: self.open_transactions_for_account(account_id))
+            card.setContextMenuPolicy(Qt.CustomContextMenu)
+            card.customContextMenuRequested.connect(
+                lambda pos, widget=card, account_id=int(row["id"]):
+                    self.open_card_context_menu(widget, pos, account_id)
+            )
             layout.addWidget(title)
             layout.addWidget(balance)
             layout.addWidget(meta)
@@ -210,6 +219,46 @@ class AccountsPage(QWidget):
             empty = QLabel("Aucun compte ne correspond aux filtres sélectionnés.")
             empty.setStyleSheet("color:#64748B; padding:24px;")
             self.cards_grid.addWidget(empty, 0, 0)
+
+    def select_account_by_id(self, account_id: int) -> bool:
+        for row_index, row in enumerate(getattr(self, "account_rows", [])):
+            if int(row["id"]) == int(account_id):
+                self.table.selectRow(row_index)
+                self.table.setCurrentCell(row_index, 0)
+                return True
+        return False
+
+    def account_actions_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.addAction("Voir les transactions", self.open_transactions_for_selected_account)
+        menu.addAction("Importer des opérations", self.open_import_for_selected_account)
+        menu.addSeparator()
+        menu.addAction("Mettre à jour le solde initial", self.open_update_balance_dialog)
+        return menu
+
+    def open_table_context_menu(self, pos) -> None:
+        row_index = self.table.rowAt(pos.y())
+        if row_index < 0:
+            return
+        self.table.selectRow(row_index)
+        self.table.setCurrentCell(row_index, 0)
+        self.account_actions_menu().exec(self.table.viewport().mapToGlobal(pos))
+
+    def open_actions_cell(self, row_index: int, column: int) -> None:
+        if column != 8:
+            return
+        self.table.selectRow(row_index)
+        self.table.setCurrentCell(row_index, 0)
+        item = self.table.item(row_index, column)
+        if item is None:
+            return
+        anchor = self.table.visualItemRect(item).bottomLeft()
+        self.account_actions_menu().exec(self.table.viewport().mapToGlobal(anchor))
+
+    def open_card_context_menu(self, card: QWidget, pos, account_id: int) -> None:
+        if not self.select_account_by_id(account_id):
+            return
+        self.account_actions_menu().exec(card.mapToGlobal(pos))
 
     def open_transactions_for_account(self, account_id: int) -> None:
         if callable(self.on_view_transactions):
