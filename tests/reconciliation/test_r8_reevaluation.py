@@ -8,6 +8,7 @@ from uuid import uuid4
 from app.database import Database
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 from app.services.reconciliation import (
+    ReconciliationRules,
     qualify_and_persist_transaction,
     reevaluate_for_occurrences,
     reevaluate_transaction,
@@ -110,7 +111,11 @@ class R8ReevaluationTests(unittest.TestCase):
         self.assertEqual(first.status, "reconciled")
 
         self.conn.execute(
-            "UPDATE transactions SET amount = -2000 WHERE id = ?",
+            """
+            UPDATE transactions
+            SET amount = 2000, tx_type = 'Crédit'
+            WHERE id = ?
+            """,
             (transaction_id,),
         )
         second = reevaluate_transaction(
@@ -163,6 +168,27 @@ class R8ReevaluationTests(unittest.TestCase):
             (proposal.entity_id,),
         ).fetchone()[0]
         self.assertEqual(old_status, "expired")
+
+    def test_rule_change_recalculates_the_previous_decision(self) -> None:
+        transaction_id = self.transaction(label="LOYER")
+        self.occurrence(label="AUTRE LIBELLÉ")
+        first = qualify_and_persist_transaction(self.conn, transaction_id)
+        self.assertEqual(first.status, "has_proposal")
+
+        relaxed = ReconciliationRules(auto_threshold=70)
+        second = reevaluate_transaction(
+            self.conn,
+            transaction_id,
+            relaxed,
+            reason="Seuil automatique modifié",
+        )
+
+        self.assertEqual(second.status, "reconciled")
+        previous = self.conn.execute(
+            "SELECT status FROM reconciliation_proposals WHERE id = ?",
+            (first.entity_id,),
+        ).fetchone()
+        self.assertEqual(previous["status"], "expired")
 
     def test_identical_reevaluation_is_idempotent(self) -> None:
         transaction_id = self.transaction()
