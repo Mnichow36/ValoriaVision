@@ -403,6 +403,7 @@ class ForecastReconciliationService:
         end_date: str | date,
         account_id: int | None = None,
         transactions: list | None = None,
+        reconsider_rejected: bool = False,
     ) -> list:
         """Materialize the best review proposal for each eligible transaction.
 
@@ -434,7 +435,7 @@ class ForecastReconciliationService:
             for scored in self.find_candidates(transaction):
                 if self.decision_for_score(int(scored["score"])) == "unmatched":
                     break
-                if self._save_proposal(scored):
+                if self._save_proposal(scored, reconsider_rejected=reconsider_rejected):
                     break
 
         return self._eligible_proposals(start, end, account_id)
@@ -537,7 +538,7 @@ class ForecastReconciliationService:
             ),
         )
 
-    def _save_proposal(self, scored: dict) -> bool:
+    def _save_proposal(self, scored: dict, *, reconsider_rejected: bool = False) -> bool:
         occurrence = scored["occurrence"]
         transaction = scored["transaction"]
         with self.db.connect() as conn:
@@ -551,10 +552,15 @@ class ForecastReconciliationService:
                 (occurrence["id"], transaction["id"]),
             ).fetchone()
             if existing:
-                if existing["status"] != "to_review":
+                if existing["status"] != "to_review" and not reconsider_rejected:
                     return False
                 conn.execute(
-                    "UPDATE forecast_reconciliation_proposals SET score = ?, reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    """
+                    UPDATE forecast_reconciliation_proposals
+                    SET status = 'to_review', score = ?, reason = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
                     (int(scored["score"]), scored["reason"], existing["id"]),
                 )
                 conn.execute(
