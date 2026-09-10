@@ -75,11 +75,16 @@ def _input_fingerprint(
         SELECT id, account_id, expected_date, expected_amount, expected_label,
                direction, expected_category, status, deleted_at
         FROM forecast_occurrences
-        WHERE account_id = ?
+        WHERE (? = 0 OR account_id = ?)
           AND expected_date BETWEEN ? AND ?
         ORDER BY id
         """,
-        (transaction["account_id"], start_end[0], start_end[1]),
+        (
+            int(rules.same_account_required),
+            transaction["account_id"],
+            start_end[0],
+            start_end[1],
+        ),
     ).fetchall()
     payload = {
         "transaction": dict(transaction),
