@@ -35,6 +35,7 @@ from app.theme import euro_precise, format_date_fr
 from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_button
 from app.ui.charts_lab_page import PlotlyChartsLab
 from app.ui.categorization_rules_page import CategorizationRulesPage
+from app.ui.reconciliation_rules_page import ReconciliationRulesPage
 
 
 
@@ -237,6 +238,7 @@ class SettingsPage(QWidget):
         self.maintenance_tab = self.make_scroll_tab()
         self.categories_tab = self.make_scroll_tab()
         self.rules_tab = CategorizationRulesPage(self.db)
+        self.reconciliation_rules_tab = ReconciliationRulesPage(self.db)
         self.charts_lab_tab = PlotlyChartsLab(self.db)
 
         self.tabs.addTab(self.overview_tab, "Vue d’ensemble")
@@ -246,7 +248,8 @@ class SettingsPage(QWidget):
         self.tabs.addTab(self.business_tab, "Cohérence métier")
         self.tabs.addTab(self.maintenance_tab, "Maintenance")
         self.tabs.addTab(self.categories_tab, "Catégories")
-        self.tabs.addTab(self.rules_tab, "Règles auto")
+        self.tabs.addTab(self.rules_tab, "Catégorisation")
+        self.tabs.addTab(self.reconciliation_rules_tab, "Rapprochements")
         self.tabs.addTab(self.charts_lab_tab, "Charts réels")
 
         content_layout.addWidget(self.tabs, stretch=1)
@@ -390,6 +393,7 @@ class SettingsPage(QWidget):
         self.populate_business_tab()
         self.populate_maintenance_tab()
         self.populate_categories_tab()
+        self.reconciliation_rules_tab.load_rules()
 
     def compute_status(self) -> str:
         ok = (
