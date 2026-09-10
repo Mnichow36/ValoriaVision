@@ -14,6 +14,7 @@ from app.services.reconciliation import (
     ReconciliationRules,
     affected_transactions_for_occurrences,
     qualify_and_persist_transaction,
+    reevaluate_all_transactions,
     reevaluate_for_occurrences,
     reevaluate_transaction,
 )
@@ -1783,7 +1784,7 @@ class Database:
             categorized_by = "import_default" if category else None
             categorized_at = None
         signature = self.make_signature(account_id, tx_date, label, amount)
-        rules = ReconciliationRules()
+        rules = self.reconciliation_rules()
         transaction_day = date.fromisoformat(tx_date)
         ForecastReconciliationService(self).generate_occurrences(
             transaction_day - timedelta(days=rules.date_tolerance_days),
@@ -1926,6 +1927,7 @@ class Database:
             reevaluate_transaction(
                 conn,
                 transaction_id,
+                self.reconciliation_rules(conn),
                 reason="Transaction modifiée",
             )
         self.seal_database_to_encrypted_vault()
@@ -1954,6 +1956,7 @@ class Database:
             reevaluate_transaction(
                 conn,
                 transaction_id,
+                self.reconciliation_rules(conn),
                 reason="Catégorie de transaction modifiée",
             )
 
@@ -1990,6 +1993,7 @@ class Database:
                 reevaluate_transaction(
                     conn,
                     int(transaction_id),
+                    self.reconciliation_rules(conn),
                     reason="Catégorie de transaction modifiée en lot",
                 )
             return int(cur.rowcount or 0)
@@ -2530,6 +2534,7 @@ class Database:
                 reevaluate_for_occurrences(
                     conn,
                     occurrence_ids,
+                    self.reconciliation_rules(conn),
                     reason="Prévision récurrente modifiée",
                 )
 
@@ -2546,7 +2551,7 @@ class Database:
                 ).fetchall()
             ]
             affected_transaction_ids = affected_transactions_for_occurrences(
-                conn, occurrence_ids
+                conn, occurrence_ids, self.reconciliation_rules(conn)
             )
             conn.execute(
                 """
@@ -2560,6 +2565,7 @@ class Database:
                 reevaluate_transaction(
                     conn,
                     transaction_id,
+                    self.reconciliation_rules(conn),
                     reason="Prévision récurrente supprimée",
                 )
 
@@ -2595,6 +2601,7 @@ class Database:
                 reevaluate_for_occurrences(
                     conn,
                     occurrence_ids,
+                    self.reconciliation_rules(conn),
                     reason="Statut de prévision récurrente modifié",
                 )
 
@@ -2996,6 +3003,40 @@ class Database:
             "open_banking_prepared": self.get_user_preference("open_banking.prepared", "false") == "true",
         }
 
+    RECONCILIATION_SETTING_CASTS = {
+        "reconciliation.auto_threshold": int,
+        "reconciliation.review_threshold": int,
+        "reconciliation.ambiguity_min_delta": int,
+        "reconciliation.date_tolerance_days": int,
+        "reconciliation.amount_tolerance_absolute": float,
+        "reconciliation.amount_tolerance_relative": float,
+        "reconciliation.date_weight": int,
+        "reconciliation.amount_weight": int,
+        "reconciliation.label_weight": int,
+        "reconciliation.category_weight": int,
+    }
+
+    def reconciliation_rules(
+        self,
+        conn: sqlite3.Connection | None = None,
+    ) -> ReconciliationRules:
+        defaults = ReconciliationRules()
+        if conn is None:
+            with self.connect() as owned_conn:
+                return self.reconciliation_rules(owned_conn)
+        values = {}
+        for key, cast in self.RECONCILIATION_SETTING_CASTS.items():
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            field_name = key.removeprefix("reconciliation.")
+            values[field_name] = (
+                cast(row["value"]) if row is not None
+                else getattr(defaults, field_name)
+            )
+        return ReconciliationRules(**values)
+
     def get_setting(self, key: str, default: str = "") -> str:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -3003,6 +3044,10 @@ class Database:
 
     def set_setting(self, key: str, value: str) -> None:
         with self.connect() as conn:
+            previous = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (key,),
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -3010,6 +3055,15 @@ class Database:
                 """,
                 (key, value),
             )
+            if (
+                key in self.RECONCILIATION_SETTING_CASTS
+                and (previous is None or str(previous["value"]) != str(value))
+            ):
+                reevaluate_all_transactions(
+                    conn,
+                    self.reconciliation_rules(conn),
+                    reason=f"Paramètre de rapprochement modifié : {key}",
+                )
 
     def create_backup(self, target_dir: str | Path | None = None) -> Path:
         """Create an encrypted Valoria backup (.vvb).
