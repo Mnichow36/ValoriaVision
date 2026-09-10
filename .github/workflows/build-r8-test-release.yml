@@ -78,6 +78,15 @@ jobs:
           $applicationDir = Join-Path $packageDir "Valoria Vision"
           New-Item -ItemType Directory -Force -Path $applicationDir | Out-Null
           Copy-Item -Path "dist/Valoria Vision/*" -Destination $applicationDir -Recurse -Force
+          $mutableData = Get-ChildItem -Path $applicationDir -Recurse -File | Where-Object {
+            $_.Extension -in @(".db", ".sqlite", ".sqlite3", ".vvdb", ".vvb", ".key", ".pem", ".p12", ".pfx") -or
+            $_.FullName -match '[\\/](secure|backups)[\\/]'
+          }
+          $mutableData | Remove-Item -Force
+          Get-ChildItem -Path $applicationDir -Recurse -Directory |
+            Sort-Object FullName -Descending |
+            Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force) } |
+            Remove-Item -Force
           @"
           VALORIA VISION V0.6.6-R8 TEST 2
           Base stable : V0.6.6-R7.2.5b validée par l'utilisateur
