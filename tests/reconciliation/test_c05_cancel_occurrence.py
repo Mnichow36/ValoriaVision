@@ -18,6 +18,7 @@ class CancelOccurrenceRegressionTests(unittest.TestCase):
         self.db = Database(Path(self.temp_dir.name) / "valoria-test.db")
         with self.db.connect() as conn:
             self.db.create_schema(conn)
+            self.db.apply_forecast_reconciliation_foundation(conn)
             apply_r8_reconciliation_foundation(conn)
             self.account_id = int(
                 conn.execute(
