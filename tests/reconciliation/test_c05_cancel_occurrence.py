@@ -19,6 +19,7 @@ class CancelOccurrenceRegressionTests(unittest.TestCase):
         with self.db.connect() as conn:
             self.db.create_schema(conn)
             self.db.apply_forecast_reconciliation_foundation(conn)
+            self.db.apply_reconciliation_multi_link_foundation(conn)
             apply_r8_reconciliation_foundation(conn)
             self.account_id = int(
                 conn.execute(
