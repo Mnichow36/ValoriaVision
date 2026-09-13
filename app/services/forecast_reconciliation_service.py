@@ -423,17 +423,45 @@ class ForecastReconciliationService:
             with self.db.connect() as conn:
                 pending = conn.execute(
                     """
-                    SELECT id FROM forecast_reconciliation_proposals
+                    SELECT id, occurrence_id FROM forecast_reconciliation_proposals
                     WHERE transaction_id = ? AND deleted_at IS NULL AND status = 'to_review'
+                    ORDER BY id DESC
                     LIMIT 1
                     """,
                     (transaction_id,),
                 ).fetchone()
-            if pending:
-                continue
 
             for scored in self.find_candidates(transaction):
-                if self.decision_for_score(int(scored["score"])) == "unmatched":
+                decision = self.decision_for_score(int(scored["score"]))
+                if decision == "unmatched":
+                    break
+                if decision == "automatic":
+                    occurrence_id = int(scored["occurrence"]["id"])
+                    if self._link_occurrence(
+                        occurrence_id,
+                        transaction,
+                        scored,
+                        AUTO_STATUS,
+                        "automatic",
+                    ):
+                        # A proposal may already exist in an upgraded user
+                        # database. Close it atomically from the UI perspective
+                        # so a 100% candidate is not left in "À vérifier".
+                        with self.db.connect() as conn:
+                            conn.execute(
+                                """
+                                UPDATE forecast_reconciliation_proposals
+                                SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
+                                WHERE transaction_id = ?
+                                  AND occurrence_id = ?
+                                  AND deleted_at IS NULL
+                                  AND status = 'to_review'
+                                """,
+                                (transaction_id, occurrence_id),
+                            )
+                        break
+                    continue
+                if pending:
                     break
                 if self._save_proposal(scored, reconsider_rejected=reconsider_rejected):
                     break
