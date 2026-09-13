@@ -1,7 +1,7 @@
 # Valoria Vision — Plan exhaustif de développement vers la bêta Standard
 
 **Référence :** VV-PLAN-BETA-2027  
-**Version :** 1.0  
+**Version :** 1.1  
 **Date de référence :** 7 septembre 2026  
 **Cible de publication :** 30 avril 2027  
 **Statut :** document de pilotage validé — référentiel de pilotage  
@@ -279,10 +279,20 @@ La charge indicative sert au pilotage. Elle doit être remplacée par la charge 
 - #98 — qualification automatique ;
 - #99 — réévaluation ;
 - #100 — migration et retour arrière ;
-- #101 — E2E et volumétrie.
+- #101 — E2E et volumétrie;
+- #146 — P0 persistance de la base utilisateur après redémarrage, cible corrective R8 TEST12.
+
+#### Priorité de recette au 13/09/2026
+
+- la recette R8 est suspendue au test C20 après constat de la réinitialisation de la base au redémarrage ;
+- l’issue #146 est P0 et doit être corrigée dans R8 TEST12 avant reprise ;
+- TEST12 doit rester dans la lignée de TEST11, descendante de la référence gelée `v0.6.6-r8-test.9` ;
+- la cible bêta du 30/04/2027 reste inchangée tant que cette correction est absorbée par L1.
 
 #### Gate L1
 
+- la base utilisateur, le mot de passe maître et les paramètres persistent après fermeture et relance du package Windows ;
+- les données de démonstration ne sont injectées qu’à l’initialisation volontaire d’une nouvelle base ;
 - migration réussie et idempotente ;
 - mêmes compte et sens obligatoires ;
 - Sans prévision, À vérifier et Auto déterministes ;
@@ -802,6 +812,7 @@ Toute évolution doit indiquer :
 | Version | Date | Modification |
 |---|---|---|
 | 1.0 | 07/09/2026 | Création, validation du plan exhaustif et fixation de la cible au 30/04/2027 |
+| 1.1 | 13/09/2026 | Ajout du P0 #146 : persistance globale au redémarrage, TEST12 prioritaire dans L1, cible bêta provisoirement inchangée |
 
 ---
 
