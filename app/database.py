@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import shutil
 import json
+import os
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,7 +24,32 @@ from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "data"
+
+
+def default_data_dir() -> Path:
+    """Return a stable, per-user directory for Valoria data.
+
+    PyInstaller one-file applications are extracted to a temporary directory at
+    every launch. Storing the database relative to __file__ therefore loses the
+    apparent database on restart. VALORIA_DATA_DIR remains available for tests,
+    support and portable development setups.
+    """
+    override = os.environ.get("VALORIA_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+
+    if sys.platform == "win32":
+        windows_root = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if windows_root:
+            return Path(windows_root) / "ValoriaVision"
+
+    xdg_root = os.environ.get("XDG_DATA_HOME")
+    if xdg_root:
+        return Path(xdg_root) / "ValoriaVision"
+    return Path.home() / ".local" / "share" / "ValoriaVision"
+
+
+DATA_DIR = default_data_dir()
 BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
@@ -56,11 +83,14 @@ class Database:
     - backup and restore helpers.
     """
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = Path(path) if path is not None else DB_PATH
+        self.data_dir = self.path.parent
+        self.backup_dir = self.data_dir / "backups"
+        self.secure_dir = self.data_dir / "secure"
+        self.encrypted_db_path = self.secure_dir / "valoria_vision.vvdb"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.crypto = CryptoService(DATA_DIR)
-        self.encrypted_db_path = ENCRYPTED_DB_PATH
+        self.crypto = CryptoService(self.data_dir)
 
     def restore_plain_database_from_encrypted_vault(self) -> bool:
         """Restore the working SQLite file from the encrypted local vault.
@@ -87,12 +117,12 @@ class Database:
         """
         if not self.encrypted_db_path.exists():
             return None
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target = BACKUP_DIR / f"valoria_vision_invalid_vault_{stamp}.vvdb"
+        target = self.backup_dir / f"valoria_vision_invalid_vault_{stamp}.vvdb"
         counter = 1
         while target.exists():
-            target = BACKUP_DIR / f"valoria_vision_invalid_vault_{stamp}_{counter}.vvdb"
+            target = self.backup_dir / f"valoria_vision_invalid_vault_{stamp}_{counter}.vvdb"
             counter += 1
         shutil.move(str(self.encrypted_db_path), str(target))
         try:
@@ -105,7 +135,7 @@ class Database:
         """Create/update the encrypted local vault from the current SQLite DB."""
         if not self.path.exists():
             return None
-        SECURE_DIR.mkdir(parents=True, exist_ok=True)
+        self.secure_dir.mkdir(parents=True, exist_ok=True)
         self.crypto.encrypt_file(
             self.path,
             self.encrypted_db_path,
@@ -142,12 +172,12 @@ class Database:
         """
         if not self.path.exists() or self.path.stat().st_size == 0:
             return None
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target = BACKUP_DIR / f"valoria_vision_{reason}_{stamp}.db"
+        target = self.backup_dir / f"valoria_vision_{reason}_{stamp}.db"
         counter = 1
         while target.exists():
-            target = BACKUP_DIR / f"valoria_vision_{reason}_{stamp}_{counter}.db"
+            target = self.backup_dir / f"valoria_vision_{reason}_{stamp}_{counter}.db"
             counter += 1
         shutil.move(str(self.path), str(target))
         return target
@@ -3213,7 +3243,7 @@ class Database:
 
         V0.6.0 changes backup format from plain .db to encrypted .vvb.
         """
-        target = Path(target_dir) if target_dir else BACKUP_DIR
+        target = Path(target_dir) if target_dir else self.backup_dir
         target.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup = self.encrypted_backup_path(target, stamp)
