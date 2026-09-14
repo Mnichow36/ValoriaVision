@@ -175,5 +175,70 @@ class T04ExactProposalTests(unittest.TestCase):
             )
 
 
+    def test_close_competing_candidates_require_review_without_allocation(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            database = Database(Path(temp_dir) / "ambiguity.db")
+            with database.connect() as connection:
+                database.create_schema(connection)
+                database.apply_migrations(connection)
+                account_id = connection.execute(
+                    """
+                    INSERT INTO accounts(name, bank, account_type, reference_date)
+                    VALUES ('Société Générale CC', 'Société Générale',
+                            'Compte courant', '2026-09-01')
+                    """
+                ).lastrowid
+                transaction_id = connection.execute(
+                    """
+                    INSERT INTO transactions(
+                        account_id, tx_date, label, category, amount, tx_type, source
+                    ) VALUES (?, '2026-09-20', 'Assurance habitation', 'Assurances',
+                              -100.50, 'Débit', 'Saisie')
+                    """,
+                    (account_id,),
+                ).lastrowid
+                for source_id, expected_date, amount, label in (
+                    (101, '2026-09-20', -100.00, 'Assurance habitation A'),
+                    (102, '2026-09-21', -101.00, 'Assurance habitation B'),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO forecast_occurrences(
+                            uuid, source_type, source_id, account_id, expected_date,
+                            expected_amount, expected_label, expected_category,
+                            direction, status
+                        ) VALUES (?, 'recurring', ?, ?, ?, ?, ?, 'Assurances',
+                                  'debit', 'planned')
+                        """,
+                        (str(uuid4()), source_id, account_id, expected_date, amount, label),
+                    )
+
+            service = ForecastReconciliationService(database)
+            proposals = service.prepare_best_proposals(
+                '2026-09-01', '2026-10-01', account_id=account_id
+            )
+
+            self.assertEqual(len(proposals), 1)
+            self.assertEqual(proposals[0]["transaction_id"], transaction_id)
+            with database.connect() as connection:
+                links = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM forecast_reconciliation_links
+                    WHERE transaction_id = ? AND deleted_at IS NULL
+                    """,
+                    (transaction_id,),
+                ).fetchone()["count"]
+                partial = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM forecast_occurrences
+                    WHERE status = 'partially_matched'
+                    """
+                ).fetchone()["count"]
+            self.assertEqual(links, 0)
+            self.assertEqual(partial, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
