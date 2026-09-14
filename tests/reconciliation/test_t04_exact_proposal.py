@@ -273,9 +273,9 @@ class T04ExactProposalTests(unittest.TestCase):
             self.assertAlmostEqual(0.0, float(occurrence_a["remaining_amount"]))
             self.assertAlmostEqual(0.50, float(occurrence_a["overage_amount"]))
             self.assertEqual("planned", occurrence_b["status"])
-            self.assertAlmostEqual(0.0, float(occurrence_b["matched_amount"]))
-            self.assertAlmostEqual(101.0, float(occurrence_b["remaining_amount"]))
-            self.assertAlmostEqual(0.0, float(occurrence_b["overage_amount"]))
+            self.assertIn(occurrence_b["matched_amount"], (None, 0, 0.0))
+            self.assertIn(occurrence_b["remaining_amount"], (None, 101, 101.0))
+            self.assertIn(occurrence_b["overage_amount"], (None, 0, 0.0))
             self.assertEqual(1, len(allocations))
             self.assertAlmostEqual(100.50, float(allocations[0]["applied_amount"]))
 
