@@ -110,16 +110,6 @@ jobs:
           $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath
           "$($hash.Hash.ToLower())  $packageName.zip" | Set-Content -LiteralPath (Join-Path $releaseDir "$packageName.sha256.txt") -Encoding ASCII
 
-      - name: Upload standalone artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12
-          path: |
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12.zip
-            release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12.sha256.txt
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Publish corrected GitHub prerelease
         if: github.event_name == 'push'
         shell: pwsh
