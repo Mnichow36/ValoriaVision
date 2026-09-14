@@ -643,9 +643,44 @@ class ForecastReconciliationService:
             ).fetchone()
         if not proposal:
             return False, "Proposition introuvable ou déjà traitée."
+        # A manually accepted proposal is the user's final allocation decision.
+        # If the transaction balance and occurrence balance differ only within the
+        # configured tolerance, consume the whole transaction balance. Otherwise
+        # the tolerated delta could be reused on another candidate at the next
+        # recalculation (issue #147).
+        with self.db.connect() as conn:
+            occurrence = conn.execute(
+                "SELECT expected_amount FROM forecast_occurrences WHERE id = ?",
+                (int(proposal["occurrence_id"]),),
+            ).fetchone()
+            transaction = conn.execute(
+                "SELECT amount FROM transactions WHERE id = ?",
+                (int(proposal["transaction_id"]),),
+            ).fetchone()
+            allocated = float(
+                conn.execute(
+                    "SELECT COALESCE(SUM(applied_amount), 0) FROM forecast_reconciliation_links "
+                    "WHERE transaction_id = ? AND deleted_at IS NULL",
+                    (int(proposal["transaction_id"]),),
+                ).fetchone()[0]
+            )
+        transaction_remaining = max(abs(float(transaction["amount"] or 0)) - allocated, 0.0)
+        occurrence_remaining = abs(float(occurrence["expected_amount"] or 0))
+        rules = self.rules_config()
+        tolerance = max(
+            0.01,
+            float(rules["amount_tolerance_abs"]),
+            occurrence_remaining * float(rules["amount_tolerance_percent"]) / 100.0,
+        )
+        applied_amount = (
+            transaction_remaining
+            if abs(transaction_remaining - occurrence_remaining) <= tolerance + 0.005
+            else None
+        )
         linked, message = self.add_reconciliation_link(
             int(proposal["occurrence_id"]),
             int(proposal["transaction_id"]),
+            applied_amount=applied_amount,
             match_type="manual",
             confidence=int(proposal["score"]),
             reason="Proposition validée manuellement. " + str(proposal["reason"] or ""),
