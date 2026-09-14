@@ -734,5 +734,45 @@ class R8ReconciliationSchemaTests(unittest.TestCase):
         self.assertIsNotNone(event)
 
 
+    def test_legacy_occurrences_sharing_transaction_are_grouped_idempotently(self) -> None:
+        account_id = self.create_account()
+        transaction_id = self.create_transaction(account_id)
+        first_occurrence = self.create_occurrence(
+            account_id,
+            status="auto_matched",
+            transaction_id=transaction_id,
+            confidence=95,
+        )
+        second_occurrence = self.create_occurrence(
+            account_id,
+            status="confirmed",
+            transaction_id=transaction_id,
+            confidence=100,
+        )
+
+        apply_r8_reconciliation_foundation(self.conn)
+        apply_r8_reconciliation_foundation(self.conn)
+
+        reconciliation_count = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM reconciliations WHERE status IN ('automatic', 'confirmed')"
+        ).fetchone()["c"]
+        transaction_members = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM reconciliation_members WHERE transaction_id = ?",
+            (transaction_id,),
+        ).fetchone()["c"]
+        occurrence_members = self.conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM reconciliation_members
+            WHERE occurrence_id IN (?, ?)
+            """,
+            (first_occurrence, second_occurrence),
+        ).fetchone()["c"]
+
+        self.assertEqual(reconciliation_count, 1)
+        self.assertEqual(transaction_members, 1)
+        self.assertEqual(occurrence_members, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
