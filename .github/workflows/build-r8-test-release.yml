@@ -3,7 +3,7 @@ name: Build R8 standalone test release
 on:
   push:
     branches:
-      - "release/r8-test-12"
+      - "release/r8-test-13"
   workflow_dispatch:
 
 permissions:
@@ -58,7 +58,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $exe = Resolve-Path "dist/Valoria Vision.exe"
-          $smokeDir = Join-Path $env:RUNNER_TEMP "valoria-r8-test12-smoke"
+          $smokeDir = Join-Path $env:RUNNER_TEMP "valoria-r8-test13-smoke"
           New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
           $process = Start-Process -FilePath $exe -WorkingDirectory $smokeDir -PassThru
           Start-Sleep -Seconds 12
@@ -72,13 +72,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $packageName = "ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12"
+          $packageName = "ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST13"
           $releaseDir = Join-Path $PWD "release"
           $packageDir = Join-Path $releaseDir $packageName
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
           Copy-Item -LiteralPath "dist/Valoria Vision.exe" -Destination (Join-Path $packageDir "Valoria Vision.exe") -Force
           @"
-          VALORIA VISION V0.6.6-R8 TEST 12
+          VALORIA VISION V0.6.6-R8 TEST 13
           Base stable : V0.6.6-R7.2.5b validée par l'utilisateur
           Commit : $env:GITHUB_SHA
           Généré : $(Get-Date -Format "yyyy-MM-dd HH:mm:ss 'UTC'")
@@ -97,7 +97,7 @@ jobs:
           - menus contextuels du module Comptes ;
           - choix et conservation du sens Débit/Crédit ;
           - tests automatiques R8.
-          "@ | Set-Content -LiteralPath (Join-Path $packageDir "LISEZ_MOI_R8_TEST12.txt") -Encoding UTF8
+          "@ | Set-Content -LiteralPath (Join-Path $packageDir "LISEZ_MOI_R8_TEST13.txt") -Encoding UTF8
           $unsafe = Get-ChildItem -Path $packageDir -Recurse -File | Where-Object {
             $_.Extension -in @(".db", ".sqlite", ".sqlite3", ".vvdb", ".vvb", ".key", ".pem", ".p12", ".pfx") -or
             $_.FullName -match '[\\/](secure|backups)[\\/]'
@@ -116,11 +116,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.6.6-r8-test.12"
-          $zip = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12.zip"
-          $hash = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST12.sha256.txt"
+          $tag = "v0.6.6-r8-test.13"
+          $zip = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST13.zip"
+          $hash = "release/ValoriaVision_INSTALLABLE_V0_6_6_R8_TEST13.sha256.txt"
           @"
-          Candidate de recette R8 TEST12 construite exclusivement depuis la référence figée v0.6.6-r8-test.9.
+          Candidate de recette R8 TEST13 construite exclusivement depuis la référence figée v0.6.6-r8-test.9.
 
           Corrections cumulées :\n          - C05 : annulation persistante des occurrences prévisionnelles et migration de cancelled_reason ;\n          - C14 : application effective du seuil de rapprochement automatique lors du recalcul ;\n          - promotion automatique des propositions existantes atteignant le seuil configuré ;\n          - cohérence des compteurs À traiter, En retard, À vérifier et Rapprochée auto.\n\n          Non-régressions conservées :
           - Dashboard sans prénom codé en dur ;
@@ -132,7 +132,7 @@ jobs:
           "@ | Set-Content -LiteralPath "release-notes.txt" -Encoding UTF8
           if (gh release view $tag 2>$null) {
             gh release upload $tag $zip $hash --clobber
-            gh release edit $tag --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 12 — exécutable unique" --notes-file "release-notes.txt"
+            gh release edit $tag --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 13 — exécutable unique" --notes-file "release-notes.txt"
           } else {
-            gh release create $tag $zip $hash --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 12 — exécutable unique" --notes-file "release-notes.txt"
+            gh release create $tag $zip $hash --prerelease --target $env:GITHUB_SHA --title "Valoria Vision V0.6.6-R8 TEST 13 — exécutable unique" --notes-file "release-notes.txt"
           }
