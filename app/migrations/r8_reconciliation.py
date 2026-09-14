@@ -409,30 +409,51 @@ def _migrate_legacy_confirmed_matches(conn: sqlite3.Connection) -> None:
         )
         rules_snapshot = json.dumps({"source": "r7.2-legacy"}, ensure_ascii=False)
 
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO reconciliations(
-                uuid, status, match_type, score, score_details_json,
-                rules_snapshot_json, legacy_occurrence_id, created_at, confirmed_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
-            """,
-            (
-                str(uuid4()),
-                status,
-                match_type,
-                row["match_confidence"],
-                score_details,
-                rules_snapshot,
-                legacy_occurrence_id,
-                row["created_at"],
-                row["updated_at"] if status == "confirmed" else None,
-            ),
-        )
         reconciliation = conn.execute(
             "SELECT id FROM reconciliations WHERE legacy_occurrence_id = ?",
             (legacy_occurrence_id,),
         ).fetchone()
+        if reconciliation is None:
+            # Several legacy occurrences may point to the same bank
+            # transaction. R8 models this as one reconciliation with several
+            # occurrence members, not as competing active reconciliations.
+            reconciliation = conn.execute(
+                """
+                SELECT r.id
+                FROM reconciliations r
+                JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+                WHERE rm.transaction_id = ?
+                  AND r.status IN ('automatic', 'confirmed')
+                ORDER BY r.id
+                LIMIT 1
+                """,
+                (int(row["transaction_id"]),),
+            ).fetchone()
+        if reconciliation is None:
+            conn.execute(
+                """
+                INSERT INTO reconciliations(
+                    uuid, status, match_type, score, score_details_json,
+                    rules_snapshot_json, legacy_occurrence_id, created_at, confirmed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+                """,
+                (
+                    str(uuid4()),
+                    status,
+                    match_type,
+                    row["match_confidence"],
+                    score_details,
+                    rules_snapshot,
+                    legacy_occurrence_id,
+                    row["created_at"],
+                    row["updated_at"] if status == "confirmed" else None,
+                ),
+            )
+            reconciliation = conn.execute(
+                "SELECT id FROM reconciliations WHERE legacy_occurrence_id = ?",
+                (legacy_occurrence_id,),
+            ).fetchone()
         if reconciliation is None:
             continue
         reconciliation_id = int(reconciliation["id"])
