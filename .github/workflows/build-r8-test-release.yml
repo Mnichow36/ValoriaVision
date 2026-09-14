@@ -1,4 +1,5 @@
 name: Build R8 standalone test release
+# TEST15: full lifecycle regression candidate
 
 on:
   push:
