@@ -239,6 +239,46 @@ class T04ExactProposalTests(unittest.TestCase):
             self.assertEqual(links, 0)
             self.assertEqual(partial, 0)
 
+            accepted, _ = service.confirm_proposal(int(proposals[0]["id"]))
+            self.assertTrue(accepted)
+
+            # Re-run the engine exactly as the UI does after manual validation.
+            service.prepare_best_proposals(
+                '2026-09-01', '2026-10-01', account_id=account_id
+            )
+            with database.connect() as connection:
+                occurrence_a = connection.execute(
+                    """
+                    SELECT status, matched_amount, remaining_amount, overage_amount
+                    FROM forecast_occurrences WHERE source_id = 101
+                    """
+                ).fetchone()
+                occurrence_b = connection.execute(
+                    """
+                    SELECT status, matched_amount, remaining_amount, overage_amount
+                    FROM forecast_occurrences WHERE source_id = 102
+                    """
+                ).fetchone()
+                allocations = connection.execute(
+                    """
+                    SELECT occurrence_id, applied_amount
+                    FROM forecast_reconciliation_links
+                    WHERE transaction_id = ? AND deleted_at IS NULL
+                    """,
+                    (transaction_id,),
+                ).fetchall()
+
+            self.assertEqual("confirmed", occurrence_a["status"])
+            self.assertAlmostEqual(100.50, float(occurrence_a["matched_amount"]))
+            self.assertAlmostEqual(0.0, float(occurrence_a["remaining_amount"]))
+            self.assertAlmostEqual(0.50, float(occurrence_a["overage_amount"]))
+            self.assertEqual("planned", occurrence_b["status"])
+            self.assertAlmostEqual(0.0, float(occurrence_b["matched_amount"]))
+            self.assertAlmostEqual(101.0, float(occurrence_b["remaining_amount"]))
+            self.assertAlmostEqual(0.0, float(occurrence_b["overage_amount"]))
+            self.assertEqual(1, len(allocations))
+            self.assertAlmostEqual(100.50, float(allocations[0]["applied_amount"]))
+
 
 if __name__ == "__main__":
     unittest.main()
