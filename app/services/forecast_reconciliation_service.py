@@ -54,6 +54,7 @@ class ForecastReconciliationService:
         "label_similarity_min": 45,
         "auto_threshold": 90,
         "review_threshold": 60,
+        "ambiguity_min_delta": 10,
     }
 
     def __init__(self, db) -> None:
@@ -101,6 +102,10 @@ class ForecastReconciliationService:
                 self.db.get_setting("reconciliation.review_threshold", str(defaults["review_threshold"])),
                 defaults["review_threshold"], integer=True,
             ),
+            "ambiguity_min_delta": self._setting_number(
+                self.db.get_setting("reconciliation.ambiguity_min_delta", str(defaults["ambiguity_min_delta"])),
+                defaults["ambiguity_min_delta"], integer=True,
+            ),
         }
         config["date_tolerance_days"] = max(0, min(config["date_tolerance_days"], 60))
         config["amount_tolerance_abs"] = max(0.0, config["amount_tolerance_abs"])
@@ -108,6 +113,7 @@ class ForecastReconciliationService:
         config["label_similarity_min"] = max(0, min(config["label_similarity_min"], 100))
         config["auto_threshold"] = max(1, min(config["auto_threshold"], 100))
         config["review_threshold"] = max(0, min(config["review_threshold"], 99))
+        config["ambiguity_min_delta"] = max(0, min(config["ambiguity_min_delta"], 100))
         if config["review_threshold"] >= config["auto_threshold"]:
             config["review_threshold"] = max(0, config["auto_threshold"] - 1)
         self._rules_cache = config
@@ -128,6 +134,7 @@ class ForecastReconciliationService:
             "label_similarity_min": str(self._setting_number(merged["label_similarity_min"], self.DEFAULT_RULES["label_similarity_min"], integer=True)),
             "auto_threshold": str(auto_threshold),
             "review_threshold": str(review_threshold),
+            "ambiguity_min_delta": str(self._setting_number(merged["ambiguity_min_delta"], self.DEFAULT_RULES["ambiguity_min_delta"], integer=True)),
         }
         for key, value in keys.items():
             self.db.set_setting(f"reconciliation.{key}", value)
@@ -141,6 +148,17 @@ class ForecastReconciliationService:
         if int(score) >= int(rules["review_threshold"]):
             return "to_review"
         return "unmatched"
+
+    def decision_for_candidates(self, candidates: list[dict]) -> str:
+        """Apply thresholds and the mandatory ambiguity guard to a ranking."""
+        if not candidates:
+            return "unmatched"
+        decision = self.decision_for_score(int(candidates[0]["score"]))
+        if decision == "automatic" and len(candidates) > 1:
+            delta = int(candidates[0]["score"]) - int(candidates[1]["score"])
+            if delta < int(self.rules_config()["ambiguity_min_delta"]):
+                return "to_review"
+        return decision
 
     def status_label(self, status: str) -> str:
         return STATUS_LABELS.get(status, status)
@@ -246,7 +264,7 @@ class ForecastReconciliationService:
                 if tx["linked_occurrence_id"] and fully_allocated:
                     continue
                 candidates = self.find_candidates(tx)
-                if not candidates or self.decision_for_score(candidates[0]["score"]) == "unmatched":
+                if not candidates or self.decision_for_candidates(candidates) == "unmatched":
                     continue
                 filtered_transactions.append(tx)
             elif status == "all":
@@ -431,40 +449,39 @@ class ForecastReconciliationService:
                     (transaction_id,),
                 ).fetchone()
 
-            for scored in self.find_candidates(transaction):
-                decision = self.decision_for_score(int(scored["score"]))
-                if decision == "unmatched":
-                    break
-                if decision == "automatic":
-                    occurrence_id = int(scored["occurrence"]["id"])
-                    if self._link_occurrence(
-                        occurrence_id,
-                        transaction,
-                        scored,
-                        AUTO_STATUS,
-                        "automatic",
-                    ):
-                        # A proposal may already exist in an upgraded user
-                        # database. Close it atomically from the UI perspective
-                        # so a 100% candidate is not left in "À vérifier".
-                        with self.db.connect() as conn:
-                            conn.execute(
-                                """
-                                UPDATE forecast_reconciliation_proposals
-                                SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
-                                WHERE transaction_id = ?
-                                  AND occurrence_id = ?
-                                  AND deleted_at IS NULL
-                                  AND status = 'to_review'
-                                """,
-                                (transaction_id, occurrence_id),
-                            )
-                        break
-                    continue
-                if pending:
-                    break
-                if self._save_proposal(scored, reconsider_rejected=reconsider_rejected):
-                    break
+            ranked = self.find_candidates(transaction)
+            decision = self.decision_for_candidates(ranked)
+            if decision == "unmatched":
+                continue
+            scored = ranked[0]
+            if decision == "automatic":
+                occurrence_id = int(scored["occurrence"]["id"])
+                if self._link_occurrence(
+                    occurrence_id,
+                    transaction,
+                    scored,
+                    AUTO_STATUS,
+                    "automatic",
+                ):
+                    # A proposal may already exist in an upgraded user
+                    # database. Close it atomically from the UI perspective
+                    # so a 100% candidate is not left in "À vérifier".
+                    with self.db.connect() as conn:
+                        conn.execute(
+                            """
+                            UPDATE forecast_reconciliation_proposals
+                            SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
+                            WHERE transaction_id = ?
+                              AND occurrence_id = ?
+                              AND deleted_at IS NULL
+                              AND status = 'to_review'
+                            """,
+                            (transaction_id, occurrence_id),
+                        )
+                continue
+            if pending:
+                continue
+            self._save_proposal(scored, reconsider_rejected=reconsider_rejected)
 
         return self._eligible_proposals(start, end, account_id)
 
@@ -485,7 +502,7 @@ class ForecastReconciliationService:
                 summary["unmatched"] += 1
                 continue
             best = candidates[0]
-            decision = self.decision_for_score(best["score"])
+            decision = self.decision_for_candidates(candidates)
             if decision == "automatic":
                 if self._link_occurrence(best["occurrence"]["id"], tx, best, AUTO_STATUS, "automatic"):
                     summary["auto"] += 1
