@@ -34,13 +34,16 @@ class TestUserDataPersistence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "valoria_vision.db"
 
-            first = Database(database_path)
-            first.initialize()
-            first.set_setting("test.restart_marker", "preserved")
-            AuthService(first).set_master_password("TEST12-secure")
+            with mock.patch.object(
+                Database, "seal_database_to_encrypted_vault", return_value=None
+            ):
+                first = Database(database_path)
+                first.initialize()
+                first.set_setting("test.restart_marker", "preserved")
+                AuthService(first).set_master_password("TEST12-secure")
 
-            reopened = Database(database_path)
-            reopened.initialize()
+                reopened = Database(database_path)
+                reopened.initialize()
 
             self.assertEqual(reopened.get_setting("test.restart_marker"), "preserved")
             self.assertTrue(AuthService(reopened).is_configured())
