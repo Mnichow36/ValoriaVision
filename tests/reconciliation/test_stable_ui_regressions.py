@@ -84,6 +84,24 @@ class StableUiRegressionTests(unittest.TestCase):
         ):
             self.assertIn(label, source)
 
+    def test_reconciliation_filter_refresh_does_not_qualify_transactions(self) -> None:
+        source = self.source("app/ui/reconciliation_page.py")
+        tree = ast.parse(source)
+        refresh_data = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "refresh_data"
+        )
+        called_attributes = {
+            node.func.attr
+            for node in ast.walk(refresh_data)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        self.assertNotIn("prepare_best_proposals", called_attributes)
+        self.assertNotIn("reconcile_import_batch", called_attributes)
+        self.assertNotIn("generate_occurrences", called_attributes)
+        self.assertIn("build_reconciliation_dataset", source)
 
 
     def test_reconciliation_service_exposes_r725b_screen_contract(self) -> None:
