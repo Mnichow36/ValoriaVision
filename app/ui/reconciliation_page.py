@@ -409,18 +409,12 @@ class ReconciliationPage(QWidget):
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        # Keep statuses current with one indexed UPDATE; occurrence generation is
-        # intentionally reserved for the dedicated action/import workflow.
+        # Refreshing filters and tables must remain read-only for reconciliation
+        # links. Business qualification is reserved for explicit generation or
+        # import workflows; otherwise a filter change can silently auto-match a
+        # transaction when a competing occurrence has just been ignored.
         self.service.mark_overdue(date.today())
         dataset = self.current_dataset()
-        proposals = self.service.prepare_best_proposals(
-            self.qdate_to_iso(self.start_date),
-            self.qdate_to_iso(self.end_date),
-            self.account_filter.currentData(),
-            dataset["transactions"],
-        )
-        dataset["proposals"] = proposals
-        dataset["source_counts"]["proposals_loaded"] = len(proposals)
         self.refresh_transactions(dataset)
         self.refresh_occurrences(dataset)
         self.refresh_proposals(dataset)
