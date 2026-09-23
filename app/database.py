@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import shutil
 import json
+import os
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,7 +24,31 @@ from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "data"
+
+
+def _persistent_data_dir() -> Path:
+    """Return the stable per-user data directory.
+
+    Packaged one-file builds are extracted to a temporary directory at every
+    launch, so application data must never live next to the extracted code.
+    VALORIA_VISION_DATA_DIR is supported for tests and controlled migrations.
+    """
+    override = os.environ.get("VALORIA_VISION_DATA_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        return base / "ValoriaVision" / "data"
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "ValoriaVision" / "data"
+
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "ValoriaVision" / "data"
+
+
+DATA_DIR = _persistent_data_dir()
 BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
