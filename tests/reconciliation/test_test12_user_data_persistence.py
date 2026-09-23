@@ -30,11 +30,13 @@ class PersistentDataDirectoryTests(unittest.TestCase):
 
             path = Path(tmp) / "data" / "valoria_vision.db"
             first = Database(path)
-            first.initialize()
+            with patch.object(first, "seal_database_to_encrypted_vault", return_value=None):
+                first.initialize()
             first.set_setting("test12.persistence_probe", "kept")
 
             second = Database(path)
-            second.initialize()
+            with patch.object(second, "seal_database_to_encrypted_vault", return_value=None):
+                second.initialize()
             self.assertEqual(second.get_setting("test12.persistence_probe", ""), "kept")
 
 
