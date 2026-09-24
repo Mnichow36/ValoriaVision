@@ -538,7 +538,7 @@ class ForecastReconciliationService:
             )
 
     def _manual_partial_candidate(self, transaction, occurrence) -> bool:
-        """Keep a plausible partial allocation visible without auto-matching it."""
+        """Keep plausible manual allocations visible, including one transaction split across occurrences."""
         rules = self.rules_config()
         if occurrence["account_id"] != transaction["account_id"]:
             return False
@@ -551,7 +551,7 @@ class ForecastReconciliationService:
         remaining = occurrence["remaining_amount"]
         remaining = abs(float(remaining if remaining is not None else occurrence["expected_amount"] or 0))
         amount = abs(float(transaction["amount"] or 0)) - float(transaction["allocated_amount"] or 0)
-        if amount <= 0.005 or remaining <= 0.005 or amount > remaining + 0.005:
+        if amount <= 0.005 or remaining <= 0.005:
             return False
         expected_label = _norm(occurrence["expected_label"])
         tx_label = _norm(transaction["label"])
