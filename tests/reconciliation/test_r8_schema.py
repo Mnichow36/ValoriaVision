@@ -774,5 +774,46 @@ class R8ReconciliationSchemaTests(unittest.TestCase):
         self.assertEqual(occurrence_members, 2)
 
 
+    def test_restart_with_cross_linked_legacy_groups_keeps_existing_memberships(self) -> None:
+        account_id = self.create_account()
+        first_tx = self.create_transaction(account_id, label="TEST CROISE 40", amount=-40)
+        second_tx = self.create_transaction(account_id, label="TEST CROISE 60", amount=-60)
+        first_occurrence = self.create_occurrence(
+            account_id, status="confirmed", transaction_id=first_tx,
+            expected_amount=-60,
+        )
+        shared_occurrence = self.create_occurrence(
+            account_id, status="confirmed", transaction_id=first_tx,
+            expected_amount=-40,
+        )
+        second_occurrence = self.create_occurrence(
+            account_id, status="confirmed", transaction_id=second_tx,
+            expected_amount=-40,
+        )
+        apply_r8_reconciliation_foundation(self.conn)
+        # A later manual cross-link changes the legacy first transaction of
+        # an occurrence which was absorbed into the first R8 group.
+        self.conn.execute(
+            "UPDATE forecast_occurrences SET actual_transaction_id = ? WHERE id = ?",
+            (second_tx, shared_occurrence),
+        )
+        apply_r8_reconciliation_foundation(self.conn)
+        apply_r8_reconciliation_foundation(self.conn)
+        members = self.conn.execute(
+            """SELECT occurrence_id, transaction_id FROM reconciliation_members
+               WHERE occurrence_id IN (?, ?, ?) OR transaction_id IN (?, ?)""",
+            (first_occurrence, shared_occurrence, second_occurrence, first_tx, second_tx),
+        ).fetchall()
+        self.assertEqual(sum(row["occurrence_id"] == shared_occurrence for row in members), 1)
+        self.assertEqual(sum(row["transaction_id"] == second_tx for row in members), 1)
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT actual_transaction_id FROM forecast_occurrences WHERE id = ?",
+                (shared_occurrence,),
+            ).fetchone()[0],
+            second_tx,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
