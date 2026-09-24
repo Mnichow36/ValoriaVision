@@ -1420,10 +1420,6 @@ class Database:
     def update_account(self, account_id: int, data: dict) -> None:
         data = dict(data)
         data["id"] = account_id
-        data["initial_balance"] = float(data.get("initial_balance", data.get("reference_balance", 0)) or 0)
-        data["initial_date"] = data.get("initial_date", data.get("reference_date"))
-        data["reference_balance"] = data["initial_balance"]
-        data["reference_date"] = data["initial_date"]
         with self.connect() as conn:
             conn.execute(
                 """
@@ -1432,16 +1428,12 @@ class Database:
                     bank = :bank,
                     account_type = :account_type,
                     identifier = :identifier,
-                    reference_balance = :reference_balance,
-                    reference_date = :reference_date,
-                    initial_balance = :initial_balance,
-                    initial_date = :initial_date,
                     currency = :currency,
                     status = :status,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = :id
                 """,
-                payload,
+                data,
             )
 
     def account_balance_at_date(self, account_id: int, target_date: str):
