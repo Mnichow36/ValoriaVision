@@ -414,6 +414,18 @@ def _migrate_legacy_confirmed_matches(conn: sqlite3.Connection) -> None:
             (legacy_occurrence_id,),
         ).fetchone()
         if reconciliation is None:
+            # A shared legacy occurrence may already have been absorbed into
+            # another active R8 group on an earlier application start.
+            reconciliation = conn.execute(
+                """
+                SELECT r.id FROM reconciliations r
+                JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+                WHERE rm.occurrence_id = ? AND r.status IN ('automatic', 'confirmed')
+                ORDER BY r.id LIMIT 1
+                """,
+                (legacy_occurrence_id,),
+            ).fetchone()
+        if reconciliation is None:
             # Several legacy occurrences may point to the same bank
             # transaction. R8 models this as one reconciliation with several
             # occurrence members, not as competing active reconciliations.
@@ -458,7 +470,20 @@ def _migrate_legacy_confirmed_matches(conn: sqlite3.Connection) -> None:
             continue
         reconciliation_id = int(reconciliation["id"])
 
-        conn.execute(
+        # Legacy R7.2 multi-links can connect two R8 groups formed on
+        # different starts. Keep the already active membership instead of
+        # aborting the application's startup; the legacy link remains intact.
+        active_transaction_group = conn.execute(
+            """
+            SELECT r.id FROM reconciliations r
+            JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+            WHERE rm.transaction_id = ? AND r.status IN ('automatic', 'confirmed')
+            ORDER BY r.id LIMIT 1
+            """,
+            (int(row["transaction_id"]),),
+        ).fetchone()
+        if active_transaction_group is None or int(active_transaction_group["id"]) == reconciliation_id:
+            conn.execute(
             """
             INSERT OR IGNORE INTO reconciliation_members(
                 reconciliation_id, member_type, transaction_id, role,
@@ -474,7 +499,17 @@ def _migrate_legacy_confirmed_matches(conn: sqlite3.Connection) -> None:
                 row["transaction_label"],
             ),
         )
-        conn.execute(
+        active_occurrence_group = conn.execute(
+            """
+            SELECT r.id FROM reconciliations r
+            JOIN reconciliation_members rm ON rm.reconciliation_id = r.id
+            WHERE rm.occurrence_id = ? AND r.status IN ('automatic', 'confirmed')
+            ORDER BY r.id LIMIT 1
+            """,
+            (legacy_occurrence_id,),
+        ).fetchone()
+        if active_occurrence_group is None or int(active_occurrence_group["id"]) == reconciliation_id:
+            conn.execute(
             """
             INSERT OR IGNORE INTO reconciliation_members(
                 reconciliation_id, member_type, occurrence_id, role,
