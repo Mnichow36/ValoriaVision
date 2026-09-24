@@ -5,7 +5,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.database import Database
-from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 
 
@@ -15,7 +14,7 @@ class ManualOverageTests(unittest.TestCase):
         self.db = Database(Path(self.temp_dir.name) / "overage.db")
         with self.db.connect() as conn:
             self.db.create_schema(conn)
-            apply_r8_reconciliation_foundation(conn)
+            self.db.apply_migrations(conn)
             account = conn.execute(
                 """INSERT INTO accounts(name, bank, account_type, identifier,
                     reference_balance, reference_date, status)
