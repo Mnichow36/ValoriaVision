@@ -46,6 +46,41 @@ class ManualPartialVisibilityTests(unittest.TestCase):
             self.assertEqual(visible(), [], change)
             self.occurrence.update(original)
 
+    def test_one_transaction_remains_visible_for_two_smaller_occurrences(self):
+        service = self.service
+        first = dict(self.occurrence, expected_amount=-60, remaining_amount=60,
+                     expected_label="TEST DOUBLE PRÉVISION")
+        second = dict(self.occurrence, id=3, expected_amount=-40, remaining_amount=40,
+                      expected_label="TEST DOUBLE PRÉVISION")
+        transaction = dict(self.transaction, amount=-100, label="TEST DOUBLE PRÉVISION")
+        service._eligible_transactions = lambda *args: [transaction]
+        service._eligible_occurrences = lambda *args: [first, second]
+        service._eligible_proposals = lambda *args: []
+        service.find_candidates = lambda tx: [
+            {"occurrence": first, "score": 0}, {"occurrence": second, "score": 0}
+        ]
+        service.decision_for_candidates = lambda candidates: "unmatched"
+        service._summary_from_occurrences = lambda rows: {"active": len(rows), "all": len(rows)}
+
+        def visible():
+            return service.build_reconciliation_dataset(
+                "2026-09-24", "2026-09-30", account_id=1, status="active"
+            )["transactions"]
+
+        self.assertEqual(len(visible()), 1)
+        self.assertTrue(service._manual_partial_candidate(transaction, first))
+        self.assertTrue(service._manual_partial_candidate(transaction, second))
+        # After allocating 60 to the first occurrence, the same transaction
+        # must remain selectable for the 40 still available on the second.
+        transaction["allocated_amount"] = 60
+        transaction["linked_occurrence_id"] = first["id"]
+        first["remaining_amount"] = 0
+        self.assertEqual(len(visible()), 1)
+        self.assertFalse(service._manual_partial_candidate(transaction, first))
+        self.assertTrue(service._manual_partial_candidate(transaction, second))
+        second["account_id"] = 2
+        self.assertEqual(visible(), [])
+
     def test_second_transaction_can_consider_partially_matched_occurrence(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
