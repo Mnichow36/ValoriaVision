@@ -29,6 +29,11 @@ from app.widgets import Card, KpiCard, PageHeader, primary_button, secondary_but
 
 
 class AccountsPage(QWidget):
+    @staticmethod
+    def masked_identifier(value: str | None) -> str:
+        compact = "".join(str(value or "").split())
+        return f"•••• {compact[-4:]}" if compact else "—"
+
     def __init__(self, db: Database) -> None:
         super().__init__()
         self.db = db
@@ -196,7 +201,7 @@ class AccountsPage(QWidget):
             balance.setStyleSheet(f"font-size:24px; font-weight: bold; color:{'#16A34A' if current_balance >= 0 else '#DC2626'};")
             meta = QLabel(
                 f"Solde initial : {euro(initial_balance)} au {format_date_fr(initial_date)}<br>"
-                f"Identifiant : {row['identifier'] or '—'}"
+                f"Identifiant : {self.masked_identifier(row['identifier'])}"
             )
             meta.setWordWrap(True)
             meta.setStyleSheet("color:#64748B; font-size:12px;")
@@ -230,6 +235,7 @@ class AccountsPage(QWidget):
 
     def account_actions_menu(self) -> QMenu:
         menu = QMenu(self)
+        menu.addAction("Modifier le compte", self.open_edit_dialog)
         menu.addAction("Voir les transactions", self.open_transactions_for_selected_account)
         menu.addAction("Importer des opérations", self.open_import_for_selected_account)
         menu.addSeparator()
@@ -305,7 +311,7 @@ class AccountsPage(QWidget):
                 row["name"],
                 row["bank"],
                 row["account_type"],
-                row["identifier"],
+                self.masked_identifier(row["identifier"]),
                 euro(initial_balance),
                 initial_date,
                 euro(current_balance),
@@ -414,7 +420,7 @@ class AccountsPage(QWidget):
             f"<b>{row['name']}</b><br>"
             f"Banque : {row['bank']}<br>"
             f"Type : {row['account_type']}<br>"
-            f"Identifiant : {row['identifier']}<br><br>"
+            f"Identifiant : {self.masked_identifier(row['identifier'])}<br><br>"
             f"<b>Solde initial</b><br>"
             f"{euro(initial_balance)} au {format_date_fr(initial_date)}<br><br>"
             f"<b>Solde actuel calculé</b><br>"
@@ -451,6 +457,17 @@ class AccountsPage(QWidget):
         if dialog.exec() == QDialog.Accepted:
             self.db.add_account(dialog.data())
             self.refresh()
+
+    def open_edit_dialog(self) -> None:
+        row = self.selected_account()
+        if row is None:
+            QMessageBox.information(self, "Compte", "Sélectionnez un compte à modifier.")
+            return
+        dialog = AccountDialog(self, row)
+        if dialog.exec() == QDialog.Accepted:
+            self.db.update_account(int(row["id"]), dialog.data())
+            self.refresh()
+            self.select_account_by_id(int(row["id"]))
 
     def clear_layout(self, layout) -> None:
         while layout.count():
@@ -497,9 +514,9 @@ class BalanceReferenceDialog(QDialog):
 
 
 class AccountDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, account_row=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Ajouter un compte")
+        self.setWindowTitle("Modifier le compte" if account_row is not None else "Ajouter un compte")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -519,6 +536,19 @@ class AccountDialog(QDialog):
         self.currency.addItems(["EUR", "USD", "GBP", "CHF"])
         self.status = QComboBox()
         self.status.addItems(["Actif", "Archivé", "Clos"])
+        if account_row is not None:
+            self.name.setText(account_row["name"] or "")
+            self.bank.setText(account_row["bank"] or "")
+            self.account_type.setCurrentText(account_row["account_type"] or "")
+            self.identifier.setText(account_row["identifier"] or "")
+            self.balance.setValue(float(account_row["effective_initial_balance"] or 0))
+            date = QDate.fromString(account_row["effective_initial_date"] or "", "yyyy-MM-dd")
+            if date.isValid():
+                self.reference_date.setDate(date)
+            self.currency.setCurrentText(account_row["currency"] or "EUR")
+            self.status.setCurrentText(account_row["status"] or "Actif")
+            self.balance.setEnabled(False)
+            self.reference_date.setEnabled(False)
         for label, widget in [
             ("Nom du compte", self.name),
             ("Banque", self.bank),
