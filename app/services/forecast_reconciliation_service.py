@@ -264,7 +264,10 @@ class ForecastReconciliationService:
                 if tx["linked_occurrence_id"] and fully_allocated:
                     continue
                 candidates = self.find_candidates(tx)
-                if not candidates or self.decision_for_candidates(candidates) == "unmatched":
+                if not candidates or (
+                    self.decision_for_candidates(candidates) == "unmatched"
+                    and not any(self._manual_partial_candidate(tx, candidate["occurrence"]) for candidate in candidates)
+                ):
                     continue
                 filtered_transactions.append(tx)
             elif status == "all":
@@ -534,6 +537,29 @@ class ForecastReconciliationService:
                 )
             )
 
+    def _manual_partial_candidate(self, transaction, occurrence) -> bool:
+        """Keep a plausible partial allocation visible without auto-matching it."""
+        rules = self.rules_config()
+        if occurrence["account_id"] != transaction["account_id"]:
+            return False
+        direction = "credit" if float(transaction["amount"] or 0) >= 0 else "debit"
+        if occurrence["direction"] != direction:
+            return False
+        days = abs((_parse_date(transaction["tx_date"]) - _parse_date(occurrence["expected_date"])).days)
+        if days > int(rules["date_tolerance_days"]):
+            return False
+        remaining = occurrence["remaining_amount"]
+        remaining = abs(float(remaining if remaining is not None else occurrence["expected_amount"] or 0))
+        amount = abs(float(transaction["amount"] or 0)) - float(transaction["allocated_amount"] or 0)
+        if amount <= 0.005 or remaining <= 0.005 or amount > remaining + 0.005:
+            return False
+        expected_label = _norm(occurrence["expected_label"])
+        tx_label = _norm(transaction["label"])
+        return bool(expected_label and tx_label) and (
+            SequenceMatcher(None, expected_label, tx_label).ratio() * 100
+            >= max(65, int(rules["label_similarity_min"]))
+        )
+
     def find_candidates(self, transaction) -> list[dict]:
         rules = self.rules_config()
         tx_date = _parse_date(transaction["tx_date"])
@@ -554,7 +580,7 @@ class ForecastReconciliationService:
                       AND (? = 0 OR o.account_id = ?)
                       AND (? = 0 OR o.direction = ?)
                       AND o.expected_date BETWEEN ? AND ?
-                      AND (o.actual_transaction_id IS NULL OR o.actual_transaction_id = ?)
+                       AND (o.status = 'partially_matched' OR o.actual_transaction_id IS NULL OR o.actual_transaction_id = ?)
                     ORDER BY o.expected_date, o.id
                     """,
                     (
