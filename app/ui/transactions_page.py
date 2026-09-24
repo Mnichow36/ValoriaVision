@@ -1075,6 +1075,11 @@ class TransactionsPage(QWidget):
                 return True
             if account_digits.endswith(detected_digits) and len(detected_digits) >= 6:
                 return True
+            # RIB français : banque (5) + guichet (5) + numéro de compte (11) + clé (2).
+            # Un export CSV peut ne fournir que le numéro de compte sans ses zéros initiaux.
+            rib = account_digits[-23:] if len(account_digits) in (23, 25) else ""
+            if rib and rib[10:21].lstrip("0") == detected_digits.lstrip("0"):
+                return True
         return False
 
     def matching_accounts_for_import(self) -> list:
@@ -1097,8 +1102,10 @@ class TransactionsPage(QWidget):
         account_id = self.import_account_combo.currentData()
         selected = next((a for a in self.accounts if a["id"] == account_id), None)
         matches = self.matching_accounts_for_import()
-        shown = ", ".join(detected[:3])
-        if selected and self.account_matches_detected_identifier(selected, detected):
+        shown = ", ".join(self.mask_identifier(value) for value in detected[:3])
+        if len(matches) > 1:
+            return False, "Import bloqué : plusieurs comptes correspondent à l'identifiant masqué du fichier. Vérifiez les comptes avant l'import."
+        if selected and len(matches) == 1 and selected["id"] == matches[0]["id"]:
             return True, f"Compte source détecté : {shown}. Compte cible cohérent."
         if matches:
             labels = ", ".join(f"{row['name']} — {row['bank']}" for row in matches[:3])
@@ -1394,10 +1401,8 @@ class TransactionsPage(QWidget):
         value = str(identifier or "").strip()
         if not value:
             return "Identifiant bancaire non renseigné"
-        compact = value.replace(" ", "")
-        if len(compact) <= 12:
-            return value
-        return f"{compact[:6]}…{compact[-6:]}"
+        compact = "".join(value.split())
+        return f"•••• {compact[-4:]}"
 
     def format_import_account_reference(self, batch) -> str:
         identifier = self.mask_identifier(batch["account_identifier"] if "account_identifier" in batch.keys() else "")
