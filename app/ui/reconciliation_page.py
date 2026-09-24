@@ -271,8 +271,8 @@ class ReconciliationPage(QWidget):
         layout.setSpacing(10)
         layout.addWidget(self.panel_title("Occurrences prévisionnelles", "Par défaut : opérations restant à traiter. Les finalisées sont accessibles via les filtres de statut."))
 
-        self.occurrences_table = QTableWidget(0, 8)
-        self.occurrences_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Prévu", "Statut", "Réalisé", "Reste"])
+        self.occurrences_table = QTableWidget(0, 9)
+        self.occurrences_table.setHorizontalHeaderLabels(["✓", "Date", "Compte", "Libellé", "Prévu", "Statut", "Réalisé", "Reste", "Dépassement"])
         self.prepare_table(self.occurrences_table)
         header = self.occurrences_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Fixed)
@@ -283,6 +283,7 @@ class ReconciliationPage(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Fixed)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         header.setSectionResizeMode(7, QHeaderView.Fixed)
+        header.setSectionResizeMode(8, QHeaderView.Fixed)
         self.occurrences_table.setColumnWidth(0, 30)
         self.occurrences_table.setColumnWidth(1, 82)
         self.occurrences_table.setColumnWidth(2, 100)
@@ -290,6 +291,7 @@ class ReconciliationPage(QWidget):
         self.occurrences_table.setColumnWidth(5, 112)
         self.occurrences_table.setColumnWidth(6, 82)
         self.occurrences_table.setColumnWidth(7, 82)
+        self.occurrences_table.setColumnWidth(8, 105)
         self.occurrences_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.occurrences_table.customContextMenuRequested.connect(self.show_occurrences_context_menu)
         layout.addWidget(self.occurrences_table, stretch=1)
@@ -504,12 +506,13 @@ class ReconciliationPage(QWidget):
                 }.get(row["status"], STATUS_LABELS.get(row["status"], row["status"])),
                 euro(float(row["matched_amount"] or 0)) if float(row["matched_amount"] or 0) else "",
                 euro(float(row["remaining_amount"] or 0)) if row["remaining_amount"] is not None else "",
+                euro(float(row["overage_amount"] or 0)) if float(row["overage_amount"] or 0) > 0.005 else "",
             ]
             for col, value in enumerate(values, start=1):
                 item = QTableWidgetItem(str(value))
                 if col == 1:
                     item.setData(Qt.UserRole, int(row["id"]))
-                if col in {4, 6, 7}:
+                if col in {4, 6, 7, 8}:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if col == 3:
                     item.setToolTip(str(value))
@@ -657,8 +660,34 @@ class ReconciliationPage(QWidget):
         if not tx_id or not occurrence_id:
             QMessageBox.information(self, "Rapprochement manuel", "Coche exactement une transaction bancaire à gauche et une occurrence prévue à droite.")
             return
-        ok, message = self.service.confirm_manual_match(occurrence_id, tx_id)
-        QMessageBox.information(self if ok else self, "Rapprochement manuel", message) if ok else QMessageBox.warning(self, "Rapprochement manuel", message)
+        include_overage = False
+        options = self.service.manual_allocation_options(occurrence_id, tx_id)
+        if options and options["occurrence_remaining"] > 0.005 and options["overage"] > 0.005:
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Affectation manuelle")
+            dialog.setText(
+                f"Cette transaction dispose de {euro(options['transaction_remaining'])} "
+                f"et la prévision de {euro(options['occurrence_remaining'])} à couvrir. "
+                f"Comment affecter les {euro(options['overage'])} supplémentaires ?"
+            )
+            capped = dialog.addButton(
+                f"Affecter {euro(options['occurrence_remaining'])} seulement",
+                QMessageBox.ActionRole,
+            )
+            full = dialog.addButton(
+                f"Affecter {euro(options['transaction_remaining'])} avec dépassement",
+                QMessageBox.AcceptRole,
+            )
+            dialog.addButton("Annuler", QMessageBox.RejectRole)
+            dialog.exec()
+            if dialog.clickedButton() == full:
+                include_overage = True
+            elif dialog.clickedButton() != capped:
+                return
+        ok, message = self.service.confirm_manual_match(
+            occurrence_id, tx_id, include_overage=include_overage
+        )
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Rapprochement manuel", message)
         self.refresh()
 
     def cancel_occurrence_match(self) -> None:
