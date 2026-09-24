@@ -1049,22 +1049,62 @@ class ForecastReconciliationService:
     def summary(self, start_date=None, end_date=None, account_id=None) -> dict:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, "all", 999999)["summary"]
 
-    def confirm_manual_match(self, occurrence_id: int, transaction_id: int) -> tuple[int, str]:
+    def manual_allocation_options(self, occurrence_id: int, transaction_id: int) -> dict | None:
+        """Amounts available for the ordinary allocation and an explicit overage."""
+        with self.db.connect() as conn:
+            occurrence = conn.execute(
+                "SELECT expected_amount FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
+                (occurrence_id,),
+            ).fetchone()
+            transaction = conn.execute(
+                "SELECT amount FROM transactions WHERE id = ?", (transaction_id,)
+            ).fetchone()
+            if not occurrence or not transaction:
+                return None
+            used_transaction = float(conn.execute(
+                "SELECT COALESCE(SUM(applied_amount), 0) FROM forecast_reconciliation_links "
+                "WHERE transaction_id = ? AND deleted_at IS NULL", (transaction_id,)
+            ).fetchone()[0])
+            used_occurrence = float(conn.execute(
+                "SELECT COALESCE(SUM(applied_amount), 0) FROM forecast_reconciliation_links "
+                "WHERE occurrence_id = ? AND deleted_at IS NULL", (occurrence_id,)
+            ).fetchone()[0])
+        transaction_remaining = round(max(abs(float(transaction["amount"])) - used_transaction, 0.0), 2)
+        occurrence_remaining = round(max(abs(float(occurrence["expected_amount"])) - used_occurrence, 0.0), 2)
+        return {
+            "transaction_remaining": transaction_remaining,
+            "occurrence_remaining": occurrence_remaining,
+            "overage": round(max(transaction_remaining - occurrence_remaining, 0.0), 2),
+        }
+
+    def confirm_manual_match(
+        self, occurrence_id: int, transaction_id: int, *,
+        include_overage: bool = False,
+    ) -> tuple[int, str]:
         with self.db.connect() as conn:
             occurrence = conn.execute("SELECT * FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL", (occurrence_id,)).fetchone()
             transaction = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
             if not occurrence or not transaction:
                 return 0, "Occurrence ou transaction introuvable."
 
+        allocation = None
+        if include_overage:
+            options = self.manual_allocation_options(occurrence_id, transaction_id)
+            if not options or options["transaction_remaining"] <= 0.005 or options["occurrence_remaining"] <= 0.005:
+                return 0, "Aucun solde disponible pour ce dépassement."
+            if options["overage"] <= 0.005:
+                return 0, "Aucun dépassement à confirmer."
+            allocation = options["transaction_remaining"]
         score, reason = self.compute_match_score(occurrence, transaction)
-        linked = self._link_occurrence(
+        linked, message = self.add_reconciliation_link(
             occurrence_id,
-            transaction,
-            {"occurrence": occurrence, "transaction": transaction, "score": max(score, 100 if score >= 60 else score), "reason": "Rapprochement manuel. " + reason},
-            MANUAL_STATUS,
-            "manual",
+            transaction_id,
+            applied_amount=allocation,
+            match_type="manual",
+            confidence=max(score, 100 if score >= 60 else score),
+            reason=("Dépassement manuel explicite. " if include_overage else "Rapprochement manuel. ") + reason,
         )
-        return (1, "Rapprochement manuel confirmé.") if linked else (0, "Rapprochement impossible : lien incompatible.")
+        return (1, "Rapprochement manuel confirmé.") if linked else (0, message)
 
     def confirm_match(self, occurrence_id: int) -> tuple[int, str]:
         """R7.2 safeguard: no finalization without a real linked transaction."""
