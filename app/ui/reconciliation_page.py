@@ -700,6 +700,24 @@ class ReconciliationPage(QWidget):
         if ok:
             self.refresh()
 
+    def cancel_single_link(
+        self, occurrence_id: int, transaction_id: int, tx_label: str, amount: float
+    ) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Annuler un lien",
+            f"Annuler uniquement le lien avec « {tx_label} » ({euro(amount)}) ?\n"
+            "Les autres transactions rapprochées resteront liées à cette prévision.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        ok, message = self.service.cancel_reconciliation_link(occurrence_id, transaction_id)
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Rapprochements", message)
+        if ok:
+            self.refresh()
+
     def ignore_occurrence(self) -> None:
         occurrence_id = self.selected_occurrence_id()
         if not occurrence_id:
@@ -769,7 +787,8 @@ class ReconciliationPage(QWidget):
         row = self.occurrences_table.rowAt(pos.y())
         if row >= 0:
             self.occurrences_table.selectRow(row)
-        occurrence_id = self.selected_occurrence_id()
+        item = self.occurrences_table.item(row, 1) if row >= 0 else None
+        occurrence_id = int(item.data(Qt.UserRole)) if item and item.data(Qt.UserRole) else self.selected_occurrence_id()
         details = self.service.occurrence_details(occurrence_id) if occurrence_id else None
         if not details:
             return
@@ -791,6 +810,21 @@ class ReconciliationPage(QWidget):
             else:
                 label, callback = action_map[key]
                 menu.addAction(label, callback)
+        active_links = [link for link in details["links"] if link["active"]]
+        if len(active_links) > 1:
+            link_menu = menu.addMenu("Annuler un seul lien")
+            for link in active_links:
+                tx_id = int(link["transaction_id"])
+                tx_label = str(link["tx_label"])
+                amount = float(link["applied_amount"])
+                action = link_menu.addAction(
+                    f"{format_date_fr(link['tx_date'])} — {tx_label} — {euro(amount)}"
+                )
+                action.triggered.connect(
+                    lambda _checked=False, occurrence_id=occurrence_id,
+                    tx_id=tx_id, tx_label=tx_label, amount=amount:
+                    self.cancel_single_link(occurrence_id, tx_id, tx_label, amount)
+                )
         menu.exec(self.occurrences_table.viewport().mapToGlobal(pos))
 
     def show_transaction_info(self) -> None:
