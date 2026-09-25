@@ -87,5 +87,32 @@ class ManualOverageTests(unittest.TestCase):
         )
 
 
+    def test_unlink_one_allocation_preserves_other_and_recalculates_overage(self):
+        self.assertEqual(self.service.confirm_manual_match(self.occurrence_id, self.first_id)[0], 1)
+        self.assertEqual(self.service.confirm_manual_match(
+            self.occurrence_id, self.second_id, include_overage=True
+        )[0], 1)
+        self.assertEqual(self.state()["overage_amount"], 20)
+
+        ok, message = self.service.cancel_reconciliation_link(self.occurrence_id, self.second_id)
+        self.assertTrue(ok, message)
+        state = self.state()
+        self.assertEqual(state["status"], "partially_matched")
+        self.assertEqual(state["matched_amount"], 100)
+        self.assertEqual(state["remaining_amount"], 50)
+        self.assertEqual(state["overage_amount"], 0)
+        with self.db.connect() as conn:
+            links = list(conn.execute(
+                "SELECT transaction_id, applied_amount FROM forecast_reconciliation_links "
+                "WHERE occurrence_id = ? AND deleted_at IS NULL",
+                (self.occurrence_id,),
+            ))
+        self.assertEqual([(row["transaction_id"], row["applied_amount"]) for row in links],
+                         [(self.first_id, 100)])
+        self.assertEqual(
+            self.service.manual_allocation_options(self.occurrence_id, self.second_id)["transaction_remaining"], 70
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
