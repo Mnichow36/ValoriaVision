@@ -130,7 +130,8 @@ jobs:
           - validation manuelle : consommation du montant intégral de la transaction quand l'écart est toléré ;
           - absence de réaffectation résiduelle lors d'un recalcul ultérieur ;
           - cohérence des compteurs À traiter, En retard, À vérifier et rapprochements ;
-          - #149 : les changements de filtres, dates et compte ne déclenchent plus de qualification ni de rapprochement automatique.\n          - #152 : modification des comptes rétablie, sauvegarde corrigée et rapprochement contrôlé du numéro de compte CSV avec le RIB.\n          - #82 : montants partiels plausibles visibles dans À traiter pour rapprochement manuel multi-éléments.\n          - #82 : une transaction de 100 € reste éligible pour deux prévisions de 60 € et 40 €.\n          - #82 : choix explicite du dépassement manuel et affichage du montant dépassé.\n          - #82 : reprise sûre des rapprochements croisés lors de la migration R8 au démarrage.\n          - #82 : annulation d'un seul lien dans un rapprochement multi-transactions, avec recalcul du réalisé et du reste.
+          - #149 : les changements de filtres, dates et compte ne déclenchent plus de qualification ni de rapprochement automatique.\n          - #152 : modification des comptes rétablie, sauvegarde corrigée et rapprochement contrôlé du numéro de compte CSV avec le RIB.\n          - #82 : montants partiels plausibles visibles dans À traiter pour rapprochement manuel multi-éléments.\n          - #82 : une transaction de 100 € reste éligible pour deux prévisions de 60 € et 40 €.\n          - #82 : choix explicite du dépassement manuel et affichage du montant dépassé.\n          - #82 : reprise sûre des rapprochements croisés lors de la migration R8 au démarrage.
+          - #82 : annulation d'un seul lien dans un rapprochement multi-transactions, avec recalcul du réalisé et du reste.
 
           Non-régressions conservées :
           - Dashboard sans prénom codé en dur ;
