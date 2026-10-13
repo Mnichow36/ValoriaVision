@@ -35,3 +35,21 @@ set VALORIA_DATA_DIR=C:\chemin\vers\un\dossier\de\test
 
 Ne jamais pointer le prototype vers des données personnelles pour les captures
 ou les tests automatisés.
+
+## Enveloppe Tauri
+
+En développement, Tauri démarre lui-même l’API Python sur un port local
+dynamique, communique cette adresse à React par une commande native puis arrête
+le processus Python à la fermeture :
+
+```bash
+cd frontend
+npm run tauri dev
+```
+
+Le binaire Python autonome `valoria-engine` sera ajouté par la chaîne de
+packaging Windows. En mode production, l’enveloppe refuse de démarrer si ce
+binaire signé est absent.
+
+Le mot de passe maître est vérifié exclusivement côté Python. React ne conserve
+en mémoire qu’un jeton de session temporaire, jamais dans `localStorage`.

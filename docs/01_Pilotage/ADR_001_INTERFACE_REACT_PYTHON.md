@@ -20,7 +20,12 @@ modifier les moteurs métier ni supprimer l’interface PySide existante.
   requête de l’interface.
 - Les données de démonstration et les données personnelles ne sont pas incluses
   dans le frontend.
-- Le shell Tauri sera ajouté seulement après validation du contrat React/Python.
+- Le shell Tauri choisit un port local dynamique, démarre le moteur Python et
+  l’arrête avec l’application.
+- Le mot de passe maître reste vérifié par Python. Le frontend conserve seulement
+  en mémoire un jeton opaque, limité par le délai d’inactivité existant.
+- Tauri génère à chaque lancement un secret d’amorçage aléatoire transmis au
+  processus Python ; l’API refuse les clients locaux qui ne le présentent pas.
 
 ## Pourquoi partir de TEST21
 
@@ -38,9 +43,10 @@ correctifs validés ultérieurement seront repris explicitement.
 
 ## Points restant avant distribution
 
-- authentification de session entre le shell et l’API ;
-- port local dynamique ;
-- démarrage/arrêt du sidecar Python par Tauri ;
+- production du sidecar Python Windows avec PyInstaller ;
+- inclusion et signature du sidecar dans le package Tauri ;
+- limitation persistante des tentatives de déverrouillage ;
+- renouvellement automatique de l’écran lorsque la session expire ;
 - package Windows autonome et signé ;
 - tests E2E sur package ;
 - validation de la persistance après deux démarrages ;

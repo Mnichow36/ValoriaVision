@@ -5,6 +5,7 @@ on:
     paths:
       - "frontend/**"
       - "app/api/**"
+      - "app/security/api_session.py"
       - "app/services/dashboard_read_service.py"
       - "tests/api/**"
       - "requirements-react-api.txt"
@@ -19,10 +20,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Install local API dependencies
+        run: python -m pip install -r requirements-react-api.txt
       - name: Check Python contract
+        env:
+          VALORIA_DATA_DIR: ${{ runner.temp }}/valoria-react-poc
         run: |
           python -m compileall app/api app/services/dashboard_read_service.py
-          python -m unittest tests.api.test_dashboard_read_service
+          python -m unittest tests.api.test_dashboard_read_service tests.api.test_api_session
+          python -c "from app.api.main import app; assert any(route.path == '/api/v1/dashboard' for route in app.routes)"
 
   react-build:
     runs-on: ubuntu-latest
@@ -38,3 +44,14 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build React prototype
         run: npm run build
+
+  tauri-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Check Tauri shell
+        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml

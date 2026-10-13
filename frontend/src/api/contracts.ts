@@ -55,3 +55,14 @@ export interface ApiHealth {
   service: string;
   apiVersion: string;
 }
+
+export interface AuthStatus {
+  configured: boolean;
+  authenticated: boolean;
+  timeoutSeconds: number;
+}
+
+export interface AuthSession {
+  token: string;
+  expiresIn: number;
+}
