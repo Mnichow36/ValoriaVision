@@ -29,9 +29,10 @@ button { cursor: pointer; }
 .sidebar nav { display: grid; gap: 5px; }
 .nav-item { align-items: center; background: transparent; border: 0; border-radius: 8px; color: #aeb8cf; display: flex; font-size: 13px; gap: 11px; padding: 10px 12px; text-align: left; width: 100%; }
 .nav-item span { font-size: 17px; width: 18px; }
+.nav-item:hover { background: #223154; color: #fff; }
+.nav-item:focus-visible { outline: 2px solid #91a3ff; outline-offset: 2px; }
 .nav-item--active { background: var(--primary); color: #fff; font-weight: 700; }
-.nav-item:disabled { cursor: default; opacity: .66; }
-.nav-item--active:disabled { opacity: 1; }
+.nav-item--active:hover { background: var(--primary); }
 .local-card { background: #223154; border-radius: 10px; color: #b9c6e1; margin-top: auto; padding: 14px; }
 .local-card strong, .local-card span { display: block; }
 .local-card strong { color: #fff; font-size: 12px; }
@@ -113,6 +114,13 @@ button { cursor: pointer; }
 .confidence-track { background: #edf0f7; border-radius: 999px; height: 7px; margin: 10px 0 13px; overflow: hidden; }
 .confidence-track span { background: var(--success); display: block; height: 100%; width: 100%; }
 .confidence-panel > p { color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+.module-placeholder { align-items: center; display: flex; flex-direction: column; justify-content: center; min-height: 520px; padding: 48px; text-align: center; }
+.module-placeholder__mark { align-items: center; background: #eef1ff; border-radius: 16px; color: var(--primary); display: flex; font-size: 28px; font-weight: 800; height: 64px; justify-content: center; margin-bottom: 22px; width: 64px; }
+.module-placeholder h2 { font-size: 25px; margin: 7px 0 9px; }
+.module-placeholder > p { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; max-width: 520px; }
+.module-placeholder__status { align-items: center; background: #e9fbf4; border-radius: 999px; color: #22795e; display: flex; font-size: 10px; font-weight: 700; gap: 7px; margin-top: 22px; padding: 8px 11px; }
+.module-placeholder__status i { background: var(--success); border-radius: 50%; height: 7px; width: 7px; }
 
 .loading-state, .error-state { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
 .loading-state { align-items: center; color: var(--muted); display: flex; gap: 12px; }
