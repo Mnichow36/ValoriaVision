@@ -1,0 +1,40 @@
+name: React POC
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "app/api/**"
+      - "app/services/dashboard_read_service.py"
+      - "tests/api/**"
+      - "requirements-react-api.txt"
+      - ".github/workflows/react-poc.yml"
+  workflow_dispatch:
+
+jobs:
+  python-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check Python contract
+        run: |
+          python -m compileall app/api app/services/dashboard_read_service.py
+          python -m unittest tests.api.test_dashboard_read_service
+
+  react-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install exact frontend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build React prototype
+        run: npm run build
