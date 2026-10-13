@@ -9,7 +9,9 @@ const entries = [
   ["settings", "Paramètres"],
 ] as const;
 
-const glyphs: Record<(typeof entries)[number][0], string> = {
+export type NavigationId = (typeof entries)[number][0];
+
+const glyphs: Record<NavigationId, string> = {
   dashboard: "▦",
   accounts: "▤",
   transactions: "⇄",
@@ -20,7 +22,12 @@ const glyphs: Record<(typeof entries)[number][0], string> = {
   settings: "⚙",
 };
 
-export function Sidebar() {
+interface SidebarProps {
+  active: NavigationId;
+  onNavigate: (destination: NavigationId) => void;
+}
+
+export function Sidebar({ active, onNavigate }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Navigation principale">
       <div className="brand">
@@ -32,12 +39,13 @@ export function Sidebar() {
       </div>
 
       <nav>
-        {entries.map(([id, label], index) => (
+        {entries.map(([id, label]) => (
           <button
-            className={`nav-item ${index === 0 ? "nav-item--active" : ""}`}
-            disabled={index !== 0}
+            aria-current={active === id ? "page" : undefined}
+            className={`nav-item ${active === id ? "nav-item--active" : ""}`}
             key={id}
-            title={index === 0 ? label : `${label} — prochain incrément`}
+            onClick={() => onNavigate(id)}
+            title={label}
             type="button"
           >
             <span aria-hidden="true">{glyphs[id]}</span>
