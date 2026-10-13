@@ -7,6 +7,7 @@ import { BudgetPanel } from "./components/BudgetPanel";
 import { ForecastChart } from "./components/ForecastChart";
 import { KpiCard } from "./components/KpiCard";
 import { Sidebar } from "./components/Sidebar";
+import type { NavigationId } from "./components/Sidebar";
 
 type AppState =
   | { status: "booting" }
@@ -16,8 +17,58 @@ type AppState =
 
 const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
+interface ModuleDefinition {
+  eyebrow: string;
+  title: string;
+  description: string;
+}
+
+const modules: Record<NavigationId, ModuleDefinition> = {
+  dashboard: {
+    eyebrow: "Vue d’ensemble",
+    title: "Bonjour",
+    description: "Votre situation financière, calculée par le moteur local Valoria Vision.",
+  },
+  accounts: {
+    eyebrow: "Gestion financière",
+    title: "Comptes",
+    description: "Consultez et organisez vos comptes détenus localement.",
+  },
+  transactions: {
+    eyebrow: "Gestion financière",
+    title: "Transactions",
+    description: "Analysez vos mouvements et préparez leur catégorisation.",
+  },
+  forecast: {
+    eyebrow: "Projection",
+    title: "Prévisionnel",
+    description: "Projetez votre trésorerie selon vos scénarios locaux.",
+  },
+  budgets: {
+    eyebrow: "Pilotage",
+    title: "Budgets",
+    description: "Suivez vos objectifs et vos consommations par catégorie.",
+  },
+  assets: {
+    eyebrow: "Patrimoine",
+    title: "Patrimoine",
+    description: "Visualisez la composition et la valeur de votre patrimoine.",
+  },
+  reconciliation: {
+    eyebrow: "Contrôle",
+    title: "Rapprochements",
+    description: "Contrôlez la cohérence entre comptes, mouvements et justificatifs.",
+  },
+  settings: {
+    eyebrow: "Configuration",
+    title: "Paramètres",
+    description: "Configurez votre environnement local Valoria Vision.",
+  },
+};
+
 export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
+  const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,24 +121,43 @@ export function App() {
     );
   }
 
+  const module = modules[activeModule];
+
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar active={activeModule} onNavigate={setActiveModule} />
       <main className="workspace">
         <header className="module-header">
           <div>
-            <span className="eyebrow">Vue d’ensemble</span>
-            <h1>Bonjour</h1>
-            <p>Votre situation financière, calculée par le moteur local Valoria Vision.</p>
+            <span className="eyebrow">{module.eyebrow}</span>
+            <h1>{module.title}</h1>
+            <p>{module.description}</p>
           </div>
           <div className="header-actions">
             <span className="api-status api-status--online"><i aria-hidden="true" />Moteur local connecté</span>
             <button className="secondary-button" onClick={lock} type="button">Verrouiller</button>
           </div>
         </header>
-        <Dashboard snapshot={state.snapshot} />
+        {activeModule === "dashboard"
+          ? <Dashboard snapshot={state.snapshot} />
+          : <ModulePlaceholder module={module} />}
       </main>
     </div>
+  );
+}
+
+function ModulePlaceholder({ module }: { module: ModuleDefinition }) {
+  return (
+    <section className="module-placeholder card" aria-live="polite">
+      <span className="module-placeholder__mark" aria-hidden="true">V</span>
+      <span className="eyebrow">Navigation opérationnelle</span>
+      <h2>{module.title}</h2>
+      <p>
+        Cet espace est maintenant accessible. Son raccordement aux services métier Python
+        sera réalisé dans le prochain incrément fonctionnel.
+      </p>
+      <div className="module-placeholder__status"><i aria-hidden="true" />Interface React active</div>
+    </section>
   );
 }
 
