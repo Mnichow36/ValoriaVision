@@ -142,6 +142,60 @@ export interface TransactionsSnapshot {
   recentImport: RecentImport | null;
 }
 
+export interface ForecastAccount {
+  id: number;
+  name: string;
+  bank: string;
+  type: string;
+}
+
+export interface ForecastPoint {
+  date: string;
+  label: string;
+  balance: number;
+}
+
+export interface ForecastEvent {
+  date: string;
+  name: string;
+  category: string;
+  amount: number;
+  source: string;
+  account: string;
+  scenario: string;
+}
+
+export interface ForecastSnapshot {
+  generatedAt: string;
+  currency: string;
+  filters: {
+    accountId: number | null;
+    accountLabel: string;
+    horizonDays: number;
+    scenario: string;
+    startDate: string;
+  };
+  accounts: ForecastAccount[];
+  series: {
+    selected: ForecastPoint[];
+    realized: ForecastPoint[];
+    prudent: ForecastPoint[];
+    optimistic: ForecastPoint[];
+  };
+  summary: {
+    startingCash: number;
+    lowBalance: number;
+    lowDate: string;
+    endBalance: number;
+    endDate: string;
+    totalIn: number;
+    totalOut: number;
+    prudentDifference: number;
+    alert: string;
+  };
+  upcoming: ForecastEvent[];
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

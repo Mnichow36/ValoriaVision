@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 
 import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
+import type { ForecastAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
 import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
+import { ForecastPage } from "./components/ForecastPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 
 type AppState =
@@ -41,8 +43,8 @@ const modules: Record<NavigationId, ModuleDefinition> = {
     description: "Rechercher, catégoriser et valider les opérations importées.",
   },
   forecast: {
-    title: "Prévisionnel",
-    description: "Courbes, récurrences et scénarios de trésorerie.",
+    title: "Prévisionnel de trésorerie",
+    description: "Comparer le réalisé, les échéances prévues et les scénarios.",
   },
   budgets: {
     title: "Budgets",
@@ -66,6 +68,10 @@ export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
   const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
   const [accountStatusFilter, setAccountStatusFilter] = useState("Tous");
+  const [forecastAccountId, setForecastAccountId] = useState("all");
+  const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
+  const [forecastHorizonDays, setForecastHorizonDays] = useState(90);
+  const [forecastScenario, setForecastScenario] = useState("Réaliste");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -133,7 +139,12 @@ export function App() {
             activeModule={activeModule}
             accountStatusFilter={accountStatusFilter}
             dashboard={state.snapshot}
+            forecastAccountId={forecastAccountId}
+            forecastAccounts={forecastAccounts}
+            forecastHorizonDays={forecastHorizonDays}
             onAccountStatusChange={setAccountStatusFilter}
+            onForecastAccountChange={setForecastAccountId}
+            onForecastHorizonChange={setForecastHorizonDays}
             onNavigate={setActiveModule}
           />
         </header>
@@ -141,7 +152,17 @@ export function App() {
           {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
           {activeModule === "accounts" && <AccountsPage statusFilter={accountStatusFilter} token={state.token} />}
           {activeModule === "transactions" && <TransactionsPage token={state.token} />}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && <ModulePlaceholder module={module} />}
+          {activeModule === "forecast" && (
+            <ForecastPage
+              accountId={forecastAccountId}
+              horizonDays={forecastHorizonDays}
+              onAccountsChange={setForecastAccounts}
+              onScenarioChange={setForecastScenario}
+              scenario={forecastScenario}
+              token={state.token}
+            />
+          )}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -152,13 +173,23 @@ function HeaderActions({
   accountStatusFilter,
   activeModule,
   dashboard,
+  forecastAccountId,
+  forecastAccounts,
+  forecastHorizonDays,
   onAccountStatusChange,
+  onForecastAccountChange,
+  onForecastHorizonChange,
   onNavigate,
 }: {
   accountStatusFilter: string;
   activeModule: NavigationId;
   dashboard: DashboardSnapshot;
+  forecastAccountId: string;
+  forecastAccounts: ForecastAccount[];
+  forecastHorizonDays: number;
   onAccountStatusChange: (value: string) => void;
+  onForecastAccountChange: (value: string) => void;
+  onForecastHorizonChange: (value: number) => void;
   onNavigate: (destination: NavigationId) => void;
 }) {
   if (activeModule === "dashboard") {
@@ -188,6 +219,22 @@ function HeaderActions({
       <div className="header-actions">
         <button aria-disabled="true" className="secondary-button header-action-disabled" title="Annulation à raccorder dans l’incrément d’édition" type="button">Annuler dernier import</button>
         <button aria-disabled="true" className="header-action-disabled" title="Assistant d’import à raccorder dans l’incrément suivant" type="button">Importer un relevé</button>
+      </div>
+    );
+  }
+  if (activeModule === "forecast") {
+    return (
+      <div className="header-actions">
+        <select aria-label="Compte de la projection" onChange={(event) => onForecastAccountChange(event.target.value)} value={forecastAccountId}>
+          <option value="all">Tous les comptes</option>
+          {forecastAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
+        </select>
+        <select aria-label="Horizon de la projection" onChange={(event) => onForecastHorizonChange(Number(event.target.value))} value={forecastHorizonDays}>
+          <option value={30}>30 jours</option>
+          <option value={60}>60 jours</option>
+          <option value={90}>90 jours</option>
+        </select>
+        <button aria-disabled="true" className="header-action-disabled" title="Création de récurrence prévue dans l’incrément d’édition" type="button">Nouvelle récurrence</button>
       </div>
     );
   }
