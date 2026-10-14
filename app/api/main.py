@@ -11,6 +11,7 @@ from pydantic import BaseModel, SecretStr
 from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
+from app.services.accounts_read_service import AccountsReadService
 from app.services.dashboard_read_service import DashboardReadService
 
 
@@ -147,6 +148,16 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return DashboardReadService(active_database).snapshot()
+
+    @app.get("/api/v1/accounts")
+    def accounts(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return AccountsReadService(active_database).snapshot()
 
     return app
 

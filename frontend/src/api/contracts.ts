@@ -50,6 +50,42 @@ export interface DashboardSnapshot {
   alerts: DashboardAlert[];
 }
 
+export interface AccountTransaction {
+  id: number;
+  date: string;
+  label: string;
+  category: string;
+  amount: number;
+  status: string;
+}
+
+export interface AccountOverview {
+  id: number;
+  name: string;
+  bank: string;
+  type: string;
+  identifier: string;
+  currency: string;
+  status: string;
+  initialBalance: number;
+  initialDate: string;
+  movementTotal: number;
+  currentBalance: number;
+  currentDate: string;
+  transactions: AccountTransaction[];
+}
+
+export interface AccountsSnapshot {
+  generatedAt: string;
+  currency: string;
+  summary: {
+    accountCount: number;
+    activeCount: number;
+    netBalance: number;
+  };
+  accounts: AccountOverview[];
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

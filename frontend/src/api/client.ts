@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { ApiHealth, AuthSession, AuthStatus, DashboardSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, DashboardSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -70,4 +70,8 @@ export function closeSession(token: string): Promise<{ locked: boolean }> {
 
 export function getDashboard(token: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
   return request<DashboardSnapshot>("/api/v1/dashboard", { token, signal });
+}
+
+export function getAccounts(token: string, signal?: AbortSignal): Promise<AccountsSnapshot> {
+  return request<AccountsSnapshot>("/api/v1/accounts", { token, signal });
 }

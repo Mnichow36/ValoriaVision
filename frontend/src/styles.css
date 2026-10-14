@@ -4,13 +4,13 @@
   background: #f5f7fc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --navy: #17213c;
-  --primary: #5c78ff;
-  --success: #51d5a4;
-  --warning: #f4b740;
-  --danger: #e24d4d;
-  --muted: #71809f;
-  --border: #e6eaf3;
+  --navy: #071a3a;
+  --primary: #2563eb;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+  --muted: #64748b;
+  --border: #e2e8f0;
   --card: #ffffff;
 }
 
@@ -19,7 +19,7 @@ body { margin: 0; min-width: 1120px; min-height: 100vh; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 
-.app-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.app-shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
 .sidebar { background: var(--navy); color: #fff; padding: 24px 16px 18px; display: flex; flex-direction: column; }
 .brand { display: flex; gap: 10px; align-items: center; padding: 0 8px 30px; }
 .brand-mark { align-items: center; background: var(--primary); border-radius: 8px; display: flex; font-weight: 800; height: 34px; justify-content: center; width: 34px; }
@@ -27,12 +27,14 @@ button { cursor: pointer; }
 .brand strong { font-size: 14px; }
 .brand small { color: #9faac4; font-size: 10px; margin-top: 2px; }
 .sidebar nav { display: grid; gap: 5px; }
-.nav-item { align-items: center; background: transparent; border: 0; border-radius: 8px; color: #aeb8cf; display: flex; font-size: 13px; gap: 11px; padding: 10px 12px; text-align: left; width: 100%; }
-.nav-item__icon { display: block; flex: 0 0 18px; height: 18px; width: 18px; }
+.nav-item { align-items: center; background: transparent; border: 0; border-radius: 10px; color: #b6c8e7; display: flex; font-size: 13px; gap: 11px; padding: 9px 12px; text-align: left; width: 100%; }
+.nav-item__icon-box { align-items: center; background: #17345f; border-radius: 8px; color: #c7d2fe; display: flex; flex: 0 0 24px; height: 24px; justify-content: center; width: 24px; }
+.nav-item__icon { display: block; height: 16px; width: 16px; }
 .nav-item:hover { background: #223154; color: #fff; }
 .nav-item:focus-visible { outline: 2px solid #91a3ff; outline-offset: 2px; }
 .nav-item--active { background: var(--primary); color: #fff; font-weight: 700; }
 .nav-item--active:hover { background: var(--primary); }
+.nav-item--active .nav-item__icon-box { background: #1d4ed8; color: #fff; }
 .local-card { background: #223154; border-radius: 10px; color: #b9c6e1; margin-top: auto; padding: 14px; }
 .local-card strong, .local-card span { display: block; }
 .local-card strong { color: #fff; font-size: 12px; }
@@ -122,6 +124,57 @@ button { cursor: pointer; }
 .module-placeholder__status { align-items: center; background: #e9fbf4; border-radius: 999px; color: #22795e; display: flex; font-size: 10px; font-weight: 700; gap: 7px; margin-top: 22px; padding: 8px 11px; }
 .module-placeholder__status i { background: var(--success); border-radius: 50%; height: 7px; width: 7px; }
 
+.accounts-page { display: grid; gap: 16px; }
+.accounts-toolbar { align-items: center; display: flex; justify-content: space-between; }
+.account-tabs { display: flex; gap: 7px; }
+.account-tab { background: #eef2f7; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 11px; font-weight: 800; padding: 9px 13px; }
+.account-tab:hover { background: #fff; color: var(--primary); }
+.account-tab--active { background: #fff; color: var(--primary); }
+.accounts-toolbar__actions { display: flex; gap: 8px; }
+.accounts-toolbar select, .accounts-toolbar button { background: #fff; border: 1px solid var(--border); border-radius: 9px; color: var(--navy); font-size: 11px; font-weight: 700; padding: 9px 12px; }
+.account-cards { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.account-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; color: var(--navy); display: flex; flex-direction: column; min-height: 170px; padding: 18px; text-align: left; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.account-card:hover { border-color: #93b4fb; box-shadow: 0 10px 26px rgba(37, 99, 235, .08); transform: translateY(-1px); }
+.account-card:focus-visible { outline: 3px solid rgba(37, 99, 235, .2); outline-offset: 2px; }
+.account-card--active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, .08); }
+.account-card__title { font-size: 15px; font-weight: 800; }
+.account-card small, .import-association > small { color: var(--muted); font-size: 10px; margin-top: 4px; }
+.account-card > .amount { display: block; font-size: 24px; font-weight: 850; margin: 18px 0 7px; }
+.account-card__identifier { color: var(--muted); font-size: 10px; margin-bottom: 10px; }
+.status-chip, .category-chip { align-self: flex-start; background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 999px; color: #15803d; display: inline-flex; font-size: 10px; font-weight: 800; padding: 4px 8px; }
+.status-chip--warning { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+.status-chip--muted, .category-chip { background: #f1f5f9; border-color: #e2e8f0; color: #475569; }
+.status-chip--success { background: #ecfdf5; border-color: #bbf7d0; color: #15803d; }
+.category-chip--warning { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+.accounts-detail-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .8fr); }
+.account-movements, .account-detail, .account-wide-panel { min-width: 0; padding: 18px; }
+.account-table-wrap { overflow-x: auto; }
+.account-table { border-collapse: collapse; min-width: 640px; width: 100%; }
+.account-table th { background: #f8fafc; color: var(--muted); font-size: 9px; letter-spacing: .04em; padding: 12px 10px; text-align: left; text-transform: uppercase; }
+.account-table td { border-bottom: 1px solid #edf2f7; font-size: 10px; padding: 11px 10px; }
+.account-table th:last-child, .account-table td:last-child { text-align: right; }
+.account-table td > small { color: var(--muted); display: block; margin-top: 3px; }
+.account-table .amount { font-weight: 800; white-space: nowrap; }
+.amount--negative { color: var(--danger) !important; }
+.amount--positive { color: var(--success); }
+.account-detail dl, .import-association dl { display: grid; gap: 8px; margin: 0; }
+.account-detail dl > div, .import-association dl > div { background: #f8fafc; border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; }
+.account-detail dt, .import-association dt { color: var(--muted); font-size: 9px; font-weight: 800; }
+.account-detail dd, .import-association dd { font-size: 11px; font-weight: 800; margin: 3px 0 0; }
+.account-formula { background: #eff6ff; border-radius: 9px; color: #1d4ed8; display: grid; font-size: 9px; gap: 3px; line-height: 1.45; margin-top: 12px; padding: 10px 12px; }
+.account-empty-row { color: var(--muted); font-size: 11px; padding: 28px 8px; text-align: center; }
+.account-wide-panel { min-height: 420px; }
+.account-table--balances { min-width: 900px; }
+.import-associations { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.import-association { display: flex; flex-direction: column; min-height: 180px; padding: 18px; }
+.import-association dl { margin: 22px 0 14px; }
+.account-empty { min-height: 260px; padding: 50px; text-align: center; }
+.account-empty strong { font-size: 16px; }
+.account-empty p { color: var(--muted); font-size: 11px; }
+.accounts-summary { align-items: center; color: var(--muted); display: flex; font-size: 10px; gap: 18px; padding: 2px 4px; }
+.accounts-summary strong { color: var(--navy); }
+.accounts-summary small { margin-left: auto; }
+
 .loading-state, .error-state { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
 .loading-state { align-items: center; color: var(--muted); display: flex; gap: 12px; }
 .loading-state span { animation: spin .9s linear infinite; border: 3px solid #dfe4f0; border-top-color: var(--primary); border-radius: 50%; height: 24px; width: 24px; }
@@ -162,4 +215,6 @@ button { cursor: pointer; }
   .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-grid--bottom { grid-template-columns: 1fr 1fr; }
   .confidence-panel { grid-column: 1 / -1; }
+  .account-cards, .import-associations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .accounts-detail-grid { grid-template-columns: minmax(0, 1fr) 300px; }
 }

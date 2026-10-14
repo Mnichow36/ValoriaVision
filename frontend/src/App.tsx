@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
 import { AuthScreen } from "./components/AuthScreen";
+import { AccountsPage } from "./components/AccountsPage";
 import { BudgetPanel } from "./components/BudgetPanel";
 import { ForecastChart } from "./components/ForecastChart";
 import { KpiCard } from "./components/KpiCard";
@@ -31,8 +32,8 @@ const modules: Record<NavigationId, ModuleDefinition> = {
   },
   accounts: {
     eyebrow: "Gestion financière",
-    title: "Comptes",
-    description: "Consultez et organisez vos comptes détenus localement.",
+    title: "Comptes bancaires",
+    description: "Suivez les soldes, identifiants d’import et soldes initiaux.",
   },
   transactions: {
     eyebrow: "Gestion financière",
@@ -138,9 +139,9 @@ export function App() {
             <button className="secondary-button" onClick={lock} type="button">Verrouiller</button>
           </div>
         </header>
-        {activeModule === "dashboard"
-          ? <Dashboard snapshot={state.snapshot} />
-          : <ModulePlaceholder module={module} />}
+        {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
+        {activeModule === "accounts" && <AccountsPage token={state.token} />}
+        {activeModule !== "dashboard" && activeModule !== "accounts" && <ModulePlaceholder module={module} />}
       </main>
     </div>
   );

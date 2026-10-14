@@ -37,7 +37,7 @@ export function Sidebar({ active, onNavigate }: SidebarProps) {
             title={label}
             type="button"
           >
-            <MenuIcon id={id} />
+            <span className="nav-item__icon-box"><MenuIcon id={id} /></span>
             {label}
           </button>
         ))}
