@@ -5,6 +5,7 @@ import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
 import type { ReconciliationAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
+import { AssetsPage } from "./components/AssetsPage";
 import { AuthScreen } from "./components/AuthScreen";
 import { BudgetsPage } from "./components/BudgetsPage";
 import { Sidebar } from "./components/Sidebar";
@@ -181,6 +182,7 @@ export function App() {
             />
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
+          {activeModule === "assets" && <AssetsPage token={state.token} />}
           {activeModule === "reconciliation" && (
             <ReconciliationPage
               accountId={reconciliationAccountId}
@@ -190,7 +192,7 @@ export function App() {
               token={state.token}
             />
           )}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "reconciliation" && <ModulePlaceholder module={module} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "reconciliation" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -292,6 +294,14 @@ function HeaderActions({
           {budgetMonths.map((month) => <option key={month} value={month}>{formatBudgetMonth(month)}</option>)}
         </select>
         <button aria-disabled="true" className="header-action-disabled" title="Création de budget prévue dans l’incrément d’édition" type="button">Nouveau budget</button>
+      </div>
+    );
+  }
+  if (activeModule === "assets") {
+    return (
+      <div className="header-actions">
+        <button aria-disabled="true" className="header-action-disabled" title="Ajout d’actif prévu dans l’incrément d’écriture" type="button">Ajouter un actif</button>
+        <button aria-disabled="true" className="secondary-button header-action-disabled" title="La synthèse patrimoniale est affichée sur cette page" type="button">Synthèse</button>
       </div>
     );
   }

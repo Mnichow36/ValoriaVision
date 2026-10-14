@@ -8,6 +8,7 @@ on:
       - "app/security/api_session.py"
       - "app/services/dashboard_read_service.py"
       - "app/services/accounts_read_service.py"
+      - "app/services/assets_read_service.py"
       - "app/services/transactions_read_service.py"
       - "app/services/forecast_read_service.py"
       - "app/services/budgets_read_service.py"
@@ -31,9 +32,9 @@ jobs:
         env:
           VALORIA_DATA_DIR: ${{ runner.temp }}/valoria-react-poc
         run: |
-          python -m compileall app/api app/services/dashboard_read_service.py app/services/accounts_read_service.py app/services/transactions_read_service.py app/services/forecast_read_service.py app/services/budgets_read_service.py app/services/reconciliation_read_service.py
-          python -m unittest tests.api.test_dashboard_read_service tests.api.test_accounts_read_service tests.api.test_transactions_read_service tests.api.test_forecast_read_service tests.api.test_budgets_read_service tests.api.test_reconciliation_read_service tests.api.test_api_session
-          python -c "from app.api.main import app; paths = {route.path for route in app.routes}; assert {'/api/v1/dashboard', '/api/v1/accounts', '/api/v1/transactions', '/api/v1/forecast', '/api/v1/budgets', '/api/v1/reconciliation', '/api/v1/reconciliation/proposals/{proposal_id}/confirm', '/api/v1/reconciliation/proposals/{proposal_id}/reject', '/api/v1/reconciliation/manual-match'} <= paths"
+          python -m compileall app/api app/services/dashboard_read_service.py app/services/accounts_read_service.py app/services/assets_read_service.py app/services/transactions_read_service.py app/services/forecast_read_service.py app/services/budgets_read_service.py app/services/reconciliation_read_service.py
+          python -m unittest tests.api.test_dashboard_read_service tests.api.test_accounts_read_service tests.api.test_assets_read_service tests.api.test_transactions_read_service tests.api.test_forecast_read_service tests.api.test_budgets_read_service tests.api.test_reconciliation_read_service tests.api.test_api_session
+          python -c "from app.api.main import app; paths = {route.path for route in app.routes}; assert {'/api/v1/dashboard', '/api/v1/accounts', '/api/v1/assets', '/api/v1/transactions', '/api/v1/forecast', '/api/v1/budgets', '/api/v1/reconciliation', '/api/v1/reconciliation/proposals/{proposal_id}/confirm', '/api/v1/reconciliation/proposals/{proposal_id}/reject', '/api/v1/reconciliation/manual-match'} <= paths"
 
   react-build:
     runs-on: ubuntu-latest

@@ -326,6 +326,51 @@ export interface ReconciliationActionResult {
   message: string;
 }
 
+export interface AssetFamily {
+  name: string;
+  value: number;
+  weight: number;
+  status: string;
+}
+
+export interface PatrimonialAsset {
+  id: number;
+  name: string;
+  category: string;
+  type: string;
+  value: number;
+  valuationDate: string;
+  valuationMode: string;
+  status: string;
+  comment: string;
+}
+
+export interface AssetEvolutionPoint {
+  date: string;
+  net: number;
+  assets: number;
+  liabilities: number;
+}
+
+export interface AssetsSnapshot {
+  generatedAt: string;
+  currency: string;
+  summary: {
+    totalAssets: number;
+    totalLiabilities: number;
+    netWorth: number;
+    liquidities: number;
+    changePercent: number;
+    assetCount: number;
+    liabilityCount: number;
+  };
+  families: AssetFamily[];
+  evolution: AssetEvolutionPoint[];
+  assets: PatrimonialAsset[];
+  liabilities: PatrimonialAsset[];
+  leadingAssetId: number | null;
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -99,6 +99,10 @@ export function getBudgets(token: string, month: string, signal?: AbortSignal): 
   const encoded = query.toString();
   const suffix = encoded ? `?${encoded}` : "";
   return request<BudgetsSnapshot>(`/api/v1/budgets${suffix}`, { token, signal });
+}
+
+export function getAssets(token: string, signal?: AbortSignal): Promise<AssetsSnapshot> {
+  return request<AssetsSnapshot>("/api/v1/assets", { token, signal });
 }
 
 export function getReconciliation(
