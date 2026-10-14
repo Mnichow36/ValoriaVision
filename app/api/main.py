@@ -23,6 +23,12 @@ class PasswordPayload(BaseModel):
     password: SecretStr
 
 
+class ReconciliationManualMatchPayload(BaseModel):
+    occurrence_id: int
+    transaction_id: int
+    include_overage: bool = False
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -208,6 +214,50 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return ReconciliationReadService(active_database).snapshot(account_id, status)
+
+    def reconciliation_action(result: dict) -> dict:
+        if not result["success"]:
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result
+
+    @app.post("/api/v1/reconciliation/proposals/{proposal_id}/confirm")
+    def confirm_reconciliation_proposal(
+        proposal_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return reconciliation_action(ReconciliationReadService(active_database).confirm_proposal(proposal_id))
+
+    @app.post("/api/v1/reconciliation/proposals/{proposal_id}/reject")
+    def reject_reconciliation_proposal(
+        proposal_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return reconciliation_action(ReconciliationReadService(active_database).reject_proposal(proposal_id))
+
+    @app.post("/api/v1/reconciliation/manual-match")
+    def confirm_manual_reconciliation(
+        payload: ReconciliationManualMatchPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return reconciliation_action(
+            ReconciliationReadService(active_database).confirm_manual_match(
+                payload.occurrence_id,
+                payload.transaction_id,
+                include_overage=payload.include_overage,
+            )
+        )
 
     return app
 

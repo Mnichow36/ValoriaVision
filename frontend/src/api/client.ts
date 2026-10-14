@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -109,4 +109,33 @@ export function getReconciliation(
   const query = new URLSearchParams({ status: filters.status });
   if (filters.accountId !== "all") query.set("account_id", filters.accountId);
   return request<ReconciliationSnapshot>(`/api/v1/reconciliation?${query.toString()}`, { token, signal });
+}
+
+export function confirmReconciliationProposal(token: string, proposalId: number): Promise<ReconciliationActionResult> {
+  return request<ReconciliationActionResult>(`/api/v1/reconciliation/proposals/${proposalId}/confirm`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function rejectReconciliationProposal(token: string, proposalId: number): Promise<ReconciliationActionResult> {
+  return request<ReconciliationActionResult>(`/api/v1/reconciliation/proposals/${proposalId}/reject`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function confirmManualReconciliation(
+  token: string,
+  payload: { occurrenceId: number; transactionId: number; includeOverage: boolean },
+): Promise<ReconciliationActionResult> {
+  return request<ReconciliationActionResult>("/api/v1/reconciliation/manual-match", {
+    method: "POST",
+    token,
+    body: {
+      occurrence_id: payload.occurrenceId,
+      transaction_id: payload.transactionId,
+      include_overage: payload.includeOverage,
+    },
+  });
 }

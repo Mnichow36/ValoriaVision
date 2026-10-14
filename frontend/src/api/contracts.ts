@@ -321,6 +321,11 @@ export interface ReconciliationSnapshot {
   suggestions: ReconciliationSuggestion[];
 }
 
+export interface ReconciliationActionResult {
+  success: boolean;
+  message: string;
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

@@ -68,6 +68,15 @@ class StubEngine:
     def decision_for_candidates(self, candidates):
         return "automatic"
 
+    def confirm_proposal(self, proposal_id):
+        return True, f"Proposition {proposal_id} validée."
+
+    def reject_proposal(self, proposal_id):
+        return True, f"Proposition {proposal_id} rejetée."
+
+    def confirm_manual_match(self, occurrence_id, transaction_id, *, include_overage=False):
+        return 1, f"Affectation {occurrence_id}/{transaction_id}/{include_overage}."
+
 
 class ReconciliationReadServiceTest(unittest.TestCase):
     def test_builds_one_coherent_reconciliation_snapshot(self):
@@ -87,6 +96,17 @@ class ReconciliationReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["occurrences"][0]["statusLabel"], "À vérifier")
         self.assertEqual(snapshot["suggestions"][0]["proposalId"], 91)
         self.assertEqual(snapshot["accounts"], [{"id": 1, "name": "Compte courant", "bank": "Banque A"}])
+
+    def test_delegates_secure_actions_to_the_existing_engine(self):
+        engine = StubEngine(None)
+        service = ReconciliationReadService(StubDatabase(), engine_factory=lambda database: engine)
+
+        self.assertEqual(service.confirm_proposal(91), {"success": True, "message": "Proposition 91 validée."})
+        self.assertEqual(service.reject_proposal(91), {"success": True, "message": "Proposition 91 rejetée."})
+        self.assertEqual(
+            service.confirm_manual_match(11, 7, include_overage=True),
+            {"success": True, "message": "Affectation 11/7/True."},
+        )
 
 
 if __name__ == "__main__":

@@ -120,6 +120,32 @@ class ReconciliationReadService:
             "suggestions": mapped_suggestions,
         }
 
+    def confirm_proposal(self, proposal_id: int) -> dict[str, Any]:
+        return self._action_result(self.engine_factory(self.database).confirm_proposal(proposal_id))
+
+    def reject_proposal(self, proposal_id: int) -> dict[str, Any]:
+        return self._action_result(self.engine_factory(self.database).reject_proposal(proposal_id))
+
+    def confirm_manual_match(
+        self,
+        occurrence_id: int,
+        transaction_id: int,
+        *,
+        include_overage: bool = False,
+    ) -> dict[str, Any]:
+        return self._action_result(
+            self.engine_factory(self.database).confirm_manual_match(
+                occurrence_id,
+                transaction_id,
+                include_overage=include_overage,
+            )
+        )
+
+    @staticmethod
+    def _action_result(result: tuple[Any, str]) -> dict[str, Any]:
+        changed, message = result
+        return {"success": bool(changed), "message": str(message or "")}
+
     @staticmethod
     def _transaction(row: Any) -> dict[str, Any]:
         amount = _number(_field(row, "amount", 0))
