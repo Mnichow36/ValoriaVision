@@ -15,6 +15,7 @@ from app.services.accounts_read_service import AccountsReadService
 from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
+from app.services.reconciliation_read_service import ReconciliationReadService
 from app.services.transactions_read_service import TransactionsReadService
 
 
@@ -195,6 +196,18 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return BudgetsReadService(active_database).snapshot(month)
+
+    @app.get("/api/v1/reconciliation")
+    def reconciliation(
+        account_id: int | None = None,
+        status: str = "active",
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return ReconciliationReadService(active_database).snapshot(account_id, status)
 
     return app
 

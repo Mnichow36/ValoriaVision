@@ -237,6 +237,90 @@ export interface BudgetsSnapshot {
   rows: BudgetCategoryRow[];
 }
 
+export interface ReconciliationAccount {
+  id: number;
+  name: string;
+  bank: string;
+}
+
+export interface ReconciliationStatusOption {
+  id: string;
+  label: string;
+}
+
+export interface ReconciliationTransaction {
+  id: number;
+  date: string;
+  label: string;
+  amount: number;
+  remainingAmount: number;
+  category: string;
+  accountId: number;
+  accountName: string;
+  bank: string;
+  linkedStatus: string | null;
+  linkedStatusLabel: string | null;
+  linkedOccurrenceId: number | null;
+  proposalOccurrenceId: number | null;
+}
+
+export interface ReconciliationOccurrence {
+  id: number;
+  date: string;
+  label: string;
+  amount: number;
+  category: string;
+  direction: string;
+  accountId: number | null;
+  accountName: string;
+  bank: string;
+  status: string;
+  statusLabel: string;
+  matchedAmount: number;
+  remainingAmount: number;
+  overageAmount: number;
+  matchConfidence: number | null;
+  matchReason: string;
+}
+
+export interface ReconciliationSuggestion {
+  proposalId: number | null;
+  transactionId: number;
+  occurrenceId: number;
+  score: number;
+  reason: string;
+  decision: "automatic" | "to_review" | "unmatched";
+  amountDifference: number;
+}
+
+export interface ReconciliationSnapshot {
+  generatedAt: string;
+  currency: string;
+  filters: {
+    accountId: number | null;
+    status: string;
+  };
+  accounts: ReconciliationAccount[];
+  statusOptions: ReconciliationStatusOption[];
+  rules: {
+    automaticThreshold: number;
+    reviewThreshold: number;
+    dateToleranceDays: number;
+  };
+  summary: {
+    unmatchedTransactions: number;
+    openOccurrences: number;
+    automaticProposals: number;
+    averageScore: number;
+    matched: number;
+    toReview: number;
+    partial: number;
+  };
+  transactions: ReconciliationTransaction[];
+  occurrences: ReconciliationOccurrence[];
+  suggestions: ReconciliationSuggestion[];
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

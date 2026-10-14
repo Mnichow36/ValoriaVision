@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
+import type { ReconciliationAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
 import { AuthScreen } from "./components/AuthScreen";
 import { BudgetsPage } from "./components/BudgetsPage";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
 import { ForecastPage } from "./components/ForecastPage";
+import { ReconciliationPage } from "./components/ReconciliationPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 
 type AppState =
@@ -75,6 +77,10 @@ export function App() {
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
   const [budgetMonth, setBudgetMonth] = useState("");
   const [budgetMonths, setBudgetMonths] = useState<string[]>([]);
+  const [reconciliationAccountId, setReconciliationAccountId] = useState("all");
+  const [reconciliationAccounts, setReconciliationAccounts] = useState<ReconciliationAccount[]>([]);
+  const [reconciliationStatus, setReconciliationStatus] = useState("active");
+  const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -152,6 +158,12 @@ export function App() {
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
             onNavigate={setActiveModule}
+            onReconciliationAccountChange={setReconciliationAccountId}
+            onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
+            onReconciliationStatusChange={setReconciliationStatus}
+            reconciliationAccountId={reconciliationAccountId}
+            reconciliationAccounts={reconciliationAccounts}
+            reconciliationStatus={reconciliationStatus}
           />
         </header>
         <div className="workspace-content">
@@ -169,7 +181,16 @@ export function App() {
             />
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && <ModulePlaceholder module={module} />}
+          {activeModule === "reconciliation" && (
+            <ReconciliationPage
+              accountId={reconciliationAccountId}
+              onAccountsChange={setReconciliationAccounts}
+              refreshKey={reconciliationRefreshKey}
+              status={reconciliationStatus}
+              token={state.token}
+            />
+          )}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "reconciliation" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -190,6 +211,12 @@ function HeaderActions({
   onForecastAccountChange,
   onForecastHorizonChange,
   onNavigate,
+  onReconciliationAccountChange,
+  onReconciliationRefresh,
+  onReconciliationStatusChange,
+  reconciliationAccountId,
+  reconciliationAccounts,
+  reconciliationStatus,
 }: {
   accountStatusFilter: string;
   activeModule: NavigationId;
@@ -204,6 +231,12 @@ function HeaderActions({
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
   onNavigate: (destination: NavigationId) => void;
+  onReconciliationAccountChange: (value: string) => void;
+  onReconciliationRefresh: () => void;
+  onReconciliationStatusChange: (value: string) => void;
+  reconciliationAccountId: string;
+  reconciliationAccounts: ReconciliationAccount[];
+  reconciliationStatus: string;
 }) {
   if (activeModule === "dashboard") {
     return (
@@ -259,6 +292,24 @@ function HeaderActions({
           {budgetMonths.map((month) => <option key={month} value={month}>{formatBudgetMonth(month)}</option>)}
         </select>
         <button aria-disabled="true" className="header-action-disabled" title="Création de budget prévue dans l’incrément d’édition" type="button">Nouveau budget</button>
+      </div>
+    );
+  }
+  if (activeModule === "reconciliation") {
+    return (
+      <div className="header-actions">
+        <select aria-label="Compte des rapprochements" onChange={(event) => onReconciliationAccountChange(event.target.value)} value={reconciliationAccountId}>
+          <option value="all">Tous les comptes</option>
+          {reconciliationAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
+        </select>
+        <select aria-label="Statut des rapprochements" onChange={(event) => onReconciliationStatusChange(event.target.value)} value={reconciliationStatus}>
+          <option value="active">À traiter</option>
+          <option value="to_review">À vérifier</option>
+          <option value="partially_matched">Partielles</option>
+          <option value="finalized">Finalisées</option>
+          <option value="all">Tous les statuts</option>
+        </select>
+        <button onClick={onReconciliationRefresh} type="button">Actualiser</button>
       </div>
     );
   }
