@@ -2,11 +2,8 @@ import { useEffect, useState } from "react";
 
 import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
-import { AuthScreen } from "./components/AuthScreen";
 import { AccountsPage } from "./components/AccountsPage";
-import { BudgetPanel } from "./components/BudgetPanel";
-import { ForecastChart } from "./components/ForecastChart";
-import { KpiCard } from "./components/KpiCard";
+import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
 
@@ -17,59 +14,57 @@ type AppState =
   | { status: "error"; message: string };
 
 const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+const moneyCode = new Intl.NumberFormat("fr-FR", {
+  currency: "EUR",
+  currencyDisplay: "code",
+  maximumFractionDigits: 0,
+  style: "currency",
+});
 
 interface ModuleDefinition {
-  eyebrow: string;
   title: string;
   description: string;
 }
 
 const modules: Record<NavigationId, ModuleDefinition> = {
   dashboard: {
-    eyebrow: "Vue d’ensemble",
-    title: "Bonjour",
-    description: "Votre situation financière, calculée par le moteur local Valoria Vision.",
+    title: "Bonjour François",
+    description: "Vue synthétique du cash, des comptes et du patrimoine.",
   },
   accounts: {
-    eyebrow: "Gestion financière",
     title: "Comptes bancaires",
-    description: "Suivez les soldes, identifiants d’import et soldes initiaux.",
+    description: "Suivre les soldes, identifiants d’import et soldes de référence.",
   },
   transactions: {
-    eyebrow: "Gestion financière",
     title: "Transactions",
-    description: "Analysez vos mouvements et préparez leur catégorisation.",
+    description: "Rechercher, catégoriser et valider les opérations importées.",
   },
   forecast: {
-    eyebrow: "Projection",
     title: "Prévisionnel",
-    description: "Projetez votre trésorerie selon vos scénarios locaux.",
+    description: "Courbes, récurrences et scénarios de trésorerie.",
   },
   budgets: {
-    eyebrow: "Pilotage",
     title: "Budgets",
-    description: "Suivez vos objectifs et vos consommations par catégorie.",
+    description: "Comparer le prévu, le réalisé et les écarts par catégorie.",
   },
   assets: {
-    eyebrow: "Patrimoine",
     title: "Patrimoine",
-    description: "Visualisez la composition et la valeur de votre patrimoine.",
+    description: "Lire le patrimoine net, les familles d’actifs et leur évolution.",
   },
   reconciliation: {
-    eyebrow: "Contrôle",
     title: "Rapprochements",
-    description: "Contrôlez la cohérence entre comptes, mouvements et justificatifs.",
+    description: "Contrôler les correspondances entre prévisionnel et réalisé.",
   },
   settings: {
-    eyebrow: "Configuration",
     title: "Paramètres",
-    description: "Configurez votre environnement local Valoria Vision.",
+    description: "Centraliser les règles, catégories, sauvegardes et préférences.",
   },
 };
 
 export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
   const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
+  const [accountStatusFilter, setAccountStatusFilter] = useState("Tous");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -126,25 +121,67 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar active={activeModule} onNavigate={setActiveModule} />
+      <Sidebar active={activeModule} onLock={lock} onNavigate={setActiveModule} />
       <main className="workspace">
         <header className="module-header">
           <div>
-            <span className="eyebrow">{module.eyebrow}</span>
             <h1>{module.title}</h1>
             <p>{module.description}</p>
           </div>
-          <div className="header-actions">
-            <span className="api-status api-status--online"><i aria-hidden="true" />Moteur local connecté</span>
-            <button className="secondary-button" onClick={lock} type="button">Verrouiller</button>
-          </div>
+          <HeaderActions
+            activeModule={activeModule}
+            accountStatusFilter={accountStatusFilter}
+            dashboard={state.snapshot}
+            onAccountStatusChange={setAccountStatusFilter}
+            onNavigate={setActiveModule}
+          />
         </header>
-        {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
-        {activeModule === "accounts" && <AccountsPage token={state.token} />}
-        {activeModule !== "dashboard" && activeModule !== "accounts" && <ModulePlaceholder module={module} />}
+        <div className="workspace-content">
+          {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
+          {activeModule === "accounts" && <AccountsPage statusFilter={accountStatusFilter} token={state.token} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && <ModulePlaceholder module={module} />}
+        </div>
       </main>
     </div>
   );
+}
+
+function HeaderActions({
+  accountStatusFilter,
+  activeModule,
+  dashboard,
+  onAccountStatusChange,
+  onNavigate,
+}: {
+  accountStatusFilter: string;
+  activeModule: NavigationId;
+  dashboard: DashboardSnapshot;
+  onAccountStatusChange: (value: string) => void;
+  onNavigate: (destination: NavigationId) => void;
+}) {
+  if (activeModule === "dashboard") {
+    return (
+      <div className="header-actions">
+        <button className="secondary-button" type="button">Tous les comptes</button>
+        <button className="secondary-button" type="button">{formatPeriod(dashboard.period)}</button>
+        <button onClick={() => onNavigate("transactions")} type="button">Importer</button>
+      </div>
+    );
+  }
+  if (activeModule === "accounts") {
+    return (
+      <div className="header-actions">
+        <button aria-disabled="true" className="header-action-disabled" title="Ajout de compte prévu dans l’incrément d’édition" type="button">Ajouter un compte</button>
+        <select aria-label="Filtrer les comptes par statut" onChange={(event) => onAccountStatusChange(event.target.value)} value={accountStatusFilter}>
+          <option>Tous</option>
+          <option>Actif</option>
+          <option>Archivé</option>
+          <option>Clos</option>
+        </select>
+      </div>
+    );
+  }
+  return null;
 }
 
 function ModulePlaceholder({ module }: { module: ModuleDefinition }) {
@@ -163,47 +200,118 @@ function ModulePlaceholder({ module }: { module: ModuleDefinition }) {
 }
 
 function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
+  const kpis = new Map(snapshot.kpis.map((kpi) => [kpi.id, kpi]));
+  const cash = kpis.get("cash")?.value ?? 0;
+  const netWorth = kpis.get("net-worth")?.value ?? 0;
+  const income = kpis.get("income")?.value ?? 0;
+  const expenses = kpis.get("expenses")?.value ?? snapshot.budget.totalRealized;
+  const savings = income - expenses;
+  const expenseRows = snapshot.budget.rows.filter((row) => row.actual > 0).slice(0, 4);
+  const expenseTotal = expenseRows.reduce((total, row) => total + row.actual, 0);
   const assetTotal = snapshot.assets.reduce((total, item) => total + item.value, 0);
-  const assetGradient = snapshot.assets.length
-    ? buildGradient(snapshot.assets.map((item) => item.value))
-    : "#e8ecf6";
+  const budgetVariance = snapshot.budget.totalRealized - snapshot.budget.totalPlanned;
+  const toProcess = snapshot.alerts.filter((alert) => alert.level === "warning" || alert.level === "critical").length
+    + snapshot.budget.rows.filter((row) => row.usage > 100).length;
+  const expenseGradient = buildGradient(expenseRows.map((row) => row.actual), ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626"]);
+  const assetGradient = buildGradient(snapshot.assets.map((item) => item.value), ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b"]);
+  const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
 
   return (
-    <div className="dashboard">
-      <section className="kpi-grid" aria-label="Indicateurs principaux">
-        {snapshot.kpis.map((kpi) => <KpiCard key={kpi.id} kpi={kpi} />)}
+    <div className="r8-dashboard">
+      <section className="r8-kpi-grid" aria-label="Indicateurs principaux">
+        <DashboardKpi label="Cash disponible" value={moneyCode.format(cash)} detail="Comptes courants et épargne" tone="cyan" />
+        <DashboardKpi label="Patrimoine net" value={moneyCode.format(netWorth)} detail="Actifs moins passifs" tone="purple" />
+        <DashboardKpi label="Dépenses mois" value={moneyCode.format(expenses)} detail={`${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget`} tone="red" />
+        <DashboardKpi label="À traiter" value={String(toProcess)} detail={`${snapshot.alerts.length} alerte(s) à surveiller`} tone="amber" />
       </section>
 
-      <section className="dashboard-grid dashboard-grid--main">
-        <article className="card panel panel--wide">
-          <div className="panel-heading"><div><h2>Trésorerie prévisionnelle</h2><p>Projection issue du scénario réaliste</p></div><span className="badge">60 jours</span></div>
-          <ForecastChart points={snapshot.forecast} />
-        </article>
-        <article className="card panel">
-          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Répartition par famille</p></div></div>
-          <div className="asset-panel">
-            <div className="donut" style={{ background: assetGradient }}><div><strong>{money.format(assetTotal)}</strong><span>€</span></div></div>
-            <ul>{snapshot.assets.slice(0, 5).map((item, index) => <li key={item.label}><i className={`legend legend--${index % 5}`} /><span>{item.label}</span><strong>{money.format(item.value)} €</strong></li>)}</ul>
+      <section className="r8-dashboard-main">
+        <article className="card r8-panel r8-expenses-panel">
+          <div className="panel-heading"><div><h2>Répartition des dépenses</h2><p>Dépenses du mois par catégorie.</p></div></div>
+          <div className="r8-expenses-content">
+            <Donut gradient={expenseGradient} primary={money.format(expenseTotal)} secondary="EUR" />
+            <ul className="r8-legend-list">
+              {expenseRows.map((row, index) => (
+                <li key={row.category}><i className={`r8-dot r8-dot--${index}`} /><strong>{row.category}</strong><span>{moneyCode.format(row.actual)}</span></li>
+              ))}
+            </ul>
           </div>
+          <span className={budgetVariance > 0 ? "r8-variance r8-variance--warning" : "r8-variance"}>{budgetVariance > 0 ? "+ " : ""}{moneyCode.format(budgetVariance)} vs budget</span>
+        </article>
+        <article className="card r8-panel r8-assets-panel">
+          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Actifs nets par famille.</p></div></div>
+          <Donut gradient={assetGradient} primary={money.format(assetTotal / 1000)} secondary="kEUR" />
+          <ul>
+            {snapshot.assets.slice(0, 3).map((item) => <li key={item.label}><span>{item.label}</span><strong>{assetTotal ? Math.round((item.value / assetTotal) * 100) : 0} %</strong></li>)}
+          </ul>
+        </article>
+        <article className="card r8-panel r8-flow-panel">
+          <div className="panel-heading"><div><h2>Flux du mois</h2><p>Revenus, dépenses et épargne nette.</p></div></div>
+          <FlowBar label="Revenus" maximum={flowMaximum} tone="green" value={income} />
+          <FlowBar label="Dépenses" maximum={flowMaximum} tone="red" value={expenses} />
+          <FlowBar label="Épargne nette" maximum={flowMaximum} tone="blue" value={savings} />
+          <span className="category-chip">Flux hors transferts</span>
         </article>
       </section>
 
-      <section className="dashboard-grid dashboard-grid--bottom">
-        <article className="card panel">
-          <div className="panel-heading"><div><h2>Budget du mois</h2><p>{snapshot.budget.month}</p></div><strong>{money.format(snapshot.budget.totalRealized)} €</strong></div>
-          <BudgetPanel rows={snapshot.budget.rows} />
+      <section className="r8-dashboard-bottom">
+        <article className="card r8-panel r8-alerts-panel">
+          <div className="panel-heading"><div><h2>Alertes utiles</h2></div></div>
+          <ul>{snapshot.alerts.slice(0, 2).map((alert) => <li key={`${alert.title}-${alert.detail}`}><strong>{alert.title}</strong><small>{alert.detail}</small></li>)}</ul>
         </article>
-        <article className="card panel alerts-panel">
-          <div className="panel-heading"><div><h2>Alertes utiles</h2><p>À surveiller</p></div></div>
-          <ul>{snapshot.alerts.map((alert) => <li className={`alert alert--${alert.level}`} key={`${alert.title}-${alert.detail}`}><i aria-hidden="true" /><span><strong>{alert.title}</strong><small>{alert.detail}</small></span></li>)}</ul>
+        <article className="card r8-panel r8-quality-panel">
+          <div className="panel-heading"><div><h2>Qualité données</h2></div></div>
+          <span className="status-chip status-chip--success">100 % calculées localement</span>
+          <div className="r8-quality-track"><span /></div>
+          <p>{snapshot.budget.rows.length} catégorie(s) budgétaires analysée(s)</p>
         </article>
-        <article className="card panel confidence-panel">
-          <div className="panel-heading"><div><h2>Qualité des données</h2><p>Lecture locale</p></div></div>
-          <div className="confidence-score">100<span>%</span></div><div className="confidence-track"><span /></div><p>Les montants affichés proviennent directement du moteur Python.</p>
+        <article className="card r8-panel r8-summary-panel">
+          <div className="panel-heading"><div><h2>Synthèse rapide</h2></div></div>
+          <dl>
+            <div><dt>Cash disponible</dt><dd>{moneyCode.format(cash)}</dd></div>
+            <div><dt>Patrimoine net</dt><dd>{moneyCode.format(netWorth)}</dd></div>
+            <div><dt>Épargne nette</dt><dd>{moneyCode.format(savings)}</dd></div>
+          </dl>
+          <span className="category-chip category-chip--warning">Bêta en cours</span>
         </article>
       </section>
     </div>
   );
+}
+
+function DashboardKpi({ detail, label, tone, value }: { detail: string; label: string; tone: string; value: string }) {
+  return (
+    <article className="card r8-kpi">
+      <div><span>{label}</span><i className={`r8-kpi-dot r8-kpi-dot--${tone}`} /></div>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function Donut({ gradient, primary, secondary }: { gradient: string; primary: string; secondary: string }) {
+  return (
+    <div className="r8-donut" style={{ background: gradient }}>
+      <div><strong>{primary}</strong><span>{secondary}</span></div>
+    </div>
+  );
+}
+
+function FlowBar({ label, maximum, tone, value }: { label: string; maximum: number; tone: string; value: number }) {
+  const width = Math.max(0, Math.min(100, (Math.abs(value) / maximum) * 100));
+  return (
+    <div className="r8-flow-row">
+      <div><strong>{label}</strong><span className={`r8-flow-value r8-flow-value--${tone}`}>{moneyCode.format(value)}</span></div>
+      <div className="r8-flow-track"><span className={`r8-flow-fill r8-flow-fill--${tone}`} style={{ width: `${width}%` }} /></div>
+    </div>
+  );
+}
+
+function formatPeriod(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  if (!year || !month) return period;
+  const result = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return result.charAt(0).toUpperCase() + result.slice(1);
 }
 
 function errorMessage(error: unknown): string {
@@ -225,9 +333,9 @@ async function waitForEngine(signal: AbortSignal): Promise<void> {
   throw lastError instanceof Error ? lastError : new Error("Le moteur local ne répond pas.");
 }
 
-function buildGradient(values: number[]): string {
-  const colors = ["#5c78ff", "#51d5a4", "#9a72ef", "#58b9e8", "#f4b740"];
-  const total = values.reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
+function buildGradient(values: number[], colors: string[]): string {
+  const total = values.reduce((sum, value) => sum + Math.max(0, value), 0);
+  if (!total) return "#e2e8f0";
   let cursor = 0;
   const segments = values.map((value, index) => {
     const start = cursor;

@@ -6,12 +6,14 @@ import type { AccountOverview, AccountsSnapshot } from "../api/contracts";
 type AccountsView = "accounts" | "balances" | "imports";
 
 interface AccountsPageProps {
+  statusFilter: string;
   token: string;
 }
 
 const currencyFormatter = new Intl.NumberFormat("fr-FR", {
   style: "currency",
   currency: "EUR",
+  currencyDisplay: "code",
   minimumFractionDigits: 2,
 });
 
@@ -26,11 +28,10 @@ const longDateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function AccountsPage({ token }: AccountsPageProps) {
+export function AccountsPage({ statusFilter, token }: AccountsPageProps) {
   const [snapshot, setSnapshot] = useState<AccountsSnapshot>();
   const [selectedId, setSelectedId] = useState<number>();
   const [view, setView] = useState<AccountsView>("accounts");
-  const [statusFilter, setStatusFilter] = useState("Tous");
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -82,15 +83,6 @@ export function AccountsPage({ token }: AccountsPageProps) {
           <Tab active={view === "balances"} onClick={() => setView("balances")}>Soldes à date</Tab>
           <Tab active={view === "imports"} onClick={() => setView("imports")}>Imports associés</Tab>
         </div>
-        <div className="accounts-toolbar__actions">
-          <select aria-label="Filtrer par statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option>Tous</option>
-            <option>Actif</option>
-            <option>Archivé</option>
-            <option>Clos</option>
-          </select>
-          <button className="secondary-button" onClick={() => setRefreshKey((key) => key + 1)} type="button">Actualiser</button>
-        </div>
       </section>
 
       {view === "accounts" && (
@@ -125,11 +117,6 @@ export function AccountsPage({ token }: AccountsPageProps) {
       {view === "balances" && <BalancesView accounts={visibleAccounts} />}
       {view === "imports" && <ImportsView accounts={visibleAccounts} />}
 
-      <footer className="accounts-summary">
-        <span><strong>{snapshot.summary.activeCount}</strong> compte(s) actif(s)</span>
-        <span>Solde net actif <strong>{formatMoney(snapshot.summary.netBalance)}</strong></span>
-        <small>Mis à jour depuis les données locales</small>
-      </footer>
     </div>
   );
 }
@@ -159,7 +146,7 @@ function TransactionsTable({ account }: { account: AccountOverview }) {
       <table className="account-table">
         <thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Montant</th></tr></thead>
         <tbody>
-          {account.transactions.map((transaction) => (
+          {account.transactions.slice(0, 4).map((transaction) => (
             <tr key={transaction.id}>
               <td>{formatDate(transaction.date, false)}</td>
               <td>{transaction.label}</td>
@@ -176,19 +163,17 @@ function TransactionsTable({ account }: { account: AccountOverview }) {
 function AccountDetail({ account }: { account: AccountOverview }) {
   const fields = [
     ["Compte", account.name],
-    ["Banque", account.bank || "Non renseignée"],
-    ["Solde initial", formatMoney(account.initialBalance)],
-    ["Date initiale", formatDate(account.initialDate, true)],
+    ["Solde de référence", formatMoney(account.initialBalance)],
+    ["Date de référence", formatDate(account.initialDate, true)],
     ["Solde calculé", formatMoney(account.currentBalance)],
-    ["Calculé au", formatDate(account.currentDate, true)],
   ];
   return (
     <aside className="card account-detail">
       <div className="panel-heading"><div><h2>Volet compte</h2><p>Détail issu du moteur métier.</p></div></div>
       <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <div className="account-formula">
-        <strong>Règle de calcul</strong>
-        <span>Solde initial + mouvements postérieurs = solde calculé</span>
+      <div className="account-detail__actions">
+        <button aria-disabled="true" type="button">Modifier le solde</button>
+        <button aria-disabled="true" className="primary-button" type="button">Rattacher un import</button>
       </div>
     </aside>
   );

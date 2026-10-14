@@ -14,9 +14,10 @@ export type NavigationId = (typeof entries)[number][0];
 interface SidebarProps {
   active: NavigationId;
   onNavigate: (destination: NavigationId) => void;
+  onLock: () => void;
 }
 
-export function Sidebar({ active, onNavigate }: SidebarProps) {
+export function Sidebar({ active, onNavigate, onLock }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Navigation principale">
       <div className="brand">
@@ -45,7 +46,13 @@ export function Sidebar({ active, onNavigate }: SidebarProps) {
 
       <div className="local-card">
         <strong>Données locales</strong>
-        <span>Sans connexion bancaire imposée</span>
+        <span>Sans connexion bancaire permanente</span>
+        <button aria-label="Verrouiller la session" onClick={onLock} title="Verrouiller la session" type="button">
+          <svg aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+            <rect height="10" rx="2" width="14" x="5" y="10" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          </svg>
+        </button>
       </div>
     </aside>
   );
@@ -55,30 +62,25 @@ function MenuIcon({ id }: { id: NavigationId }) {
   const common = {
     "aria-hidden": true,
     className: "nav-item__icon",
-    fill: "none",
-    stroke: "currentColor",
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    strokeWidth: 2,
     viewBox: "0 0 24 24",
   };
 
   switch (id) {
     case "dashboard":
-      return <svg {...common}><rect x="4" y="4" width="6" height="6" rx="1.5" /><rect x="14" y="4" width="6" height="6" rx="1.5" /><rect x="4" y="14" width="6" height="6" rx="1.5" /><rect x="14" y="14" width="6" height="6" rx="1.5" /></svg>;
+      return <svg {...common} fill="currentColor"><rect height="5" rx="2" width="5" x="6" y="6" /><rect height="5" rx="2" width="5" x="14" y="6" /><rect height="5" rx="2" width="5" x="6" y="14" /><rect height="5" rx="2" width="5" x="14" y="14" /></svg>;
     case "accounts":
-      return <svg {...common}><path d="M4 10 12 5l8 5" /><path d="M6 10v8" /><path d="M10 10v8" /><path d="M14 10v8" /><path d="M18 10v8" /><path d="M4 18h16" /></svg>;
+      return <svg {...common} fill="currentColor"><path d="m4 10 8-6 8 6H4Z" /><path d="M5 19h14v2H5z" /><path d="M7 10h2v8H7zm4 0h2v8h-2zm4 0h2v8h-2z" /></svg>;
     case "transactions":
-      return <svg {...common}><path d="M5 8h13" /><path d="m15 5 3 3-3 3" /><path d="M19 16H6" /><path d="m9 13-3 3 3 3" /></svg>;
+      return <svg {...common} fill="currentColor"><path d="M5 7h11V3l5 5-5 5V9H5V7Zm14 8H8v-4l-5 5 5 5v-4h11v-2Z" /></svg>;
     case "forecast":
-      return <svg {...common}><path d="M4 19V5" /><path d="M4 19h16" /><path d="m6 15 4-4 4 2 5-7" /><circle cx="19" cy="6" r="1.5" /></svg>;
+      return <svg {...common} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4"><path d="M5 5v14h15" /><path d="m7 16 4-4 3 2 5-7" /><circle cx="19" cy="7" fill="currentColor" r="2" stroke="none" /></svg>;
     case "budgets":
-      return <svg {...common}><circle cx="12" cy="12" r="7" /><path d="M12 5v7h7" /><path d="M12 12 8 18" /></svg>;
+      return <svg {...common}><circle cx="12" cy="12" fill="none" r="7" stroke="currentColor" strokeWidth="2.2" /><path d="M12 5a7 7 0 0 1 7 7h-7V5Z" fill="currentColor" /><path d="m12 12-4 6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>;
     case "assets":
-      return <svg {...common}><path d="M12 4 20 12 12 20 4 12Z" /><path d="M8 12h8" /><path d="M12 8v8" /></svg>;
+      return <svg {...common} fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8"><path d="M12 3 21 12 12 21 3 12Z" /><path d="M7.5 12h9M12 7.5v9" strokeWidth="2" /></svg>;
     case "reconciliation":
-      return <svg {...common}><circle cx="9" cy="10" r="4" /><circle cx="15" cy="14" r="4" /><path d="M12 12h1" /></svg>;
+      return <svg {...common} fill="none" stroke="currentColor" strokeWidth="2.4"><circle cx="9" cy="10" r="4" /><circle cx="15" cy="14" r="4" /><path d="M11.5 12h1" /></svg>;
     case "settings":
-      return <svg {...common}><circle cx="12" cy="12" r="3.2" /><path d="M12 3v3" /><path d="M12 18v3" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m5.6 5.6 2.1 2.1" /><path d="m16.3 16.3 2.1 2.1" /><path d="m18.4 5.6-2.1 2.1" /><path d="m7.7 16.3-2.1 2.1" /></svg>;
+      return <svg {...common} fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5" /></svg>;
   }
 }
