@@ -8,6 +8,7 @@ on:
       - "app/security/api_session.py"
       - "app/services/dashboard_read_service.py"
       - "app/services/accounts_read_service.py"
+      - "app/services/transactions_read_service.py"
       - "tests/api/**"
       - "requirements-react-api.txt"
       - ".github/workflows/react-poc.yml"
@@ -27,9 +28,9 @@ jobs:
         env:
           VALORIA_DATA_DIR: ${{ runner.temp }}/valoria-react-poc
         run: |
-          python -m compileall app/api app/services/dashboard_read_service.py app/services/accounts_read_service.py
-          python -m unittest tests.api.test_dashboard_read_service tests.api.test_accounts_read_service tests.api.test_api_session
-          python -c "from app.api.main import app; paths = {route.path for route in app.routes}; assert {'/api/v1/dashboard', '/api/v1/accounts'} <= paths"
+          python -m compileall app/api app/services/dashboard_read_service.py app/services/accounts_read_service.py app/services/transactions_read_service.py
+          python -m unittest tests.api.test_dashboard_read_service tests.api.test_accounts_read_service tests.api.test_transactions_read_service tests.api.test_api_session
+          python -c "from app.api.main import app; paths = {route.path for route in app.routes}; assert {'/api/v1/dashboard', '/api/v1/accounts', '/api/v1/transactions'} <= paths"
 
   react-build:
     runs-on: ubuntu-latest

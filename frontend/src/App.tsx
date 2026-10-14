@@ -6,6 +6,7 @@ import { AccountsPage } from "./components/AccountsPage";
 import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
+import { TransactionsPage } from "./components/TransactionsPage";
 
 type AppState =
   | { status: "booting" }
@@ -139,7 +140,8 @@ export function App() {
         <div className="workspace-content">
           {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
           {activeModule === "accounts" && <AccountsPage statusFilter={accountStatusFilter} token={state.token} />}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && <ModulePlaceholder module={module} />}
+          {activeModule === "transactions" && <TransactionsPage token={state.token} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -178,6 +180,14 @@ function HeaderActions({
           <option>Archivé</option>
           <option>Clos</option>
         </select>
+      </div>
+    );
+  }
+  if (activeModule === "transactions") {
+    return (
+      <div className="header-actions">
+        <button aria-disabled="true" className="secondary-button header-action-disabled" title="Annulation à raccorder dans l’incrément d’édition" type="button">Annuler dernier import</button>
+        <button aria-disabled="true" className="header-action-disabled" title="Assistant d’import à raccorder dans l’incrément suivant" type="button">Importer un relevé</button>
       </div>
     );
   }
