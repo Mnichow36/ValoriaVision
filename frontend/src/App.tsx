@@ -12,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
 import { ForecastPage } from "./components/ForecastPage";
 import { ReconciliationPage } from "./components/ReconciliationPage";
+import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 
 type AppState =
@@ -192,7 +193,8 @@ export function App() {
               token={state.token}
             />
           )}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "reconciliation" && <ModulePlaceholder module={module} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={setActiveModule} token={state.token} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "reconciliation" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -322,6 +324,9 @@ function HeaderActions({
         <button onClick={onReconciliationRefresh} type="button">Actualiser</button>
       </div>
     );
+  }
+  if (activeModule === "settings") {
+    return <div className="header-actions"><button form="settings-active-form" type="submit">Sauvegarder</button></div>;
   }
   return null;
 }

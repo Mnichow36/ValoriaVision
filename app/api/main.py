@@ -17,6 +17,7 @@ from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
 from app.services.reconciliation_read_service import ReconciliationReadService
+from app.services.settings_read_service import SettingsReadService
 from app.services.transactions_read_service import TransactionsReadService
 
 
@@ -28,6 +29,40 @@ class ReconciliationManualMatchPayload(BaseModel):
     occurrence_id: int
     transaction_id: int
     include_overage: bool = False
+
+
+class SettingsGeneralPayload(BaseModel):
+    currency: str = "EUR"
+    current_month: str = ""
+    session_timeout_minutes: int = 10
+
+
+class SettingsCategoryPayload(BaseModel):
+    name: str
+    kind: str = "Dépense"
+    direction: str = "Dépense"
+    color: str = "#64748B"
+    budget_enabled: bool = True
+
+
+class SettingsRulePayload(BaseModel):
+    name: str
+    description: str = ""
+    is_active: bool = True
+    priority: int = 100
+    match_field: str = "label"
+    match_operator: str = "contains"
+    match_value: str = ""
+    transaction_type: str | None = None
+    account_id: int | None = None
+    min_amount: float | None = None
+    max_amount: float | None = None
+    target_category_id: int
+    confidence: int = 100
+
+
+class SettingsRuleActivePayload(BaseModel):
+    active: bool
 
 
 def create_app(database: Database | None = None) -> FastAPI:
@@ -213,6 +248,124 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return AssetsReadService(active_database).snapshot()
+
+    @app.get("/api/v1/settings")
+    def settings(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return SettingsReadService(active_database).snapshot()
+
+    @app.post("/api/v1/settings/general")
+    def update_settings_general(
+        payload: SettingsGeneralPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).update_general(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/categories")
+    def create_settings_category(
+        payload: SettingsCategoryPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).save_category(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/categories/{category_id}")
+    def update_settings_category(
+        category_id: int,
+        payload: SettingsCategoryPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).save_category(payload.model_dump(), category_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/categories/{category_id}/delete")
+    def delete_settings_category(
+        category_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).delete_category(category_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/rules")
+    def create_settings_rule(
+        payload: SettingsRulePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).save_rule(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/rules/{rule_id}")
+    def update_settings_rule(
+        rule_id: int,
+        payload: SettingsRulePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).save_rule(payload.model_dump(), rule_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/rules/{rule_id}/active")
+    def set_settings_rule_active(
+        rule_id: int,
+        payload: SettingsRuleActivePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return SettingsReadService(active_database).set_rule_active(rule_id, payload.active)
+
+    @app.post("/api/v1/settings/rules-preview")
+    def preview_settings_rules(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return SettingsReadService(active_database).preview_rules()
 
     @app.get("/api/v1/reconciliation")
     def reconciliation(

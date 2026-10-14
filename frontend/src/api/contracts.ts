@@ -371,6 +371,129 @@ export interface AssetsSnapshot {
   leadingAssetId: number | null;
 }
 
+export interface SettingsCategory {
+  id: number;
+  name: string;
+  kind: string;
+  direction: string;
+  color: string;
+  budgetEnabled: boolean;
+  isSystem: boolean;
+  usage: {
+    transactions: number;
+    recurrences: number;
+    budgets: number;
+  };
+}
+
+export interface SettingsRule {
+  id: number;
+  name: string;
+  description: string;
+  active: boolean;
+  priority: number;
+  matchField: string;
+  matchOperator: string;
+  matchValue: string;
+  transactionType: string;
+  accountId: number | null;
+  accountName: string;
+  minAmount: number | null;
+  maxAmount: number | null;
+  targetCategoryId: number;
+  targetCategory: string;
+  confidence: number;
+  summary: string;
+}
+
+export interface SettingsSnapshot {
+  generatedAt: string;
+  general: {
+    currency: string;
+    locale: string;
+    currentMonth: string;
+    databaseSizeKb: number;
+    schemaVersion: string;
+    integrity: string;
+    lastBackup: string;
+  };
+  categories: SettingsCategory[];
+  rules: SettingsRule[];
+  options: {
+    accounts: Array<{ id: number; name: string; bank: string }>;
+    categories: Array<{ id: number; name: string }>;
+    matchFields: Array<{ id: string; label: string }>;
+    operators: Array<{ id: string; label: string }>;
+    transactionTypes: string[];
+  };
+  balances: {
+    accounts: Array<{
+      id: number;
+      name: string;
+      bank: string;
+      status: string;
+      initialBalance: number;
+      initialDate: string;
+      movementTotal: number;
+      currentBalance: number;
+      currentDate: string;
+    }>;
+    summary: {
+      accountCount: number;
+      orphanTransactions: number;
+      orphanImportLinks: number;
+      revenuesGap: number;
+      expensesGap: number;
+    };
+  };
+  security: {
+    encryptedVault: boolean;
+    encryptedBackups: boolean;
+    masterPassword: boolean;
+    algorithm: string;
+    keyStorage: string;
+    sessionTimeoutMinutes: number;
+    lastBackup: string;
+  };
+  ownership: Array<{ feature: string; owner: string; mode: string }>;
+}
+
+export interface SettingsCategoryPayload {
+  name: string;
+  kind: string;
+  direction: string;
+  color: string;
+  budget_enabled: boolean;
+}
+
+export interface SettingsRulePayload {
+  name: string;
+  description: string;
+  is_active: boolean;
+  priority: number;
+  match_field: string;
+  match_operator: string;
+  match_value: string;
+  transaction_type: string | null;
+  account_id: number | null;
+  min_amount: number | null;
+  max_amount: number | null;
+  target_category_id: number;
+  confidence: number;
+}
+
+export interface SettingsActionResult {
+  success: boolean;
+  message: string;
+  id?: number;
+}
+
+export interface SettingsRulesPreview extends SettingsActionResult {
+  matchedCount: number;
+  byRule: Array<{ ruleId: number; count: number }>;
+  samples: Array<{ transactionId: number; label: string; ruleId: number; category: string }>;
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

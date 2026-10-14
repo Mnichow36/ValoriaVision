@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -103,6 +103,49 @@ export function getBudgets(token: string, month: string, signal?: AbortSignal): 
 
 export function getAssets(token: string, signal?: AbortSignal): Promise<AssetsSnapshot> {
   return request<AssetsSnapshot>("/api/v1/assets", { token, signal });
+}
+
+export function getSettings(token: string, signal?: AbortSignal): Promise<SettingsSnapshot> {
+  return request<SettingsSnapshot>("/api/v1/settings", { token, signal });
+}
+
+export function updateSettingsGeneral(
+  token: string,
+  payload: { currency: string; current_month: string; session_timeout_minutes: number },
+): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>("/api/v1/settings/general", { method: "POST", token, body: payload });
+}
+
+export function createSettingsCategory(token: string, payload: SettingsCategoryPayload): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>("/api/v1/settings/categories", { method: "POST", token, body: payload });
+}
+
+export function updateSettingsCategory(token: string, categoryId: number, payload: SettingsCategoryPayload): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/settings/categories/${categoryId}`, { method: "POST", token, body: payload });
+}
+
+export function deleteSettingsCategory(token: string, categoryId: number): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/settings/categories/${categoryId}/delete`, { method: "POST", token });
+}
+
+export function createSettingsRule(token: string, payload: SettingsRulePayload): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>("/api/v1/settings/rules", { method: "POST", token, body: payload });
+}
+
+export function updateSettingsRule(token: string, ruleId: number, payload: SettingsRulePayload): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/settings/rules/${ruleId}`, { method: "POST", token, body: payload });
+}
+
+export function setSettingsRuleActive(token: string, ruleId: number, active: boolean): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/settings/rules/${ruleId}/active`, {
+    method: "POST",
+    token,
+    body: { active },
+  });
+}
+
+export function previewSettingsRules(token: string): Promise<SettingsRulesPreview> {
+  return request<SettingsRulesPreview>("/api/v1/settings/rules-preview", { method: "POST", token });
 }
 
 export function getReconciliation(
