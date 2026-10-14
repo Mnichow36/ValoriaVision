@@ -12,6 +12,7 @@ from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
 from app.services.accounts_read_service import AccountsReadService
+from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
 from app.services.transactions_read_service import TransactionsReadService
@@ -183,6 +184,17 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return ForecastReadService(active_database).snapshot(account_id, horizon_days, scenario)
+
+    @app.get("/api/v1/budgets")
+    def budgets(
+        month: str | None = None,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return BudgetsReadService(active_database).snapshot(month)
 
     return app
 

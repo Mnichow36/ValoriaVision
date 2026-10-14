@@ -196,6 +196,47 @@ export interface ForecastSnapshot {
   upcoming: ForecastEvent[];
 }
 
+export interface BudgetTransaction {
+  id: number;
+  date: string;
+  label: string;
+  amount: number;
+}
+
+export interface BudgetCategoryRow {
+  id: number | null;
+  category: string;
+  planned: number;
+  actual: number;
+  remaining: number;
+  difference: number;
+  usage: number;
+  alertThreshold: number;
+  status: string;
+  notes: string;
+  transactions: BudgetTransaction[];
+}
+
+export interface BudgetsSnapshot {
+  generatedAt: string;
+  currency: string;
+  month: string;
+  months: string[];
+  summary: {
+    totalPlanned: number;
+    totalRealized: number;
+    totalRemaining: number;
+    usageTotal: number;
+    categoryCount: number;
+    overCount: number;
+    warningCount: number;
+    status: string;
+    biggestGap: number;
+    biggestGapCategory: string;
+  };
+  rows: BudgetCategoryRow[];
+}
+
 export interface ApiHealth {
   status: "ok";
   service: string;

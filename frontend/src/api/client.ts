@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, DashboardSnapshot, ForecastSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -91,4 +91,12 @@ export function getForecast(
   });
   if (filters.accountId !== "all") query.set("account_id", filters.accountId);
   return request<ForecastSnapshot>(`/api/v1/forecast?${query.toString()}`, { token, signal });
+}
+
+export function getBudgets(token: string, month: string, signal?: AbortSignal): Promise<BudgetsSnapshot> {
+  const query = new URLSearchParams();
+  if (month) query.set("month", month);
+  const encoded = query.toString();
+  const suffix = encoded ? `?${encoded}` : "";
+  return request<BudgetsSnapshot>(`/api/v1/budgets${suffix}`, { token, signal });
 }

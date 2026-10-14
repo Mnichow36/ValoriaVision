@@ -5,6 +5,7 @@ import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
 import { AuthScreen } from "./components/AuthScreen";
+import { BudgetsPage } from "./components/BudgetsPage";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
 import { ForecastPage } from "./components/ForecastPage";
@@ -72,6 +73,8 @@ export function App() {
   const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
   const [forecastHorizonDays, setForecastHorizonDays] = useState(90);
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
+  const [budgetMonth, setBudgetMonth] = useState("");
+  const [budgetMonths, setBudgetMonths] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -139,10 +142,13 @@ export function App() {
             activeModule={activeModule}
             accountStatusFilter={accountStatusFilter}
             dashboard={state.snapshot}
+            budgetMonth={budgetMonth}
+            budgetMonths={budgetMonths}
             forecastAccountId={forecastAccountId}
             forecastAccounts={forecastAccounts}
             forecastHorizonDays={forecastHorizonDays}
             onAccountStatusChange={setAccountStatusFilter}
+            onBudgetMonthChange={setBudgetMonth}
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
             onNavigate={setActiveModule}
@@ -162,7 +168,8 @@ export function App() {
               token={state.token}
             />
           )}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && <ModulePlaceholder module={module} />}
+          {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -172,22 +179,28 @@ export function App() {
 function HeaderActions({
   accountStatusFilter,
   activeModule,
+  budgetMonth,
+  budgetMonths,
   dashboard,
   forecastAccountId,
   forecastAccounts,
   forecastHorizonDays,
   onAccountStatusChange,
+  onBudgetMonthChange,
   onForecastAccountChange,
   onForecastHorizonChange,
   onNavigate,
 }: {
   accountStatusFilter: string;
   activeModule: NavigationId;
+  budgetMonth: string;
+  budgetMonths: string[];
   dashboard: DashboardSnapshot;
   forecastAccountId: string;
   forecastAccounts: ForecastAccount[];
   forecastHorizonDays: number;
   onAccountStatusChange: (value: string) => void;
+  onBudgetMonthChange: (value: string) => void;
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
   onNavigate: (destination: NavigationId) => void;
@@ -235,6 +248,17 @@ function HeaderActions({
           <option value={90}>90 jours</option>
         </select>
         <button aria-disabled="true" className="header-action-disabled" title="Création de récurrence prévue dans l’incrément d’édition" type="button">Nouvelle récurrence</button>
+      </div>
+    );
+  }
+  if (activeModule === "budgets") {
+    return (
+      <div className="header-actions">
+        <select aria-label="Mois budgétaire" onChange={(event) => onBudgetMonthChange(event.target.value)} value={budgetMonth}>
+          {!budgetMonth && <option value="">Mois courant</option>}
+          {budgetMonths.map((month) => <option key={month} value={month}>{formatBudgetMonth(month)}</option>)}
+        </select>
+        <button aria-disabled="true" className="header-action-disabled" title="Création de budget prévue dans l’incrément d’édition" type="button">Nouveau budget</button>
       </div>
     );
   }
@@ -365,6 +389,13 @@ function FlowBar({ label, maximum, tone, value }: { label: string; maximum: numb
 }
 
 function formatPeriod(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  if (!year || !month) return period;
+  const result = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return result.charAt(0).toUpperCase() + result.slice(1);
+}
+
+function formatBudgetMonth(period: string): string {
   const [year, month] = period.split("-").map(Number);
   if (!year || !month) return period;
   const result = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
