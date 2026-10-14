@@ -130,7 +130,7 @@ function BudgetDetail({ row }: { row?: BudgetCategoryRow }) {
       <span className={row.difference > 0 ? "budget-gap budget-gap--danger" : "budget-gap budget-gap--success"}>{signedMoney(row.difference)}</span>
       <div className="budget-detail__transactions">
         {row.transactions.length > 0 ? row.transactions.map((transaction) => (
-          <div key={transaction.id}><strong>{transaction.label}</strong><span>{signedMoney(transaction.amount)}</span></div>
+          <div key={transaction.id}><strong title={transaction.label}>{transaction.label}</strong><span>{signedMoney(transaction.amount)}</span></div>
         )) : <p>Aucune transaction détaillée pour cette catégorie.</p>}
       </div>
       <button aria-disabled="true" title="Édition budgétaire prévue dans l’incrément suivant" type="button">Ajuster budget</button>
