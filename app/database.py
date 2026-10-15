@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from app.imports.counterparty_parser import extract_counterparty
+from app.services.counterparty_parser import extract_counterparty
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.services.reconciliation import (
