@@ -117,6 +117,7 @@ class TransactionsReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["summary"]["reviewCount"], 1)
         self.assertEqual(snapshot["categories"][0]["id"], 4)
         self.assertEqual(snapshot["transactions"][0]["accountName"], "Compte courant")
+        self.assertEqual(snapshot["transactions"][0]["beneficiary"], "VIREMENT REÇU")
         self.assertEqual(snapshot["transactions"][0]["ruleSuggestion"], "VIREMENT REÇU")
         self.assertEqual(snapshot["transactions"][1]["category"], "À catégoriser")
         self.assertEqual(snapshot["recentImport"]["recognizedCount"], 3)
