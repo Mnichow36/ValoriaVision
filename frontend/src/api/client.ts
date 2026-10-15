@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -74,6 +74,48 @@ export function getDashboard(token: string, signal?: AbortSignal): Promise<Dashb
 
 export function getAccounts(token: string, signal?: AbortSignal): Promise<AccountsSnapshot> {
   return request<AccountsSnapshot>("/api/v1/accounts", { token, signal });
+}
+
+function accountBody(payload: AccountPayload) {
+  return {
+    name: payload.name,
+    bank: payload.bank,
+    account_type: payload.type,
+    identifier: payload.identifier,
+    initial_balance: payload.initialBalance,
+    initial_date: payload.initialDate,
+    currency: payload.currency,
+    status: payload.status,
+  };
+}
+
+export function createAccount(token: string, payload: AccountPayload): Promise<AccountActionResult> {
+  return request<AccountActionResult>("/api/v1/accounts", {
+    method: "POST",
+    token,
+    body: accountBody(payload),
+  });
+}
+
+export function updateAccount(token: string, accountId: number, payload: AccountPayload): Promise<AccountActionResult> {
+  return request<AccountActionResult>(`/api/v1/accounts/${accountId}`, {
+    method: "POST",
+    token,
+    body: accountBody(payload),
+  });
+}
+
+export function updateAccountReference(
+  token: string,
+  accountId: number,
+  initialBalance: number,
+  initialDate: string,
+): Promise<AccountActionResult> {
+  return request<AccountActionResult>(`/api/v1/accounts/${accountId}/reference`, {
+    method: "POST",
+    token,
+    body: { initial_balance: initialBalance, initial_date: initialDate },
+  });
 }
 
 export function getTransactions(token: string, signal?: AbortSignal): Promise<TransactionsSnapshot> {

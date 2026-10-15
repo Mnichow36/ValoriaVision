@@ -8,6 +8,7 @@ interface BankImportPageProps {
   onImportCompleted: () => void;
   onNavigateSettings: () => void;
   onViewChange: (view: "journal" | "import" | "history") => void;
+  preferredAccountId?: number;
   snapshot: TransactionsSnapshot;
   token: string;
   view: "import" | "history";
@@ -36,6 +37,7 @@ export function BankImportPage({
   onImportCompleted,
   onNavigateSettings,
   onViewChange,
+  preferredAccountId,
   snapshot,
   token,
   view,
@@ -60,6 +62,12 @@ export function BankImportPage({
   useEffect(() => {
     if (!accountId && activeAccounts[0]) setAccountId(String(activeAccounts[0].id));
   }, [accountId, activeAccounts]);
+
+  useEffect(() => {
+    if (preferredAccountId && snapshot.accounts.some((account) => account.id === preferredAccountId)) {
+      setAccountId(String(preferredAccountId));
+    }
+  }, [preferredAccountId, snapshot.accounts]);
 
   async function analyze(selectedFile: SelectedFile, selectedAccountId: string) {
     setBusy(true);

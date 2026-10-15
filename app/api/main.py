@@ -77,6 +77,22 @@ class BankImportCommitPayload(BaseModel):
     account_id: int | None = None
 
 
+class AccountPayload(BaseModel):
+    name: str
+    bank: str
+    account_type: str
+    identifier: str = ""
+    initial_balance: float = 0
+    initial_date: str
+    currency: str = "EUR"
+    status: str = "Actif"
+
+
+class AccountReferencePayload(BaseModel):
+    initial_balance: float
+    initial_date: str
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -217,6 +233,58 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return AccountsReadService(active_database).snapshot()
+
+    @app.post("/api/v1/accounts")
+    def create_account(
+        payload: AccountPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return AccountsReadService(active_database).create(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/accounts/{account_id}")
+    def update_account(
+        account_id: int,
+        payload: AccountPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return AccountsReadService(active_database).update(account_id, payload.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/accounts/{account_id}/reference")
+    def update_account_reference(
+        account_id: int,
+        payload: AccountReferencePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return AccountsReadService(active_database).update_reference(
+                account_id,
+                payload.initial_balance,
+                payload.initial_date,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/v1/transactions")
     def transactions(

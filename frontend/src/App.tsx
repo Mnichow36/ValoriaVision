@@ -86,6 +86,8 @@ export function App() {
   const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
+  const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
+  const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,13 +122,14 @@ export function App() {
     await closeSession(token).catch(() => undefined);
   }
 
-  function openBankImport() {
+  function openBankImport(accountId?: number) {
+    setPreferredImportAccountId(accountId);
     setActiveModule("transactions");
     setTransactionsView("import");
     setTransactionImportRequestKey((key) => key + 1);
   }
 
-  async function refreshDashboardAfterImport() {
+  async function refreshDashboard() {
     if (state.status !== "ready") return;
     const snapshot = await getDashboard(state.token).catch(() => undefined);
     if (snapshot) setState({ status: "ready", snapshot, token: state.token });
@@ -178,10 +181,11 @@ export function App() {
             forecastAccounts={forecastAccounts}
             forecastHorizonDays={forecastHorizonDays}
             onAccountStatusChange={setAccountStatusFilter}
+            onAddAccount={() => setAccountEditorRequestKey((key) => key + 1)}
             onBudgetMonthChange={setBudgetMonth}
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
-            onOpenTransactionImport={openBankImport}
+            onOpenTransactionImport={() => openBankImport()}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
             onReconciliationStatusChange={setReconciliationStatus}
@@ -194,13 +198,22 @@ export function App() {
         </header>
         <div className="workspace-content">
           {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
-          {activeModule === "accounts" && <AccountsPage statusFilter={accountStatusFilter} token={state.token} />}
+          {activeModule === "accounts" && (
+            <AccountsPage
+              editorRequestKey={accountEditorRequestKey}
+              onAccountChanged={() => void refreshDashboard()}
+              onAttachImport={openBankImport}
+              statusFilter={accountStatusFilter}
+              token={state.token}
+            />
+          )}
           {activeModule === "transactions" && (
             <TransactionsPage
               importRequestKey={transactionImportRequestKey}
-              onImportCompleted={() => void refreshDashboardAfterImport()}
+              onImportCompleted={() => void refreshDashboard()}
               onNavigateSettings={() => setActiveModule("settings")}
               onViewChange={setTransactionsView}
+              preferredImportAccountId={preferredImportAccountId}
               token={state.token}
               view={transactionsView}
             />
@@ -244,6 +257,7 @@ function HeaderActions({
   forecastAccounts,
   forecastHorizonDays,
   onAccountStatusChange,
+  onAddAccount,
   onBudgetMonthChange,
   onForecastAccountChange,
   onForecastHorizonChange,
@@ -266,6 +280,7 @@ function HeaderActions({
   forecastAccounts: ForecastAccount[];
   forecastHorizonDays: number;
   onAccountStatusChange: (value: string) => void;
+  onAddAccount: () => void;
   onBudgetMonthChange: (value: string) => void;
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
@@ -291,7 +306,7 @@ function HeaderActions({
   if (activeModule === "accounts") {
     return (
       <div className="header-actions">
-        <button aria-disabled="true" className="header-action-disabled" title="Ajout de compte prévu dans l’incrément d’édition" type="button">Ajouter un compte</button>
+        <button onClick={onAddAccount} type="button">Ajouter un compte</button>
         <select aria-label="Filtrer les comptes par statut" onChange={(event) => onAccountStatusChange(event.target.value)} value={accountStatusFilter}>
           <option>Tous</option>
           <option>Actif</option>

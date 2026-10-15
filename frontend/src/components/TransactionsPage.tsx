@@ -9,6 +9,7 @@ interface TransactionsPageProps {
   onImportCompleted: () => void;
   onNavigateSettings: () => void;
   onViewChange: (view: TransactionsView) => void;
+  preferredImportAccountId?: number;
   token: string;
   view: TransactionsView;
 }
@@ -28,7 +29,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ importRequestKey, onImportCompleted, onNavigateSettings, onViewChange, token, view }: TransactionsPageProps) {
+export function TransactionsPage({ importRequestKey, onImportCompleted, onNavigateSettings, onViewChange, preferredImportAccountId, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -97,6 +98,7 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
         }}
         onNavigateSettings={onNavigateSettings}
         onViewChange={onViewChange}
+        preferredAccountId={preferredImportAccountId}
         snapshot={snapshot}
         token={token}
         view={view}

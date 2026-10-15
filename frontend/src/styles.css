@@ -194,6 +194,8 @@ button { cursor: pointer; }
 .module-placeholder__status i { background: var(--success); border-radius: 50%; height: 7px; width: 7px; }
 
 .accounts-page { display: grid; gap: 18px; }
+.account-notice { align-items: center; background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 10px; color: #15803d; display: flex; font-size: 12px; font-weight: 800; gap: 8px; padding: 10px 14px; }
+.account-notice span { align-items: center; background: #16a34a; border-radius: 50%; color: #fff; display: inline-flex; height: 18px; justify-content: center; width: 18px; }
 .accounts-toolbar { align-items: center; display: flex; min-height: 36px; }
 .account-tabs { display: flex; gap: 7px; }
 .account-tab { background: #eef2f7; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 13px; font-weight: 800; padding: 9px 14px; }
@@ -228,12 +230,14 @@ button { cursor: pointer; }
 .amount--negative { color: var(--danger) !important; }
 .amount--positive { color: var(--success); }
 .account-detail { display: flex; flex-direction: column; }
+.account-edit-link { background: transparent; border: 0; color: var(--primary); font-size: 10px; font-weight: 800; padding: 3px 0; }
+.account-edit-link:hover { text-decoration: underline; }
 .account-detail dl, .import-association dl { display: grid; gap: 10px; margin: 10px 0 0; }
 .account-detail dl > div, .import-association dl > div { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 9px 14px; }
 .account-detail dt, .import-association dt { color: var(--muted); font-size: 10px; font-weight: 800; }
 .account-detail dd, .import-association dd { font-size: 12px; font-weight: 800; margin: 3px 0 0; }
 .account-detail__actions { display: flex; gap: 9px; margin-top: auto; }
-.account-detail__actions button { background: #fff; border: 1px solid var(--border); border-radius: 10px; color: var(--navy); cursor: not-allowed; font-size: 12px; font-weight: 800; min-height: 39px; padding: 10px 13px; }
+.account-detail__actions button { background: #fff; border: 1px solid var(--border); border-radius: 10px; color: var(--navy); font-size: 12px; font-weight: 800; min-height: 39px; padding: 10px 13px; }
 .account-detail__actions .primary-button { background: var(--primary); border-color: var(--primary); color: #fff; }
 .account-empty-row { color: var(--muted); font-size: 11px; padding: 28px 8px; text-align: center; }
 .account-wide-panel { min-height: 420px; }
@@ -244,9 +248,31 @@ button { cursor: pointer; }
 .account-empty { min-height: 260px; padding: 50px; text-align: center; }
 .account-empty strong { font-size: 16px; }
 .account-empty p { color: var(--muted); font-size: 11px; }
+.account-empty button { background: var(--primary); border: 0; border-radius: 9px; color: #fff; font-size: 12px; font-weight: 800; margin-top: 12px; padding: 10px 14px; }
 .accounts-summary { align-items: center; color: var(--muted); display: flex; font-size: 10px; gap: 18px; padding: 2px 4px; }
 .accounts-summary strong { color: var(--navy); }
 .accounts-summary small { margin-left: auto; }
+.account-editor-backdrop { align-items: stretch; background: rgba(4, 17, 38, .44); display: flex; inset: 0; justify-content: flex-end; position: fixed; z-index: 50; }
+.account-editor { animation: account-editor-in .18s ease-out; background: #fff; box-shadow: -18px 0 55px rgba(7, 26, 58, .2); display: flex; flex-direction: column; height: 100vh; overflow-y: auto; width: min(520px, 100vw); }
+.account-editor--compact { width: min(480px, 100vw); }
+.account-editor > header { align-items: flex-start; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; padding: 28px 30px 22px; }
+.account-editor > header h2 { font-size: 23px; margin: 6px 0 0; }
+.account-editor > header > button { align-items: center; background: #f1f5f9; border: 0; border-radius: 9px; color: var(--muted); display: flex; font-size: 24px; height: 36px; justify-content: center; line-height: 1; width: 36px; }
+.account-editor > form { display: flex; flex: 1; flex-direction: column; padding: 26px 30px 30px; }
+.account-editor-grid { display: grid; gap: 19px 16px; grid-template-columns: 1fr 1fr; }
+.account-field { display: grid; gap: 7px; min-width: 0; }
+.account-field--wide { grid-column: 1 / -1; }
+.account-field > span { color: #45516c; font-size: 11px; font-weight: 800; }
+.account-field input, .account-field select { background: #fff; border: 1px solid #d7dfeb; border-radius: 9px; color: var(--navy); height: 43px; min-width: 0; outline: 0; padding: 0 12px; width: 100%; }
+.account-field input:focus, .account-field select:focus { border-color: #85a9fa; box-shadow: 0 0 0 3px rgba(37, 99, 235, .08); }
+.account-field small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.account-editor-note { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 11px; line-height: 1.55; margin: 22px 0 0; padding: 12px 14px; }
+.account-form-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 9px; color: #be123c; font-size: 11px; font-weight: 700; margin-top: 16px; padding: 11px 13px; }
+.account-editor footer { border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; margin: auto -30px -30px; padding: 20px 30px; }
+.account-editor footer button { background: var(--primary); border: 1px solid var(--primary); border-radius: 9px; color: #fff; font-size: 12px; font-weight: 800; min-height: 41px; padding: 10px 16px; }
+.account-editor footer .secondary-button { background: #fff; border-color: var(--border); color: var(--navy); }
+.account-editor button:disabled { cursor: wait; opacity: .65; }
+@keyframes account-editor-in { from { opacity: .7; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
 
 .transactions-page { display: grid; gap: 24px; }
 .transactions-journal { min-height: 527px; padding: 20px; }

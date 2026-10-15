@@ -86,6 +86,23 @@ export interface AccountsSnapshot {
   accounts: AccountOverview[];
 }
 
+export interface AccountPayload {
+  name: string;
+  bank: string;
+  type: string;
+  identifier: string;
+  initialBalance: number;
+  initialDate: string;
+  currency: string;
+  status: string;
+}
+
+export interface AccountActionResult {
+  success: boolean;
+  message: string;
+  accountId: number;
+}
+
 export interface TransactionAccount {
   id: number;
   name: string;
