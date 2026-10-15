@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from app.imports.counterparty_parser import extract_counterparty
+from app.services.counterparty_parser import extract_counterparty
 from app.imports.csv_parser import payload_to_json
 from app.imports.import_models import ImportAnalysis, ImportedTransaction
 from app.imports.import_service import BankImportService
