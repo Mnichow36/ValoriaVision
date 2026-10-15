@@ -175,6 +175,21 @@ class SettingsReadService:
         self.categorization.update_rule(rule_id, payload)
         return {"success": True, "message": "Règle mise à jour.", "id": rule_id}
 
+    def create_rule_from_transaction(self, transaction_id: int, target_category_id: int) -> dict[str, Any]:
+        if target_category_id <= 0:
+            raise ValueError("La catégorie cible est obligatoire.")
+        created_id = int(
+            self.categorization.create_rule_from_transaction(
+                transaction_id,
+                target_category_id,
+            )
+        )
+        return {
+            "success": True,
+            "message": "Règle créée pour les prochaines opérations similaires.",
+            "id": created_id,
+        }
+
     def set_rule_active(self, rule_id: int, active: bool) -> dict[str, Any]:
         self.categorization.set_rule_active(rule_id, active)
         return {
