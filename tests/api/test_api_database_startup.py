@@ -12,8 +12,11 @@ class ApiDatabaseStartupTest(unittest.TestCase):
     def test_existing_database_is_migrated_before_bulk_actions(self):
         with TemporaryDirectory() as root:
             database = Database(Path(root) / "valoria.db")
-            database.initialize()
             with database.connect() as conn:
+                database.create_schema(conn)
+                database.apply_migrations(conn)
+                database.seed_if_empty(conn)
+                database.seed_recurring_items(conn)
                 conn.execute("ALTER TABLE transactions DROP COLUMN categorization_status")
                 conn.execute("ALTER TABLE transactions DROP COLUMN categorized_by")
 
