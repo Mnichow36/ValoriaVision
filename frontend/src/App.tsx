@@ -210,7 +210,7 @@ export function App() {
           {activeModule === "transactions" && (
             <TransactionsPage
               importRequestKey={transactionImportRequestKey}
-              onImportCompleted={() => void refreshDashboard()}
+              onDataChanged={() => void refreshDashboard()}
               onNavigateSettings={() => setActiveModule("settings")}
               onViewChange={setTransactionsView}
               preferredImportAccountId={preferredImportAccountId}

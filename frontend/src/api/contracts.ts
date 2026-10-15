@@ -131,6 +131,22 @@ export interface TransactionRow {
   importBatchId: number | null;
 }
 
+export interface TransactionEditPayload {
+  accountId: number;
+  date: string;
+  label: string;
+  category: string;
+  direction: "Débit" | "Crédit";
+  amount: number;
+  status: string;
+}
+
+export interface TransactionActionResult {
+  success: boolean;
+  message: string;
+  transactionId: number;
+}
+
 export interface RecentImport {
   id: number;
   fileName: string;

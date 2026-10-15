@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import math
 from typing import Any, Callable
 
 
@@ -41,7 +42,7 @@ def _requires_review(row: Any) -> bool:
 
 
 class TransactionsReadService:
-    """Expose the transaction journal through a stable read-only contract."""
+    """Expose the transaction journal through a stable application contract."""
 
     def __init__(
         self,
@@ -74,6 +75,79 @@ class TransactionsReadService:
             "categories": categories,
             "transactions": transactions,
             "recentImport": self._recent_import(recent_imports[0]) if recent_imports else None,
+        }
+
+    def update(self, transaction_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate an edit then delegate every business side effect to Database."""
+        row = self.database.get_transaction(transaction_id)
+        if row is None:
+            raise KeyError("Cette transaction n’existe pas.")
+
+        account_id = _integer(payload.get("account_id"))
+        if not any(_integer(_field(account, "id", 0)) == account_id for account in self.database.list_accounts()):
+            raise ValueError("Le compte sélectionné n’existe pas.")
+
+        transaction_date = str(payload.get("tx_date", "") or "").strip()
+        try:
+            transaction_date = date.fromisoformat(transaction_date).isoformat()
+        except ValueError as exc:
+            raise ValueError("La date de transaction est obligatoire et doit être valide.") from exc
+
+        label = str(payload.get("label", "") or "").strip()
+        if not label:
+            raise ValueError("Le libellé de la transaction est obligatoire.")
+
+        category = str(payload.get("category", "") or "").strip()
+        if category.casefold() == "à catégoriser".casefold():
+            category = ""
+        categories = {
+            str(_field(item, "name", "") or "").strip()
+            for item in self.database.list_categories()
+        }
+        if category and category not in categories:
+            raise ValueError("La catégorie sélectionnée n’existe pas.")
+
+        direction = str(payload.get("direction", "") or "").strip()
+        if direction not in {"Débit", "Crédit"}:
+            raise ValueError("Le sens doit être Débit ou Crédit.")
+        try:
+            absolute_amount = abs(float(payload.get("amount", 0)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Le montant doit être un nombre.") from exc
+        if not math.isfinite(absolute_amount):
+            raise ValueError("Le montant doit être un nombre fini.")
+        amount = -absolute_amount if direction == "Débit" else absolute_amount
+
+        status = str(payload.get("status", "") or "").strip()
+        allowed_statuses = {
+            "Validée",
+            "À catégoriser",
+            "Catégorisée automatiquement",
+            "À vérifier",
+            "À revoir",
+            "À confirmer",
+            "Règle auto",
+            "Rapprochée",
+            str(_field(row, "status", "") or "").strip(),
+        }
+        if not category:
+            status = "À catégoriser"
+        elif status not in allowed_statuses:
+            raise ValueError("Le statut sélectionné n’est pas reconnu.")
+
+        self.database.update_transaction(transaction_id, {
+            "account_id": account_id,
+            "tx_date": transaction_date,
+            "label": label,
+            "category": category or None,
+            "amount": round(amount, 2),
+            "direction_explicit": True,
+            "status": status,
+        })
+        return {
+            "success": True,
+            "message": "La transaction a été mise à jour.",
+            "transactionId": transaction_id,
         }
 
     @staticmethod

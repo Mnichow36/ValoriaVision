@@ -93,6 +93,16 @@ class AccountReferencePayload(BaseModel):
     initial_date: str
 
 
+class TransactionPayload(BaseModel):
+    account_id: int
+    tx_date: str
+    label: str
+    category: str | None = None
+    direction: str
+    amount: float
+    status: str
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -295,6 +305,23 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return TransactionsReadService(active_database).snapshot()
+
+    @app.post("/api/v1/transactions/{transaction_id}")
+    def update_transaction(
+        transaction_id: int,
+        payload: TransactionPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return TransactionsReadService(active_database).update(transaction_id, payload.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/v1/transactions/imports/preview")
     def preview_bank_import(

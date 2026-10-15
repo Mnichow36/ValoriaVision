@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -120,6 +120,26 @@ export function updateAccountReference(
 
 export function getTransactions(token: string, signal?: AbortSignal): Promise<TransactionsSnapshot> {
   return request<TransactionsSnapshot>("/api/v1/transactions", { token, signal });
+}
+
+export function updateTransaction(
+  token: string,
+  transactionId: number,
+  payload: TransactionEditPayload,
+): Promise<TransactionActionResult> {
+  return request<TransactionActionResult>(`/api/v1/transactions/${transactionId}`, {
+    method: "POST",
+    token,
+    body: {
+      account_id: payload.accountId,
+      tx_date: payload.date,
+      label: payload.label,
+      category: payload.category || null,
+      direction: payload.direction,
+      amount: payload.amount,
+      status: payload.status,
+    },
+  });
 }
 
 export function previewBankImport(

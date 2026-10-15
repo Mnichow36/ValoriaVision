@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { getTransactions } from "../api/client";
-import type { TransactionRow, TransactionsSnapshot } from "../api/contracts";
+import { getTransactions, updateTransaction } from "../api/client";
+import type { TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
 
 interface TransactionsPageProps {
   importRequestKey: number;
-  onImportCompleted: () => void;
+  onDataChanged: () => void;
   onNavigateSettings: () => void;
   onViewChange: (view: TransactionsView) => void;
   preferredImportAccountId?: number;
@@ -29,7 +29,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ importRequestKey, onImportCompleted, onNavigateSettings, onViewChange, preferredImportAccountId, token, view }: TransactionsPageProps) {
+export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -37,6 +37,8 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
   const [accountId, setAccountId] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [editing, setEditing] = useState<TransactionRow>();
+  const [notice, setNotice] = useState<string>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -94,7 +96,7 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
         importRequestKey={importRequestKey}
         onImportCompleted={() => {
           setRefreshKey((key) => key + 1);
-          onImportCompleted();
+          onDataChanged();
         }}
         onNavigateSettings={onNavigateSettings}
         onViewChange={onViewChange}
@@ -108,6 +110,7 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
 
   return (
     <div className="transactions-page">
+      {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
         <div className="transaction-filters" role="search">
@@ -126,7 +129,7 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
             <thead><tr><th>Date</th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
             <tbody>
               {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
-                <TransactionLine key={transaction.id} transaction={transaction} />
+                <TransactionLine key={transaction.id} onEdit={() => setEditing(transaction)} transaction={transaction} />
               )) : (
                 <tr><td className="transactions-empty" colSpan={6}>Aucune opération ne correspond aux filtres sélectionnés.</td></tr>
               )}
@@ -164,13 +167,39 @@ export function TransactionsPage({ importRequestKey, onImportCompleted, onNaviga
           title="Qualité données"
         />
       </section>
+      {editing && (
+        <TransactionEditor
+          onClose={() => setEditing(undefined)}
+          onCompleted={(result) => {
+            setEditing(undefined);
+            setNotice(result.message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+          snapshot={snapshot}
+          token={token}
+          transaction={editing}
+        />
+      )}
     </div>
   );
 }
 
-function TransactionLine({ transaction }: { transaction: TransactionRow }) {
+function TransactionLine({ onEdit, transaction }: { onEdit: () => void; transaction: TransactionRow }) {
   return (
-    <tr>
+    <tr
+      aria-label={`Modifier la transaction ${transaction.label}`}
+      className="transaction-row-action"
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
+      }}
+      tabIndex={0}
+      title="Ouvrir et modifier cette transaction"
+    >
       <td>{formatDate(transaction.date)}</td>
       <td>{shortAccount(transaction)}</td>
       <td>{transaction.label}</td>
@@ -178,6 +207,84 @@ function TransactionLine({ transaction }: { transaction: TransactionRow }) {
       <td><span className={`transaction-pill transaction-pill--${statusTone(transaction.status)}`}>{transaction.status}</span></td>
       <td className={transaction.amount < 0 ? "transaction-amount transaction-amount--negative" : "transaction-amount transaction-amount--positive"}>{signedMoney(transaction.amount)}</td>
     </tr>
+  );
+}
+
+function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction }: {
+  onClose: () => void;
+  onCompleted: (result: TransactionActionResult) => void;
+  snapshot: TransactionsSnapshot;
+  token: string;
+  transaction: TransactionRow;
+}) {
+  const [draft, setDraft] = useState<TransactionEditPayload>({
+    accountId: transaction.accountId,
+    date: transaction.date,
+    label: transaction.label,
+    category: transaction.category === "À catégoriser" ? "" : transaction.category,
+    direction: transaction.type === "Crédit" || transaction.amount >= 0 ? "Crédit" : "Débit",
+    amount: Math.abs(transaction.amount),
+    status: transaction.status,
+  });
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+  const statuses = Array.from(new Set([
+    transaction.status,
+    "Validée",
+    "À catégoriser",
+    "À vérifier",
+    "À revoir",
+  ].filter(Boolean)));
+
+  function field<Key extends keyof TransactionEditPayload>(key: Key, value: TransactionEditPayload[Key]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function changeCategory(category: string) {
+    setDraft((current) => ({
+      ...current,
+      category,
+      status: category && current.status === "À catégoriser" ? "Validée" : !category ? "À catégoriser" : current.status,
+    }));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      onCompleted(await updateTransaction(token, transaction.id, draft));
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="transaction-editor-title" aria-modal="true" className="account-editor transaction-editor" role="dialog">
+        <header>
+          <div><span className="eyebrow">Transaction n°{transaction.id}</span><h2 id="transaction-editor-title">Modifier et valider</h2></div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="transaction-editor-source"><span>Source</span><strong>{transaction.source || "Non renseignée"}</strong>{transaction.importBatchId && <small>Lot d’import n°{transaction.importBatchId}</small>}</div>
+          <div className="account-editor-grid">
+            <label className="account-field account-field--wide"><span>Compte *</span><select onChange={(event) => field("accountId", Number(event.target.value))} value={draft.accountId}>{snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}</select></label>
+            <label className="account-field"><span>Date *</span><input onChange={(event) => field("date", event.target.value)} required type="date" value={draft.date} /></label>
+            <label className="account-field"><span>Catégorie</span><select onChange={(event) => changeCategory(event.target.value)} value={draft.category}><option value="">À catégoriser</option>{snapshot.categories.filter((category) => category.name && category.name !== "À catégoriser").map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}</select></label>
+            <label className="account-field account-field--wide"><span>Libellé *</span><input autoFocus maxLength={240} onChange={(event) => field("label", event.target.value)} required value={draft.label} /></label>
+            <label className="account-field"><span>Sens *</span><select onChange={(event) => field("direction", event.target.value as "Débit" | "Crédit")} value={draft.direction}><option>Débit</option><option>Crédit</option></select></label>
+            <label className="account-field"><span>Montant *</span><input min="0" onChange={(event) => field("amount", Number(event.target.value))} required step="0.01" type="number" value={draft.amount} /></label>
+            <label className="account-field account-field--wide"><span>Statut *</span><select onChange={(event) => field("status", event.target.value)} value={draft.status}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+          </div>
+          <p className="account-editor-note">La modification réévalue automatiquement les budgets, le prévisionnel et les rapprochements liés.</p>
+          {formError && <div className="account-form-error" role="alert">{formError}</div>}
+          <footer><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} type="submit">{busy ? "Enregistrement…" : "Enregistrer et valider"}</button></footer>
+        </form>
+      </aside>
+    </div>
   );
 }
 
