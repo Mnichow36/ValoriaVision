@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from app.imports.counterparty_parser import extract_counterparty, normalize_bank_label
+from app.services.counterparty_parser import extract_counterparty, normalize_bank_label
 
 
 class CategorizationRuleService:
