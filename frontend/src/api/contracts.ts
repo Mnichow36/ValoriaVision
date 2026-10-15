@@ -124,6 +124,7 @@ export interface TransactionRow {
   accountName: string;
   bank: string;
   label: string;
+  ruleSuggestion: string;
   category: string;
   status: string;
   amount: number;
