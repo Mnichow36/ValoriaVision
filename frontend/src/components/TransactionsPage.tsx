@@ -341,3 +341,7 @@ function formatDate(value: string): string {
   const date = new Date(`${value}T12:00:00`);
   return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
 }
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Le moteur des transactions ne répond pas.";
+}
