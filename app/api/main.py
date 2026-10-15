@@ -103,6 +103,12 @@ class TransactionPayload(BaseModel):
     status: str
 
 
+class TransactionBulkPayload(BaseModel):
+    transaction_ids: list[int]
+    action: str
+    category: str | None = None
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -320,6 +326,25 @@ def create_app(database: Database | None = None) -> FastAPI:
             return TransactionsReadService(active_database).update(transaction_id, payload.model_dump())
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/transactions/actions/bulk")
+    def bulk_update_transactions(
+        payload: TransactionBulkPayload,
+        authorization: str | None = Header(default=None),
+    ):
+        token = _bearer_token(authorization)
+        if not sessions.is_valid(token):
+            raise HTTPException(status_code=401, detail="Session invalide ou expirée.")
+        try:
+            return TransactionsReadService(active_database).bulk_update(
+                payload.transaction_ids,
+                payload.action,
+                payload.category,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_exception_message(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

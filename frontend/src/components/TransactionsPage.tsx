@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { getTransactions, updateTransaction } from "../api/client";
+import { bulkUpdateTransactions, getTransactions, updateTransaction } from "../api/client";
 import type { TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
 
@@ -39,6 +39,10 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
   const [dateTo, setDateTo] = useState("");
   const [editing, setEditing] = useState<TransactionRow>();
   const [notice, setNotice] = useState<string>();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -75,6 +79,52 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
       return matchesSearch && matchesAccount && matchesFrom && matchesTo;
     });
   }, [accountId, dateFrom, dateTo, search, snapshot]);
+
+  const visibleIds = visibleTransactions.map((transaction) => transaction.id);
+  const visibleSelectedIds = selectedIds.filter((id) => visibleIds.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleSelectedIds.length === visibleIds.length;
+
+  function clearSelectionForFilter(change: () => void) {
+    setSelectedIds([]);
+    setBulkError(undefined);
+    change();
+  }
+
+  function toggleTransaction(transactionId: number) {
+    setSelectedIds((current) => current.includes(transactionId)
+      ? current.filter((id) => id !== transactionId)
+      : [...current, transactionId]);
+    setBulkError(undefined);
+  }
+
+  function toggleVisible() {
+    setSelectedIds((current) => allVisibleSelected
+      ? current.filter((id) => !visibleIds.includes(id))
+      : Array.from(new Set([...current, ...visibleIds])));
+    setBulkError(undefined);
+  }
+
+  async function runBulkAction(action: "category" | "validate") {
+    if (visibleSelectedIds.length === 0) return;
+    if (action === "category" && !bulkCategory) {
+      setBulkError("Choisissez une catégorie à appliquer.");
+      return;
+    }
+    setBulkBusy(true);
+    setBulkError(undefined);
+    try {
+      const result = await bulkUpdateTransactions(token, visibleSelectedIds, action, bulkCategory);
+      setNotice(result.message);
+      setSelectedIds([]);
+      setBulkCategory("");
+      setRefreshKey((key) => key + 1);
+      onDataChanged();
+    } catch (cause: unknown) {
+      setBulkError(errorMessage(cause));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   if (error) {
     return (
@@ -114,22 +164,42 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
         <div className="transaction-filters" role="search">
-          <input aria-label="Rechercher une transaction" onChange={(event) => setSearch(event.target.value)} placeholder="Recherche libellé, montant…" type="search" value={search} />
-          <select aria-label="Filtrer par compte" onChange={(event) => setAccountId(event.target.value)} value={accountId}>
+          <input aria-label="Rechercher une transaction" onChange={(event) => clearSelectionForFilter(() => setSearch(event.target.value))} placeholder="Recherche libellé, montant…" type="search" value={search} />
+          <select aria-label="Filtrer par compte" onChange={(event) => clearSelectionForFilter(() => setAccountId(event.target.value))} value={accountId}>
             <option value="all">Tous les comptes</option>
             {snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
           </select>
-          <label><span>Du</span><input aria-label="Date de début" onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} /></label>
-          <label><span>Au</span><input aria-label="Date de fin" onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} /></label>
+          <label><span>Du</span><input aria-label="Date de début" onChange={(event) => clearSelectionForFilter(() => setDateFrom(event.target.value))} type="date" value={dateFrom} /></label>
+          <label><span>Au</span><input aria-label="Date de fin" onChange={(event) => clearSelectionForFilter(() => setDateTo(event.target.value))} type="date" value={dateTo} /></label>
           <span className="transaction-count">{visibleTransactions.length} opération{visibleTransactions.length > 1 ? "s" : ""}</span>
         </div>
 
+        {visibleSelectedIds.length > 0 && (
+          <div className="transaction-bulkbar">
+            <strong>{visibleSelectedIds.length} sélectionnée{visibleSelectedIds.length > 1 ? "s" : ""}</strong>
+            <select aria-label="Catégorie groupée" disabled={bulkBusy} onChange={(event) => setBulkCategory(event.target.value)} value={bulkCategory}>
+              <option value="">Choisir une catégorie</option>
+              {snapshot.categories.filter((category) => category.name && category.name !== "À catégoriser").map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}
+            </select>
+            <button className="secondary-button" disabled={bulkBusy || !bulkCategory} onClick={() => void runBulkAction("category")} type="button">Appliquer la catégorie</button>
+            <button disabled={bulkBusy} onClick={() => void runBulkAction("validate")} type="button">Valider la sélection</button>
+            <button aria-label="Désélectionner" className="transaction-bulk-clear" disabled={bulkBusy} onClick={() => setSelectedIds([])} type="button">×</button>
+            {bulkError && <span className="transaction-bulk-error" role="alert">{bulkError}</span>}
+          </div>
+        )}
+
         <div className="transactions-table-wrap">
           <table className="transactions-table">
-            <thead><tr><th>Date</th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
+            <thead><tr><th><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />Date</label></th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
             <tbody>
               {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
-                <TransactionLine key={transaction.id} onEdit={() => setEditing(transaction)} transaction={transaction} />
+                <TransactionLine
+                  key={transaction.id}
+                  onEdit={() => setEditing(transaction)}
+                  onToggle={() => toggleTransaction(transaction.id)}
+                  selected={selectedIds.includes(transaction.id)}
+                  transaction={transaction}
+                />
               )) : (
                 <tr><td className="transactions-empty" colSpan={6}>Aucune opération ne correspond aux filtres sélectionnés.</td></tr>
               )}
@@ -185,11 +255,11 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
   );
 }
 
-function TransactionLine({ onEdit, transaction }: { onEdit: () => void; transaction: TransactionRow }) {
+function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
   return (
     <tr
       aria-label={`Modifier la transaction ${transaction.label}`}
-      className="transaction-row-action"
+      className={selected ? "transaction-row-action transaction-row-action--selected" : "transaction-row-action"}
       onClick={onEdit}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -200,7 +270,7 @@ function TransactionLine({ onEdit, transaction }: { onEdit: () => void; transact
       tabIndex={0}
       title="Ouvrir et modifier cette transaction"
     >
-      <td>{formatDate(transaction.date)}</td>
+      <td><label className="transaction-select" onClick={(event) => event.stopPropagation()}><input aria-label={`Sélectionner ${transaction.label}`} checked={selected} onChange={onToggle} type="checkbox" />{formatDate(transaction.date)}</label></td>
       <td>{shortAccount(transaction)}</td>
       <td>{transaction.label}</td>
       <td><span className={`transaction-pill transaction-pill--${categoryTone(transaction.category)}`}>{transaction.category}</span></td>

@@ -150,6 +150,59 @@ class TransactionsReadService:
             "transactionId": transaction_id,
         }
 
+    def bulk_update(
+        self,
+        transaction_ids: list[int],
+        action: str,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply one explicit, bounded bulk action through existing DB methods."""
+        ids = list(dict.fromkeys(_integer(value) for value in transaction_ids if _integer(value) > 0))
+        if not ids:
+            raise ValueError("Sélectionnez au moins une transaction.")
+        if len(ids) > 500:
+            raise ValueError("Le traitement en lot est limité à 500 transactions.")
+
+        rows = []
+        for transaction_id in ids:
+            row = self.database.get_transaction(transaction_id)
+            if row is None:
+                raise KeyError(f"La transaction n°{transaction_id} n’existe pas.")
+            rows.append(row)
+
+        if action == "category":
+            clean_category = str(category or "").strip()
+            categories = {
+                str(_field(item, "name", "") or "").strip()
+                for item in self.database.list_categories()
+            }
+            if not clean_category or clean_category not in categories:
+                raise ValueError("Choisissez une catégorie existante.")
+            updated = self.database.update_transactions_category(ids, clean_category)
+            message = f"{updated} transaction(s) catégorisée(s)."
+        elif action == "validate":
+            uncategorized = [
+                row
+                for row in rows
+                if not str(_field(row, "category", "") or "").strip()
+                or str(_field(row, "category", "") or "").strip().casefold() == "à catégoriser".casefold()
+            ]
+            if uncategorized:
+                raise ValueError(
+                    "Catégorisez toutes les transactions sélectionnées avant de les valider."
+                )
+            updated = self.database.update_transactions_status(ids, "Validée")
+            message = f"{updated} transaction(s) validée(s)."
+        else:
+            raise ValueError("L’action groupée demandée n’est pas reconnue.")
+
+        return {
+            "success": True,
+            "message": message,
+            "updatedCount": int(updated),
+            "transactionIds": ids,
+        }
+
     @staticmethod
     def _account(row: Any) -> dict[str, Any]:
         return {

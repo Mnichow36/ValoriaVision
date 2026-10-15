@@ -66,6 +66,27 @@ class StubDatabase:
             "status": data["status"],
         })
 
+    def update_transactions_category(self, transaction_ids, category):
+        self.bulk_category = (transaction_ids, category)
+        updated = 0
+        for transaction_id in transaction_ids:
+            row = self.get_transaction(transaction_id)
+            if row is not None:
+                row["category"] = category
+                row["status"] = "Validée"
+                updated += 1
+        return updated
+
+    def update_transactions_status(self, transaction_ids, status):
+        self.bulk_status = (transaction_ids, status)
+        updated = 0
+        for transaction_id in transaction_ids:
+            row = self.get_transaction(transaction_id)
+            if row is not None:
+                row["status"] = status
+                updated += 1
+        return updated
+
     def list_recent_import_batches(self, limit):
         self.import_limit = limit
         return [{
@@ -155,6 +176,35 @@ class TransactionsReadServiceTest(unittest.TestCase):
 
         with self.assertRaisesRegex(KeyError, "n’existe pas"):
             service.update(999, {})
+
+    def test_applies_category_to_unique_bulk_selection(self):
+        database = StubDatabase()
+        service = TransactionsReadService(database)
+
+        result = service.bulk_update([11, 12, 12], "category", "Revenus")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["updatedCount"], 2)
+        self.assertEqual(result["transactionIds"], [11, 12])
+        self.assertEqual(database.bulk_category, ([11, 12], "Revenus"))
+        self.assertEqual(database.get_transaction(12)["category"], "Revenus")
+
+    def test_rejects_bulk_validation_when_a_transaction_is_uncategorized(self):
+        service = TransactionsReadService(StubDatabase())
+
+        with self.assertRaisesRegex(ValueError, "Catégorisez toutes"):
+            service.bulk_update([11, 12], "validate")
+
+    def test_validates_a_categorized_bulk_selection(self):
+        database = StubDatabase()
+        database.get_transaction(12)["category"] = "Revenus"
+        service = TransactionsReadService(database)
+
+        result = service.bulk_update([11, 12], "validate")
+
+        self.assertEqual(result["updatedCount"], 2)
+        self.assertEqual(database.bulk_status, ([11, 12], "Validée"))
+        self.assertEqual(database.get_transaction(12)["status"], "Validée")
 
 
 if __name__ == "__main__":

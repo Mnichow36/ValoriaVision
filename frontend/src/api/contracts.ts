@@ -147,6 +147,13 @@ export interface TransactionActionResult {
   transactionId: number;
 }
 
+export interface TransactionBulkResult {
+  success: boolean;
+  message: string;
+  updatedCount: number;
+  transactionIds: number[];
+}
+
 export interface RecentImport {
   id: number;
   fileName: string;
