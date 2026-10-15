@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
-import unicodedata
 from datetime import datetime
 from uuid import uuid4
+
+from app.imports.counterparty_parser import extract_counterparty, normalize_bank_label
 
 
 class CategorizationRuleService:
@@ -41,12 +41,7 @@ class CategorizationRuleService:
 
     @staticmethod
     def normalize_label(value: str | None) -> str:
-        text = value or ""
-        text = unicodedata.normalize("NFKD", text)
-        text = "".join(ch for ch in text if not unicodedata.combining(ch))
-        text = text.lower()
-        text = re.sub(r"[^a-z0-9]+", " ", text)
-        return re.sub(r"\s+", " ", text).strip()
+        return normalize_bank_label(value)
 
     def list_rules(self, include_deleted: bool = False) -> list:
         where = "" if include_deleted else "WHERE r.deleted_at IS NULL"
@@ -216,15 +211,25 @@ class CategorizationRuleService:
         if operator == "amount_between":
             return True, "Montant dans la plage"
 
-        field_value = tx["label"] or ""
+        field_name = rule["match_field"] or "label"
+        if field_name == "beneficiary":
+            try:
+                beneficiary = tx["beneficiary"] if "beneficiary" in tx.keys() else ""
+            except (AttributeError, KeyError, TypeError):
+                beneficiary = ""
+            field_value = beneficiary or extract_counterparty(tx["label"])
+            field_label = "Bénéficiaire"
+        else:
+            field_value = tx["label"] or ""
+            field_label = "Libellé"
         needle = self.normalize_label(rule["match_value"])
         haystack = self.normalize_label(field_value)
         if operator == "contains" and needle in haystack:
-            return True, f"Libellé contient « {rule['match_value']} »"
+            return True, f"{field_label} contient « {rule['match_value']} »"
         if operator == "starts_with" and haystack.startswith(needle):
-            return True, f"Libellé commence par « {rule['match_value']} »"
+            return True, f"{field_label} commence par « {rule['match_value']} »"
         if operator == "equals" and haystack == needle:
-            return True, f"Libellé égal à « {rule['match_value']} »"
+            return True, f"{field_label} égal à « {rule['match_value']} »"
         return False, "Aucune correspondance"
 
     def categorize_transaction(self, transaction_id: int, force: bool = False) -> dict:
@@ -346,66 +351,20 @@ class CategorizationRuleService:
         self.db.seal_database_to_encrypted_vault()
         return summary
 
-    @classmethod
-    def suggest_keyword_from_label(cls, label: str) -> str:
-        raw_label = (label or "").strip()
-        if not raw_label:
-            return ""
-
-        # Bank exports commonly isolate the merchant after a long dash:
-        # "CARTE X7693 05/06 — LIDL 3011". Prefer that segment without
-        # relying on one bank's exact format.
-        segments = re.split(r"\s+(?:—|–|-)\s+", raw_label)
-        merchant_segment = segments[-1] if len(segments) > 1 else raw_label
-        merchant_segment = re.sub(
-            r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?\.?",
-            lambda match: match.group(0).replace(".", ""),
-            merchant_segment,
-        )
-        tokens = cls.normalize_label(merchant_segment).split()
-
-        leading_noise = {
-            "achat", "cb", "carte", "credit", "de", "debit", "du", "emis",
-            "facture", "paiement", "par", "prelevement", "prlv", "recu",
-            "retrait", "sepa", "virement", "vir",
-        }
-        terminal_noise = {
-            "cb", "carte", "facture", "fr", "paiement", "ref", "reference",
-            "sepa",
-        }
-
-        def is_technical(token: str) -> bool:
-            if token.isdigit():
-                return True
-            if re.fullmatch(r"[a-z]{0,3}\d{3,}[a-z0-9]*", token):
-                return True
-            if re.fullmatch(r"\d+[a-z]+\d*", token):
-                return True
-            return len(token) >= 8 and any(ch.isdigit() for ch in token) and any(ch.isalpha() for ch in token)
-
-        candidate: list[str] = []
-        for token in tokens:
-            if not candidate:
-                if token in leading_noise or is_technical(token):
-                    continue
-                candidate.append(token)
-                continue
-            if token in terminal_noise or is_technical(token):
-                break
-            candidate.append(token)
-            if len(candidate) >= 4:
-                break
-
-        if candidate:
-            return " ".join(candidate).upper()
-        return raw_label[:40].upper()
+    @staticmethod
+    def suggest_keyword_from_label(label: str) -> str:
+        return extract_counterparty(label)
 
     def create_rule_from_transaction(self, transaction_id: int, target_category_id: int, options: dict | None = None) -> int:
         tx = self.transaction_row(transaction_id)
         if not tx:
             raise ValueError("Transaction introuvable.")
         options = options or {}
-        keyword = options.get("match_value") or self.suggest_keyword_from_label(tx["label"])
+        try:
+            beneficiary = tx["beneficiary"] if "beneficiary" in tx.keys() else ""
+        except (AttributeError, KeyError, TypeError):
+            beneficiary = ""
+        keyword = options.get("match_value") or beneficiary or extract_counterparty(tx["label"])
         name = options.get("name") or f"{keyword} → catégorie"
         tx_type = "Crédit" if float(tx["amount"] or 0) >= 0 else "Débit"
         return self.create_rule({
@@ -413,7 +372,7 @@ class CategorizationRuleService:
             "description": f"Créée depuis la transaction du {tx['tx_date']}",
             "is_active": True,
             "priority": int(options.get("priority") or 100),
-            "match_field": "label",
+            "match_field": options.get("match_field") or "beneficiary",
             "match_operator": options.get("match_operator") or "contains",
             "match_value": keyword,
             "transaction_type": options.get("transaction_type") or tx_type,
