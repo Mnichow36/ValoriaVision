@@ -39,7 +39,7 @@ class StubDatabase:
             },
         ]
         self.accounts = [{"id": 7, "name": "Compte courant", "bank": "Banque Test", "status": "Actif"}]
-        self.categories = [{"name": "Revenus", "kind": "Revenu", "color": "#16a34a"}]
+        self.categories = [{"id": 4, "name": "Revenus", "kind": "Revenu", "color": "#16a34a"}]
 
     def list_transactions(self):
         return self.transactions
@@ -115,6 +115,7 @@ class TransactionsReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["summary"]["transactionCount"], 2)
         self.assertEqual(snapshot["summary"]["categorizedPercent"], 50)
         self.assertEqual(snapshot["summary"]["reviewCount"], 1)
+        self.assertEqual(snapshot["categories"][0]["id"], 4)
         self.assertEqual(snapshot["transactions"][0]["accountName"], "Compte courant")
         self.assertEqual(snapshot["transactions"][1]["category"], "À catégoriser")
         self.assertEqual(snapshot["recentImport"]["recognizedCount"], 3)
