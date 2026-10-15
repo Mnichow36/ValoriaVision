@@ -22,6 +22,7 @@ class ApiDatabaseStartupTest(unittest.TestCase):
                 database.seed_recurring_items(conn)
                 conn.execute("ALTER TABLE transactions DROP COLUMN categorization_status")
                 conn.execute("ALTER TABLE transactions DROP COLUMN categorized_by")
+                conn.execute("ALTER TABLE transactions DROP COLUMN beneficiary")
 
             self.assertTrue(database.prepare_existing_database())
 
@@ -29,6 +30,12 @@ class ApiDatabaseStartupTest(unittest.TestCase):
                 columns = {row["name"] for row in conn.execute("PRAGMA table_info(transactions)")}
             self.assertIn("categorization_status", columns)
             self.assertIn("categorized_by", columns)
+            self.assertIn("beneficiary", columns)
+            with database.connect() as conn:
+                beneficiary_count = conn.execute(
+                    "SELECT COUNT(*) AS item_count FROM transactions WHERE beneficiary IS NOT NULL AND TRIM(beneficiary) <> ''"
+                ).fetchone()["item_count"]
+            self.assertGreater(beneficiary_count, 0)
 
             service = TransactionsReadService(database)
             transaction_id = next(
