@@ -7,7 +7,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from app.imports.counterparty_parser import extract_counterparty
+from app.services.counterparty_parser import extract_counterparty
 from app.imports.csv_parser import RobustCsvParser, normalize_date, parse_amount, payload_to_json
 from app.imports.import_models import ImportedTransaction, ImportAnalysis, ImportDiagnostic, ImportRejectedLine
 
