@@ -14,6 +14,7 @@ import { ForecastPage } from "./components/ForecastPage";
 import { ReconciliationPage } from "./components/ReconciliationPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
+import type { TransactionsView } from "./components/TransactionsPage";
 
 type AppState =
   | { status: "booting" }
@@ -83,6 +84,8 @@ export function App() {
   const [reconciliationAccounts, setReconciliationAccounts] = useState<ReconciliationAccount[]>([]);
   const [reconciliationStatus, setReconciliationStatus] = useState("active");
   const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
+  const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
+  const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,6 +120,18 @@ export function App() {
     await closeSession(token).catch(() => undefined);
   }
 
+  function openBankImport() {
+    setActiveModule("transactions");
+    setTransactionsView("import");
+    setTransactionImportRequestKey((key) => key + 1);
+  }
+
+  async function refreshDashboardAfterImport() {
+    if (state.status !== "ready") return;
+    const snapshot = await getDashboard(state.token).catch(() => undefined);
+    if (snapshot) setState({ status: "ready", snapshot, token: state.token });
+  }
+
   if (state.status === "booting") {
     return <div className="splash-state"><span>V</span><p>Démarrage du moteur local…</p></div>;
   }
@@ -135,7 +150,14 @@ export function App() {
     );
   }
 
-  const module = modules[activeModule];
+  const module = activeModule === "transactions" && transactionsView !== "journal"
+    ? {
+        title: transactionsView === "history" ? "Lots d’import" : "Imports bancaires",
+        description: transactionsView === "history"
+          ? "Consulter les derniers relevés traités localement."
+          : "Importer un fichier local, prévisualiser puis valider.",
+      }
+    : modules[activeModule];
 
   return (
     <div className="app-shell">
@@ -159,19 +181,30 @@ export function App() {
             onBudgetMonthChange={setBudgetMonth}
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
-            onNavigate={setActiveModule}
+            onOpenTransactionImport={openBankImport}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
             onReconciliationStatusChange={setReconciliationStatus}
             reconciliationAccountId={reconciliationAccountId}
             reconciliationAccounts={reconciliationAccounts}
             reconciliationStatus={reconciliationStatus}
+            transactionView={transactionsView}
+            onTransactionViewChange={setTransactionsView}
           />
         </header>
         <div className="workspace-content">
           {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
           {activeModule === "accounts" && <AccountsPage statusFilter={accountStatusFilter} token={state.token} />}
-          {activeModule === "transactions" && <TransactionsPage token={state.token} />}
+          {activeModule === "transactions" && (
+            <TransactionsPage
+              importRequestKey={transactionImportRequestKey}
+              onImportCompleted={() => void refreshDashboardAfterImport()}
+              onNavigateSettings={() => setActiveModule("settings")}
+              onViewChange={setTransactionsView}
+              token={state.token}
+              view={transactionsView}
+            />
+          )}
           {activeModule === "forecast" && (
             <ForecastPage
               accountId={forecastAccountId}
@@ -214,13 +247,15 @@ function HeaderActions({
   onBudgetMonthChange,
   onForecastAccountChange,
   onForecastHorizonChange,
-  onNavigate,
+  onOpenTransactionImport,
   onReconciliationAccountChange,
   onReconciliationRefresh,
   onReconciliationStatusChange,
   reconciliationAccountId,
   reconciliationAccounts,
   reconciliationStatus,
+  transactionView,
+  onTransactionViewChange,
 }: {
   accountStatusFilter: string;
   activeModule: NavigationId;
@@ -234,20 +269,22 @@ function HeaderActions({
   onBudgetMonthChange: (value: string) => void;
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
-  onNavigate: (destination: NavigationId) => void;
+  onOpenTransactionImport: () => void;
   onReconciliationAccountChange: (value: string) => void;
   onReconciliationRefresh: () => void;
   onReconciliationStatusChange: (value: string) => void;
   reconciliationAccountId: string;
   reconciliationAccounts: ReconciliationAccount[];
   reconciliationStatus: string;
+  transactionView: TransactionsView;
+  onTransactionViewChange: (view: TransactionsView) => void;
 }) {
   if (activeModule === "dashboard") {
     return (
       <div className="header-actions">
         <button className="secondary-button" type="button">Tous les comptes</button>
         <button className="secondary-button" type="button">{formatPeriod(dashboard.period)}</button>
-        <button onClick={() => onNavigate("transactions")} type="button">Importer</button>
+        <button onClick={onOpenTransactionImport} type="button">Importer</button>
       </div>
     );
   }
@@ -265,10 +302,26 @@ function HeaderActions({
     );
   }
   if (activeModule === "transactions") {
+    if (transactionView === "import") {
+      return (
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Historique</button>
+          <button onClick={onOpenTransactionImport} type="button">Choisir un fichier</button>
+        </div>
+      );
+    }
+    if (transactionView === "history") {
+      return (
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => onTransactionViewChange("journal")} type="button">Transactions</button>
+          <button onClick={onOpenTransactionImport} type="button">Nouvel import</button>
+        </div>
+      );
+    }
     return (
       <div className="header-actions">
         <button aria-disabled="true" className="secondary-button header-action-disabled" title="Annulation à raccorder dans l’incrément d’édition" type="button">Annuler dernier import</button>
-        <button aria-disabled="true" className="header-action-disabled" title="Assistant d’import à raccorder dans l’incrément suivant" type="button">Importer un relevé</button>
+        <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
       </div>
     );
   }

@@ -16,7 +16,7 @@ if not exist ".venv\Scripts\python.exe" (
     call ".venv\Scripts\python.exe" -m pip install -r requirements.txt -r requirements-react-api.txt || goto :error
 ) else (
     echo [1/4] Environnement Python detecte.
-    ".venv\Scripts\python.exe" -c "import fastapi, uvicorn" >nul 2>&1
+    ".venv\Scripts\python.exe" -c "import fastapi, uvicorn, openpyxl" >nul 2>&1
     if errorlevel 1 (
         echo [2/4] Installation des dependances de l'API...
         call ".venv\Scripts\python.exe" -m pip install -r requirements-react-api.txt || goto :error

@@ -2,10 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getTransactions } from "../api/client";
 import type { TransactionRow, TransactionsSnapshot } from "../api/contracts";
+import { BankImportPage } from "./BankImportPage";
 
 interface TransactionsPageProps {
+  importRequestKey: number;
+  onImportCompleted: () => void;
+  onNavigateSettings: () => void;
+  onViewChange: (view: TransactionsView) => void;
   token: string;
+  view: TransactionsView;
 }
+
+export type TransactionsView = "journal" | "import" | "history";
 
 const currencyFormatter = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -20,7 +28,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ token }: TransactionsPageProps) {
+export function TransactionsPage({ importRequestKey, onImportCompleted, onNavigateSettings, onViewChange, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -77,6 +85,23 @@ export function TransactionsPage({ token }: TransactionsPageProps) {
 
   if (!snapshot) {
     return <div className="loading-state"><span aria-hidden="true" />Chargement du journal depuis le moteur Python…</div>;
+  }
+
+  if (view !== "journal") {
+    return (
+      <BankImportPage
+        importRequestKey={importRequestKey}
+        onImportCompleted={() => {
+          setRefreshKey((key) => key + 1);
+          onImportCompleted();
+        }}
+        onNavigateSettings={onNavigateSettings}
+        onViewChange={onViewChange}
+        snapshot={snapshot}
+        token={token}
+        view={view}
+      />
+    );
   }
 
   return (

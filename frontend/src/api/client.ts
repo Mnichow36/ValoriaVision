@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -78,6 +78,33 @@ export function getAccounts(token: string, signal?: AbortSignal): Promise<Accoun
 
 export function getTransactions(token: string, signal?: AbortSignal): Promise<TransactionsSnapshot> {
   return request<TransactionsSnapshot>("/api/v1/transactions", { token, signal });
+}
+
+export function previewBankImport(
+  token: string,
+  payload: { fileName: string; contentBase64: string; accountId: number | null },
+): Promise<BankImportPreview> {
+  return request<BankImportPreview>("/api/v1/transactions/imports/preview", {
+    method: "POST",
+    token,
+    body: {
+      file_name: payload.fileName,
+      content_base64: payload.contentBase64,
+      account_id: payload.accountId,
+    },
+  });
+}
+
+export function commitBankImport(
+  token: string,
+  previewId: string,
+  accountId: number | null,
+): Promise<BankImportResult> {
+  return request<BankImportResult>("/api/v1/transactions/imports/commit", {
+    method: "POST",
+    token,
+    body: { preview_id: previewId, account_id: accountId },
+  });
 }
 
 export function getForecast(

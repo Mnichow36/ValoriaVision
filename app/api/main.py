@@ -13,6 +13,7 @@ from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
 from app.services.accounts_read_service import AccountsReadService
 from app.services.assets_read_service import AssetsReadService
+from app.services.bank_import_workflow_service import BankImportWorkflowService
 from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
@@ -65,6 +66,17 @@ class SettingsRuleActivePayload(BaseModel):
     active: bool
 
 
+class BankImportPreviewPayload(BaseModel):
+    file_name: str
+    content_base64: str
+    account_id: int | None = None
+
+
+class BankImportCommitPayload(BaseModel):
+    preview_id: str
+    account_id: int | None = None
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -91,6 +103,7 @@ def create_app(database: Database | None = None) -> FastAPI:
 
     active_database = database or Database()
     auth = AuthService(active_database)
+    bank_imports = BankImportWorkflowService(active_database)
     database_path = Path(active_database.path)
     timeout_seconds = 600
     if database_path.exists():
@@ -214,6 +227,45 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return TransactionsReadService(active_database).snapshot()
+
+    @app.post("/api/v1/transactions/imports/preview")
+    def preview_bank_import(
+        payload: BankImportPreviewPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return bank_imports.preview(
+                x_valoria_session or "",
+                payload.file_name,
+                payload.content_base64,
+                payload.account_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/transactions/imports/commit")
+    def commit_bank_import(
+        payload: BankImportCommitPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return bank_imports.commit(
+                x_valoria_session or "",
+                payload.preview_id,
+                payload.account_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/v1/forecast")
     def forecast(

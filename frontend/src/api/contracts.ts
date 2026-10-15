@@ -142,6 +142,52 @@ export interface TransactionsSnapshot {
   recentImport: RecentImport | null;
 }
 
+export interface BankImportPreviewRow {
+  date: string;
+  label: string;
+  category: string;
+  amount: number;
+  currency: string;
+  status: "Nouveau" | "Doublon";
+  duplicate: boolean;
+}
+
+export interface BankImportPreview {
+  previewId: string;
+  fileName: string;
+  accountId: number | null;
+  accountConsistent: boolean;
+  accountMessage: string;
+  detectedAccounts: string[];
+  format: string;
+  profile: string;
+  recognizedCount: number;
+  newCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  rowsTruncated: boolean;
+  rows: BankImportPreviewRow[];
+}
+
+export interface BankImportResult {
+  success: boolean;
+  message: string;
+  batchId: number;
+  importedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  categorization: {
+    automatic: number;
+    toReview: number;
+    toCategorize: number;
+  };
+  reconciliation: {
+    automatic: number;
+    toReview: number;
+    withoutForecast: number;
+  };
+}
+
 export interface ForecastAccount {
   id: number;
   name: string;
