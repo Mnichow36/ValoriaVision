@@ -160,8 +160,8 @@ class StubCategorizationService:
     def update_rule(self, rule_id, payload):
         self.saved.append(("update", rule_id, payload))
 
-    def create_rule_from_transaction(self, transaction_id, target_category_id):
-        self.saved.append(("from_transaction", transaction_id, target_category_id))
+    def create_rule_from_transaction(self, transaction_id, target_category_id, options=None):
+        self.saved.append(("from_transaction", transaction_id, target_category_id, options))
         return 13
 
     def set_rule_active(self, rule_id, active):
@@ -211,7 +211,7 @@ class SettingsReadServiceTest(unittest.TestCase):
             "match_value": "SNCF",
             "target_category_id": 4,
         })
-        remembered = service.create_rule_from_transaction(21, 4)
+        remembered = service.create_rule_from_transaction(21, 4, "LIDL")
 
         self.assertTrue(general["success"])
         self.assertIn(("security.session_timeout_minutes", "15"), database.saved)
@@ -219,7 +219,10 @@ class SettingsReadServiceTest(unittest.TestCase):
         self.assertEqual(rule["id"], 12)
         self.assertEqual(remembered["id"], 13)
         self.assertEqual(categorization.saved[0][0], "create")
-        self.assertEqual(categorization.saved[-1], ("from_transaction", 21, 4))
+        self.assertEqual(
+            categorization.saved[-1],
+            ("from_transaction", 21, 4, {"match_value": "LIDL"}),
+        )
 
     def test_previews_rules_without_writing_transactions(self):
         service, database, _ = self.make_service()
