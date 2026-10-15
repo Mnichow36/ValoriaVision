@@ -124,6 +124,7 @@ export interface TransactionRow {
   accountName: string;
   bank: string;
   label: string;
+  beneficiary: string;
   ruleSuggestion: string;
   category: string;
   status: string;
@@ -187,6 +188,7 @@ export interface TransactionsSnapshot {
 export interface BankImportPreviewRow {
   date: string;
   label: string;
+  beneficiary: string;
   category: string;
   amount: number;
   currency: string;
