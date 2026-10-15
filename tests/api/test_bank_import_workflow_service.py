@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime, timezone
 
 from app.imports.import_models import ImportAnalysis, ImportDiagnostic, ImportedTransaction
+from app.imports.import_service import BankImportService
 from app.services.bank_import_workflow_service import BankImportWorkflowService
 
 
@@ -14,7 +15,7 @@ class StubImporter:
             file_name="releve.csv",
             valid_transactions=[
                 ImportedTransaction("2026-10-10", "Salaire", 2500, source_line=2),
-                ImportedTransaction("2026-10-11", "Courses", -72.5, source_line=3),
+                ImportedTransaction("2026-10-11", "CARTE X7693 05/06 — LIDL 3011", -72.5, source_line=3),
                 ImportedTransaction("2026-10-12", "Doublon", -20, source_line=4),
             ],
             diagnostic=ImportDiagnostic(
@@ -112,6 +113,7 @@ class BankImportWorkflowServiceTest(unittest.TestCase):
         self.assertEqual(preview["duplicateCount"], 1)
         self.assertTrue(preview["accountConsistent"])
         self.assertEqual(preview["accountId"], 7)
+        self.assertEqual(preview["rows"][1]["beneficiary"], "LIDL")
 
         result = service.commit("session-a", preview["previewId"], 7)
 
@@ -120,6 +122,7 @@ class BankImportWorkflowServiceTest(unittest.TestCase):
         self.assertEqual(result["categorization"]["automatic"], 1)
         self.assertEqual(result["reconciliation"]["toReview"], 1)
         self.assertEqual(len(database.inserted), 2)
+        self.assertEqual(database.inserted[1][1]["beneficiary"], "LIDL")
         self.assertEqual(database.updated, (41, 2, 1, 0))
         self.assertEqual(database.categorized_batch, 41)
 
@@ -130,6 +133,26 @@ class BankImportWorkflowServiceTest(unittest.TestCase):
         canceled = service.cancel(41)
         self.assertEqual(canceled["deletedCount"], 2)
         self.assertEqual(database.batch["status"], "Annulé")
+
+    def test_import_parser_enriches_transactions_with_the_counterparty(self):
+        analysis = ImportAnalysis(
+            file_name="releve.csv",
+            valid_transactions=[
+                ImportedTransaction(
+                    "2026-10-11",
+                    "CARTE X7693 05/06 — LIDL 3011",
+                    -72.5,
+                ),
+            ],
+        )
+
+        BankImportService.identify_counterparties(analysis)
+
+        self.assertEqual(analysis.valid_transactions[0].beneficiary, "LIDL")
+        self.assertEqual(
+            analysis.valid_transactions[0].label,
+            "CARTE X7693 05/06 — LIDL 3011",
+        )
 
     def test_rejects_preview_from_another_session(self):
         service = BankImportWorkflowService(StubDatabase(), importer_factory=StubImporter)
