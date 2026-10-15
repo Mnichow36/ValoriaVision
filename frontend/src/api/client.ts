@@ -146,11 +146,12 @@ export function createTransactionCategorizationRule(
   token: string,
   transactionId: number,
   targetCategoryId: number,
+  matchValue: string,
 ): Promise<SettingsActionResult> {
   return request<SettingsActionResult>(`/api/v1/transactions/${transactionId}/categorization-rule`, {
     method: "POST",
     token,
-    body: { target_category_id: targetCategoryId },
+    body: { target_category_id: targetCategoryId, match_value: matchValue },
   });
 }
 
