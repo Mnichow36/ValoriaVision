@@ -7,6 +7,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+from app.imports.counterparty_parser import extract_counterparty
 from app.imports.csv_parser import RobustCsvParser, normalize_date, parse_amount, payload_to_json
 from app.imports.import_models import ImportedTransaction, ImportAnalysis, ImportDiagnostic, ImportRejectedLine
 
@@ -50,7 +51,14 @@ class BankImportService:
         else:
             analysis = ImportAnalysis(file_name=file_path.name)
             analysis.diagnostic = ImportDiagnostic(stage="format", format_name=suffix, message=f"Format non supporté : {suffix}")
+        self.identify_counterparties(analysis)
         self.last_analysis = analysis
+        return analysis
+
+    @staticmethod
+    def identify_counterparties(analysis: ImportAnalysis) -> ImportAnalysis:
+        for transaction in analysis.valid_transactions:
+            transaction.beneficiary = extract_counterparty(transaction.label)
         return analysis
 
     def parse(self, path: str | Path) -> list[ImportedTransaction]:
