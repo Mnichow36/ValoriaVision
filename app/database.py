@@ -224,6 +224,27 @@ class Database:
         self.seal_database_to_encrypted_vault()
         self.set_setting("security.database_vault_path", str(self.encrypted_db_path))
 
+    def prepare_existing_database(self) -> bool:
+        """Apply schema migrations to an existing local database for API use.
+
+        The React API must never create a new user database implicitly. It does,
+        however, need the same schema upgrades as the desktop application before
+        invoking business methods that rely on newer transaction columns.
+        """
+        if not self.path.exists():
+            return False
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            with conn:
+                self.create_schema(conn)
+                self.apply_migrations(conn)
+                self.set_schema_version(conn, SCHEMA_VERSION)
+        finally:
+            conn.close()
+        return True
+
     def create_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """

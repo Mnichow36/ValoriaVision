@@ -4,8 +4,12 @@ import os
 
 import uvicorn
 
+from app.database import Database
+
 
 def main() -> None:
+    database = Database()
+    database.prepare_existing_database()
     port = int(os.environ.get("VALORIA_API_PORT", "8765"))
     uvicorn.run(
         "app.api.main:app",
