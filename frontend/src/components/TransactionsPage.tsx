@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { bulkUpdateTransactions, getTransactions, updateTransaction } from "../api/client";
+import { bulkUpdateTransactions, createTransactionCategorizationRule, getTransactions, updateTransaction } from "../api/client";
 import type { TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
 
@@ -298,6 +298,7 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
   });
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string>();
+  const [rememberCategory, setRememberCategory] = useState(false);
   const statuses = Array.from(new Set([
     transaction.status,
     "Validée",
@@ -320,12 +321,29 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const selectedCategory = snapshot.categories.find((category) => category.name === draft.category);
+    if (rememberCategory && !selectedCategory?.id) {
+      setFormError("La catégorie choisie ne permet pas de créer une règle.");
+      return;
+    }
+
     setBusy(true);
     setFormError(undefined);
+    let transactionSaved = false;
     try {
-      onCompleted(await updateTransaction(token, transaction.id, draft));
+      const result = await updateTransaction(token, transaction.id, draft);
+      transactionSaved = true;
+      if (rememberCategory && selectedCategory) {
+        const rule = await createTransactionCategorizationRule(token, transaction.id, selectedCategory.id);
+        onCompleted({ ...result, message: `${result.message} ${rule.message}` });
+        return;
+      }
+      onCompleted(result);
     } catch (cause: unknown) {
-      setFormError(errorMessage(cause));
+      const message = errorMessage(cause);
+      setFormError(transactionSaved
+        ? `La transaction est enregistrée, mais la règle n’a pas pu être créée : ${message}`
+        : message);
     } finally {
       setBusy(false);
     }
@@ -349,6 +367,15 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
             <label className="account-field"><span>Montant *</span><input min="0" onChange={(event) => field("amount", Number(event.target.value))} required step="0.01" type="number" value={draft.amount} /></label>
             <label className="account-field account-field--wide"><span>Statut *</span><select onChange={(event) => field("status", event.target.value)} value={draft.status}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>
           </div>
+          {draft.category && (
+            <label className="transaction-rule-option">
+              <input checked={rememberCategory} onChange={(event) => setRememberCategory(event.target.checked)} type="checkbox" />
+              <span>
+                <strong>Mémoriser cette catégorisation</strong>
+                <small>Les prochaines opérations similaires de ce compte seront classées automatiquement.</small>
+              </span>
+            </label>
+          )}
           <p className="account-editor-note">La modification réévalue automatiquement les budgets, le prévisionnel et les rapprochements liés.</p>
           {formError && <div className="account-form-error" role="alert">{formError}</div>}
           <footer><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} type="submit">{busy ? "Enregistrement…" : "Enregistrer et valider"}</button></footer>
