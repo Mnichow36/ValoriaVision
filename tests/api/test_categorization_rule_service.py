@@ -30,6 +30,29 @@ class CategorizationRuleSuggestionTest(unittest.TestCase):
                     expected,
                 )
 
+    def test_beneficiary_rules_match_the_counterparty_not_the_raw_label(self):
+        rule = {
+            "target_deleted": None,
+            "account_id": None,
+            "transaction_type": None,
+            "min_amount": None,
+            "max_amount": None,
+            "match_field": "beneficiary",
+            "match_operator": "contains",
+            "match_value": "LIDL",
+        }
+        transaction = {
+            "account_id": 7,
+            "amount": -72.5,
+            "label": "CARTE X7693 05/06 — LIDL 3011",
+            "beneficiary": "LIDL",
+        }
+
+        matches, reason = CategorizationRuleService(None).rule_matches(rule, transaction)
+
+        self.assertTrue(matches)
+        self.assertIn("Bénéficiaire", reason)
+
 
 if __name__ == "__main__":
     unittest.main()
