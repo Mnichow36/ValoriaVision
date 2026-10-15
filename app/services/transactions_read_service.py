@@ -225,16 +225,19 @@ class TransactionsReadService:
 
     @staticmethod
     def _transaction(row: Any) -> dict[str, Any]:
+        label = str(_field(row, "label", "Mouvement") or "Mouvement")
+        beneficiary = str(_field(row, "beneficiary", "") or "").strip()
+        if not beneficiary:
+            beneficiary = CategorizationRuleService.suggest_keyword_from_label(label)
         return {
             "id": _integer(_field(row, "id", 0)),
             "date": str(_field(row, "tx_date", "") or ""),
             "accountId": _integer(_field(row, "account_id", 0)),
             "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
             "bank": str(_field(row, "bank", "") or ""),
-            "label": str(_field(row, "label", "Mouvement") or "Mouvement"),
-            "ruleSuggestion": CategorizationRuleService.suggest_keyword_from_label(
-                str(_field(row, "label", "") or "")
-            ),
+            "label": label,
+            "beneficiary": beneficiary,
+            "ruleSuggestion": beneficiary,
             "category": str(_field(row, "category", "") or "À catégoriser"),
             "status": str(_field(row, "status", "") or "À catégoriser"),
             "amount": _number(_field(row, "amount", 0)),
