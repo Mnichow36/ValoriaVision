@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from app.imports.counterparty_parser import extract_counterparty
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.services.reconciliation import (
@@ -54,7 +55,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
 DB_PATH = DATA_DIR / "valoria_vision.db"
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 @dataclass
@@ -298,6 +299,7 @@ class Database:
                 account_id INTEGER NOT NULL,
                 tx_date TEXT NOT NULL,
                 label TEXT NOT NULL,
+                beneficiary TEXT,
                 category TEXT,
                 amount REAL NOT NULL,
                 tx_type TEXT NOT NULL,
@@ -915,12 +917,27 @@ class Database:
     def apply_r7_2_foundation(self, conn: sqlite3.Connection) -> None:
         """V0.6.6-R7.2 — import traceability and reconciliation status cleanup."""
         self.ensure_columns(conn, "transactions", {
+            "beneficiary": "TEXT",
             "source_line": "INTEGER",
             "source_profile": "TEXT",
             "raw_payload": "TEXT",
             "source_identifier": "TEXT",
             "currency": "TEXT NOT NULL DEFAULT 'EUR'",
         })
+        missing_beneficiaries = conn.execute(
+            """
+            SELECT id, label
+            FROM transactions
+            WHERE beneficiary IS NULL OR TRIM(beneficiary) = ''
+            """
+        ).fetchall()
+        conn.executemany(
+            "UPDATE transactions SET beneficiary = ? WHERE id = ?",
+            [
+                (extract_counterparty(row["label"]), int(row["id"]))
+                for row in missing_beneficiaries
+            ],
+        )
         self.ensure_columns(conn, "import_batches", {
             "parser_profile": "TEXT",
             "source_fingerprint": "TEXT",
@@ -1915,7 +1932,7 @@ class Database:
                 )
             )
 
-    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None, preserve_direction: bool = False) -> bool:
+    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, beneficiary: str | None = None, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None, preserve_direction: bool = False) -> bool:
         if source == "Manuel" and not preserve_direction:
             amount = self.normalize_amount_for_category(category, amount)
         tx_type = "Crédit" if amount >= 0 else "Débit"
@@ -1929,6 +1946,7 @@ class Database:
             categorized_by = "import_default" if category else None
             categorized_at = None
         signature = self.make_signature(account_id, tx_date, label, amount)
+        clean_beneficiary = (beneficiary or extract_counterparty(label)).strip() or None
         rules = self.reconciliation_rules()
         transaction_day = date.fromisoformat(tx_date)
         ForecastReconciliationService(self).generate_occurrences(
@@ -1941,12 +1959,12 @@ class Database:
                 return False
             cursor = conn.execute(
                 """
-                INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
+                INSERT INTO transactions(account_id, tx_date, label, beneficiary, category, amount, tx_type, status, source, import_batch_id, signature,
                                          categorization_status, categorized_by, categorization_rule_id, categorized_at,
                                          currency, source_line, source_profile, raw_payload, source_identifier)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                 """,
-                (account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
+                (account_id, tx_date, label, clean_beneficiary, category, amount, tx_type, status, source, import_batch_id, signature,
                  categorization_status, categorized_by, categorized_at,
                  currency or 'EUR', source_line, source_profile, raw_payload, source_identifier),
             )
@@ -2007,6 +2025,7 @@ class Database:
             "account_id": data.get("account_id", row["account_id"]),
             "tx_date": data.get("tx_date", row["tx_date"]),
             "label": (data.get("label") or row["label"] or "Opération").strip(),
+            "beneficiary": (data.get("beneficiary") or extract_counterparty(data.get("label") or row["label"] or "")).strip() or None,
             "category": data.get("category", row["category"]),
             "amount": float(data.get("amount", row["amount"]) or 0),
             "status": data.get("status", row["status"] or "Validée"),
@@ -2034,6 +2053,7 @@ class Database:
                 SET account_id = :account_id,
                     tx_date = :tx_date,
                     label = :label,
+                    beneficiary = :beneficiary,
                     category = :category,
                     amount = :amount,
                     tx_type = :tx_type,
