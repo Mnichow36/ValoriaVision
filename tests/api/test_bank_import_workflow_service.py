@@ -40,6 +40,21 @@ class StubDatabase:
         self.inserted = []
         self.updated = None
         self.categorized_batch = None
+        self.batch = {
+            "id": 41,
+            "file_name": "releve.csv",
+            "account_name": "Compte courant",
+            "bank": "Banque Test",
+            "account_identifier": "FR7612345678901234567890123",
+            "imported_count": 2,
+            "duplicate_count": 1,
+            "error_count": 0,
+            "linked_transactions": 2,
+            "status": "Importé",
+            "created_at": "2026-10-15 12:00:00",
+            "canceled_at": None,
+            "parser_profile": "Banque Test",
+        }
 
     def list_accounts(self):
         return [{
@@ -66,6 +81,17 @@ class StubDatabase:
 
     def reconciliation_summary_for_import_batch(self, batch_id):
         return {"auto": 1, "to_review": 1, "without_forecast": 0}
+
+    def list_recent_import_batches(self, limit):
+        return [self.batch][:limit]
+
+    def get_import_batch(self, batch_id):
+        return self.batch if batch_id == 41 else None
+
+    def cancel_import_batch(self, batch_id):
+        self.batch["status"] = "Annulé"
+        self.batch["linked_transactions"] = 0
+        return 2
 
 
 class BankImportWorkflowServiceTest(unittest.TestCase):
@@ -96,6 +122,14 @@ class BankImportWorkflowServiceTest(unittest.TestCase):
         self.assertEqual(len(database.inserted), 2)
         self.assertEqual(database.updated, (41, 2, 1, 0))
         self.assertEqual(database.categorized_batch, 41)
+
+        history = service.history()
+        self.assertEqual(history["count"], 1)
+        self.assertEqual(history["items"][0]["accountIdentifier"], "•••• 0123")
+
+        canceled = service.cancel(41)
+        self.assertEqual(canceled["deletedCount"], 2)
+        self.assertEqual(database.batch["status"], "Annulé")
 
     def test_rejects_preview_from_another_session(self):
         service = BankImportWorkflowService(StubDatabase(), importer_factory=StubImporter)

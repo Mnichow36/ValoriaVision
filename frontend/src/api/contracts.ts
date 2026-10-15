@@ -188,6 +188,25 @@ export interface BankImportResult {
   };
 }
 
+export interface BankImportHistoryItem extends RecentImport {
+  bank: string;
+  accountIdentifier: string;
+  canceledAt: string;
+  parserProfile: string;
+}
+
+export interface BankImportHistory {
+  items: BankImportHistoryItem[];
+  count: number;
+}
+
+export interface BankImportCancelResult {
+  success: boolean;
+  message: string;
+  batchId: number;
+  deletedCount: number;
+}
+
 export interface ForecastAccount {
   id: number;
   name: string;

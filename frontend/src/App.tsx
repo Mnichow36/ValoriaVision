@@ -320,7 +320,7 @@ function HeaderActions({
     }
     return (
       <div className="header-actions">
-        <button aria-disabled="true" className="secondary-button header-action-disabled" title="Annulation à raccorder dans l’incrément d’édition" type="button">Annuler dernier import</button>
+        <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>
         <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
       </div>
     );

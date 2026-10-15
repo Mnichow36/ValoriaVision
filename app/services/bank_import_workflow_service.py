@@ -203,6 +203,28 @@ class BankImportWorkflowService:
             },
         }
 
+    def history(self, limit: int = 20) -> dict[str, Any]:
+        safe_limit = max(1, min(int(limit or 20), 50))
+        rows = list(self.database.list_recent_import_batches(safe_limit))
+        return {
+            "items": [self._render_batch(row) for row in rows],
+            "count": len(rows),
+        }
+
+    def cancel(self, batch_id: int) -> dict[str, Any]:
+        batch = self.database.get_import_batch(batch_id)
+        if batch is None:
+            raise KeyError("Lot d’import introuvable.")
+        if str(_field(batch, "status", "")) == "Annulé":
+            raise ValueError("Ce lot d’import est déjà annulé.")
+        deleted = int(self.database.cancel_import_batch(batch_id) or 0)
+        return {
+            "success": True,
+            "message": f"Import annulé : {deleted} opération(s) supprimée(s).",
+            "batchId": batch_id,
+            "deletedCount": deleted,
+        }
+
     def _render_preview(
         self,
         preview_id: str,
@@ -245,6 +267,28 @@ class BankImportWorkflowService:
             "currency": tx.currency or "EUR",
             "status": "Doublon" if duplicate else "Nouveau",
             "duplicate": duplicate,
+        }
+
+    @staticmethod
+    def _render_batch(row: Any) -> dict[str, Any]:
+        imported = int(_field(row, "imported_count", 0) or 0)
+        duplicates = int(_field(row, "duplicate_count", 0) or 0)
+        errors = int(_field(row, "error_count", 0) or 0)
+        return {
+            "id": int(_field(row, "id", 0) or 0),
+            "fileName": str(_field(row, "file_name", "Import bancaire") or "Import bancaire"),
+            "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
+            "bank": str(_field(row, "bank", "") or ""),
+            "accountIdentifier": _mask_identifier(_field(row, "account_identifier", "")),
+            "importedCount": imported,
+            "duplicateCount": duplicates,
+            "errorCount": errors,
+            "recognizedCount": imported + duplicates + errors,
+            "linkedTransactions": int(_field(row, "linked_transactions", 0) or 0),
+            "status": str(_field(row, "status", "") or ""),
+            "createdAt": str(_field(row, "created_at", "") or ""),
+            "canceledAt": str(_field(row, "canceled_at", "") or ""),
+            "parserProfile": str(_field(row, "parser_profile", "") or ""),
         }
 
     def _resolve_account(self, analysis: ImportAnalysis, requested_id: int | None) -> tuple[int | None, bool, str]:

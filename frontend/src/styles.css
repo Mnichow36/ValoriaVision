@@ -382,15 +382,25 @@ button { cursor: pointer; }
 .import-success p { color: #3f6212; font-size: 13px; }
 .import-success ul { color: #52627d; font-size: 12px; line-height: 1.9; margin: 18px 0 24px; padding-left: 18px; }
 .import-history { min-height: 560px; padding: 22px; }
-.import-history-card { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; margin-top: 24px; padding: 18px; }
+.import-history-list { display: grid; gap: 14px; margin-top: 24px; max-height: 610px; overflow: auto; padding-right: 4px; }
+.import-history-card { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; padding: 18px; }
+.import-history-card--canceled { background: #f8fafc; opacity: .78; }
+.import-history-card__heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
 .import-history-card > div strong,
 .import-history-card > div span { display: block; }
 .import-history-card > div strong { font-size: 15px; }
 .import-history-card > div span { color: #697b99; font-size: 11px; margin-top: 5px; }
+.import-history-card__heading > .status-chip { flex: 0 0 auto; margin-top: 0; }
 .import-history-card dl { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 20px 0 0; }
 .import-history-card dl div { background: #fff; border: 1px solid #e3e9f2; border-radius: 9px; padding: 12px; }
 .import-history-card dt { color: #697b99; font-size: 10px; }
 .import-history-card dd { font-size: 16px; font-weight: 850; margin: 5px 0 0; }
+.import-history-card__footer { align-items: center; display: flex; justify-content: space-between; margin-top: 14px; }
+.import-history-card__footer small { color: #697b99; font-size: 10px; }
+.import-history-card__footer .danger-button { background: #fff; border: 1px solid #fecaca; border-radius: 9px; color: #b91c1c; font-size: 11px; font-weight: 800; min-height: 36px; padding: 8px 11px; }
+.import-history-card__footer .danger-button:hover:not(:disabled) { background: #fff1f2; }
+.import-history-card__footer .danger-button:disabled { cursor: not-allowed; opacity: .55; }
+.import-history-notice { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 10px; color: #166534; font-size: 12px; font-weight: 800; margin-top: 20px; padding: 12px 14px; }
 .import-history-empty { align-items: center; border: 1px dashed #cbd5e1; border-radius: 12px; color: #697b99; display: flex; font-size: 13px; justify-content: center; margin-top: 24px; min-height: 280px; }
 
 .forecast-page { display: grid; gap: 20px; grid-template-columns: minmax(0, 2.08fr) minmax(330px, .98fr); }

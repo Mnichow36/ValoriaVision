@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { commitBankImport, previewBankImport } from "../api/client";
-import type { BankImportPreview, BankImportResult, TransactionsSnapshot } from "../api/contracts";
+import { cancelBankImport, commitBankImport, getBankImportHistory, previewBankImport } from "../api/client";
+import type { BankImportHistoryItem, BankImportPreview, BankImportResult, TransactionsSnapshot } from "../api/contracts";
 
 interface BankImportPageProps {
   importRequestKey: number;
@@ -158,7 +158,11 @@ export function BankImportPage({
       </nav>
 
       {view === "history" ? (
-        <ImportHistory snapshot={snapshot} onChoose={() => onViewChange("import")} />
+        <ImportHistory
+          onChanged={onImportCompleted}
+          onChoose={() => onViewChange("import")}
+          token={token}
+        />
       ) : (
         <div className="bank-import-grid" aria-busy={busy}>
           <article className="card bank-import-assistant">
@@ -281,23 +285,96 @@ function ImportSuccess({ onReset, result }: { onReset: () => void; result: BankI
   );
 }
 
-function ImportHistory({ onChoose, snapshot }: { onChoose: () => void; snapshot: TransactionsSnapshot }) {
-  const item = snapshot.recentImport;
+function ImportHistory({ onChanged, onChoose, token }: { onChanged: () => void; onChoose: () => void; token: string }) {
+  const [items, setItems] = useState<BankImportHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number>();
+  const [notice, setNotice] = useState<string>();
+  const [historyError, setHistoryError] = useState<string>();
+
+  async function loadHistory(signal?: AbortSignal) {
+    setHistoryError(undefined);
+    try {
+      const history = await getBankImportHistory(token, signal);
+      setItems(history.items);
+    } catch (cause: unknown) {
+      if (!signal?.aborted) setHistoryError(errorMessage(cause));
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadHistory(controller.signal);
+    return () => controller.abort();
+  }, [token]);
+
+  async function cancel(item: BankImportHistoryItem) {
+    if (item.status === "Annulé") return;
+    const confirmed = window.confirm(
+      "Annuler ce lot d’import ?\n\n"
+      + "Fichier : " + item.fileName + "\n"
+      + "Compte : " + item.accountName + "\n"
+      + "Opérations supprimées : " + item.linkedTransactions + "\n\n"
+      + "Les opérations saisies manuellement ne seront pas touchées.",
+    );
+    if (!confirmed) return;
+    setBusyId(item.id);
+    setHistoryError(undefined);
+    setNotice(undefined);
+    try {
+      const result = await cancelBankImport(token, item.id);
+      setNotice(result.message);
+      await loadHistory();
+      onChanged();
+    } catch (cause: unknown) {
+      setHistoryError(errorMessage(cause));
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
   return (
     <article className="card import-history">
       <div className="bank-import-heading">
-        <div><h2>Lots d’import</h2><p>Dernier lot enregistré par le moteur Python.</p></div>
+        <div><h2>Lots d’import</h2><p>Historique local des relevés traités par le moteur Python.</p></div>
         <button onClick={onChoose} type="button">Nouvel import</button>
       </div>
-      {item ? (
-        <div className="import-history-card">
-          <div><strong>{item.fileName}</strong><span>{item.accountName} · {formatDateTime(item.createdAt)}</span></div>
-          <dl>
-            <div><dt>Importées</dt><dd>{item.importedCount}</dd></div>
-            <div><dt>Doublons</dt><dd>{item.duplicateCount}</dd></div>
-            <div><dt>Erreurs</dt><dd>{item.errorCount}</dd></div>
-            <div><dt>Statut</dt><dd>{item.status}</dd></div>
-          </dl>
+      {notice && <div className="import-history-notice">{notice}</div>}
+      {historyError && <div className="import-message import-message--error"><strong>Historique indisponible</strong><p>{historyError}</p></div>}
+      {loading ? (
+        <div className="import-loading"><span aria-hidden="true" />Chargement des lots…</div>
+      ) : items.length ? (
+        <div className="import-history-list">
+          {items.map((item) => (
+            <div className={"import-history-card" + (item.status === "Annulé" ? " import-history-card--canceled" : "")} key={item.id}>
+              <div className="import-history-card__heading">
+                <div>
+                  <strong>{item.fileName}</strong>
+                  <span>{item.bank ? item.bank + " — " : ""}{item.accountName} · {item.accountIdentifier} · {formatDateTime(item.createdAt)}</span>
+                </div>
+                <span className={item.status === "Annulé" ? "status-chip status-chip--warning" : "status-chip status-chip--success"}>{item.status}</span>
+              </div>
+              <dl>
+                <div><dt>Importées</dt><dd>{item.importedCount}</dd></div>
+                <div><dt>Doublons</dt><dd>{item.duplicateCount}</dd></div>
+                <div><dt>Erreurs</dt><dd>{item.errorCount}</dd></div>
+                <div><dt>Actives</dt><dd>{item.linkedTransactions}</dd></div>
+              </dl>
+              <div className="import-history-card__footer">
+                <small>{item.parserProfile || "Profil générique"}</small>
+                <button
+                  className="danger-button"
+                  disabled={item.status === "Annulé" || busyId === item.id}
+                  onClick={() => void cancel(item)}
+                  type="button"
+                >
+                  {item.status === "Annulé" ? "Lot annulé" : busyId === item.id ? "Annulation…" : "Annuler ce lot"}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       ) : <div className="import-history-empty">Aucun lot d’import enregistré.</div>}
     </article>

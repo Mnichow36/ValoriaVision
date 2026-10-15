@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
+import type { AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -104,6 +104,17 @@ export function commitBankImport(
     method: "POST",
     token,
     body: { preview_id: previewId, account_id: accountId },
+  });
+}
+
+export function getBankImportHistory(token: string, signal?: AbortSignal): Promise<BankImportHistory> {
+  return request<BankImportHistory>("/api/v1/transactions/imports?limit=20", { token, signal });
+}
+
+export function cancelBankImport(token: string, batchId: number): Promise<BankImportCancelResult> {
+  return request<BankImportCancelResult>(`/api/v1/transactions/imports/${batchId}/cancel`, {
+    method: "POST",
+    token,
   });
 }
 
