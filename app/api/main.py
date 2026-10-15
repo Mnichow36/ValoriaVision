@@ -109,6 +109,10 @@ class TransactionBulkPayload(BaseModel):
     category: str | None = None
 
 
+class TransactionCategorizationRulePayload(BaseModel):
+    target_category_id: int
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -326,6 +330,24 @@ def create_app(database: Database | None = None) -> FastAPI:
             return TransactionsReadService(active_database).update(transaction_id, payload.model_dump())
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/transactions/{transaction_id}/categorization-rule")
+    def create_transaction_categorization_rule(
+        transaction_id: int,
+        payload: TransactionCategorizationRulePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).create_rule_from_transaction(
+                transaction_id,
+                payload.target_category_id,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
