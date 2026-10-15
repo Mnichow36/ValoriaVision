@@ -215,6 +215,7 @@ class TransactionsReadService:
     @staticmethod
     def _category(row: Any) -> dict[str, Any]:
         return {
+            "id": _integer(_field(row, "id", 0)),
             "name": str(_field(row, "name", "") or ""),
             "kind": str(_field(row, "kind", "") or ""),
             "color": str(_field(row, "color", "") or ""),
