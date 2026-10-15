@@ -111,6 +111,7 @@ export interface TransactionAccount {
 }
 
 export interface TransactionCategory {
+  id: number;
   name: string;
   kind: string;
   color: string;
