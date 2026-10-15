@@ -332,11 +332,12 @@ def create_app(database: Database | None = None) -> FastAPI:
     @app.post("/api/v1/transactions/actions/bulk")
     def bulk_update_transactions(
         payload: TransactionBulkPayload,
-        authorization: str | None = Header(default=None),
-    ):
-        token = _bearer_token(authorization)
-        if not sessions.is_valid(token):
-            raise HTTPException(status_code=401, detail="Session invalide ou expirée.")
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
         try:
             return TransactionsReadService(active_database).bulk_update(
                 payload.transaction_ids,
@@ -344,7 +345,7 @@ def create_app(database: Database | None = None) -> FastAPI:
                 payload.category,
             )
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=_exception_message(exc)) from exc
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

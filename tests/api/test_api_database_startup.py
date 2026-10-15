@@ -4,6 +4,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from fastapi import HTTPException
+
+from app.api.main import TransactionBulkPayload, create_app
 from app.database import Database
 from app.services.transactions_read_service import TransactionsReadService
 
@@ -35,6 +38,27 @@ class ApiDatabaseStartupTest(unittest.TestCase):
             )
             result = service.bulk_update([transaction_id], "category", "Loisirs")
             self.assertEqual(result["updatedCount"], 1)
+
+    def test_bulk_route_uses_the_local_session_headers(self):
+        with TemporaryDirectory() as root:
+            database = Database(Path(root) / "valoria.db")
+            with database.connect() as conn:
+                database.create_schema(conn)
+                database.apply_migrations(conn)
+
+            app = create_app(database)
+            endpoint = next(
+                route.endpoint
+                for route in app.routes
+                if route.path == "/api/v1/transactions/actions/bulk"
+            )
+            with self.assertRaises(HTTPException) as raised:
+                endpoint(TransactionBulkPayload(
+                    transaction_ids=[1],
+                    action="validate",
+                ), None, None)
+
+            self.assertEqual(raised.exception.status_code, 401)
 
     def test_missing_database_is_not_created(self):
         with TemporaryDirectory() as root:
