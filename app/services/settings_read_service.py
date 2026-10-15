@@ -175,13 +175,23 @@ class SettingsReadService:
         self.categorization.update_rule(rule_id, payload)
         return {"success": True, "message": "Règle mise à jour.", "id": rule_id}
 
-    def create_rule_from_transaction(self, transaction_id: int, target_category_id: int) -> dict[str, Any]:
+    def create_rule_from_transaction(
+        self,
+        transaction_id: int,
+        target_category_id: int,
+        match_value: str | None = None,
+    ) -> dict[str, Any]:
         if target_category_id <= 0:
             raise ValueError("La catégorie cible est obligatoire.")
+        clean_match_value = str(match_value or "").strip()
+        if match_value is not None and not clean_match_value:
+            raise ValueError("Le libellé à rechercher est obligatoire.")
+        options = {"match_value": clean_match_value} if clean_match_value else None
         created_id = int(
             self.categorization.create_rule_from_transaction(
                 transaction_id,
                 target_category_id,
+                options,
             )
         )
         return {
