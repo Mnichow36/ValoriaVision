@@ -346,11 +346,59 @@ class CategorizationRuleService:
         self.db.seal_database_to_encrypted_vault()
         return summary
 
-    def suggest_keyword_from_label(self, label: str) -> str:
-        normalized = self.normalize_label(label)
-        stop = {"prlv", "sepa", "cb", "carte", "paiement", "virement", "client", "facture", "achat"}
-        parts = [p for p in normalized.split() if len(p) >= 3 and p not in stop]
-        return parts[0].upper() if parts else (label or "").strip()[:20]
+    @classmethod
+    def suggest_keyword_from_label(cls, label: str) -> str:
+        raw_label = (label or "").strip()
+        if not raw_label:
+            return ""
+
+        # Bank exports commonly isolate the merchant after a long dash:
+        # "CARTE X7693 05/06 — LIDL 3011". Prefer that segment without
+        # relying on one bank's exact format.
+        segments = re.split(r"\s+(?:—|–|-)\s+", raw_label)
+        merchant_segment = segments[-1] if len(segments) > 1 else raw_label
+        merchant_segment = re.sub(
+            r"\b(?:[A-Za-z]\.){2,}[A-Za-z]?\.?",
+            lambda match: match.group(0).replace(".", ""),
+            merchant_segment,
+        )
+        tokens = cls.normalize_label(merchant_segment).split()
+
+        leading_noise = {
+            "achat", "cb", "carte", "credit", "de", "debit", "du", "emis",
+            "facture", "paiement", "par", "prelevement", "prlv", "recu",
+            "retrait", "sepa", "virement", "vir",
+        }
+        terminal_noise = {
+            "cb", "carte", "facture", "fr", "paiement", "ref", "reference",
+            "sepa",
+        }
+
+        def is_technical(token: str) -> bool:
+            if token.isdigit():
+                return True
+            if re.fullmatch(r"[a-z]{0,3}\d{3,}[a-z0-9]*", token):
+                return True
+            if re.fullmatch(r"\d+[a-z]+\d*", token):
+                return True
+            return len(token) >= 8 and any(ch.isdigit() for ch in token) and any(ch.isalpha() for ch in token)
+
+        candidate: list[str] = []
+        for token in tokens:
+            if not candidate:
+                if token in leading_noise or is_technical(token):
+                    continue
+                candidate.append(token)
+                continue
+            if token in terminal_noise or is_technical(token):
+                break
+            candidate.append(token)
+            if len(candidate) >= 4:
+                break
+
+        if candidate:
+            return " ".join(candidate).upper()
+        return raw_label[:40].upper()
 
     def create_rule_from_transaction(self, transaction_id: int, target_category_id: int, options: dict | None = None) -> int:
         tx = self.transaction_row(transaction_id)
