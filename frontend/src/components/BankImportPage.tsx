@@ -223,11 +223,12 @@ export function BankImportPage({
                 </div>
                 <div className="import-preview-wrap">
                   <table className="import-preview-table">
-                    <thead><tr><th>Date</th><th>Libellé enrichi</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Tiers identifié</th><th>Libellé bancaire</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
                     <tbody>
                       {preview.rows.map((row, index) => (
                         <tr className={row.duplicate ? "duplicate" : ""} key={row.date + row.label + index}>
                           <td>{formatDate(row.date)}</td>
+                          <td><strong>{row.beneficiary || "À identifier"}</strong></td>
                           <td title={row.label}>{row.label}</td>
                           <td><span className="transaction-pill transaction-pill--muted">{row.category}</span></td>
                           <td><span className={row.duplicate ? "import-row-status import-row-status--duplicate" : "import-row-status"}>{row.status}</span></td>
