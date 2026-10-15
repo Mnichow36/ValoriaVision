@@ -142,6 +142,18 @@ export function updateTransaction(
   });
 }
 
+export function createTransactionCategorizationRule(
+  token: string,
+  transactionId: number,
+  targetCategoryId: number,
+): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/transactions/${transactionId}/categorization-rule`, {
+    method: "POST",
+    token,
+    body: { target_category_id: targetCategoryId },
+  });
+}
+
 export function bulkUpdateTransactions(
   token: string,
   transactionIds: number[],
