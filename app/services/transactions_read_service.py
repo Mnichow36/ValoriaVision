@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 import math
 from typing import Any, Callable
 
+from app.services.categorization_rule_service import CategorizationRuleService
+
 
 def _field(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
@@ -230,6 +232,9 @@ class TransactionsReadService:
             "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
             "bank": str(_field(row, "bank", "") or ""),
             "label": str(_field(row, "label", "Mouvement") or "Mouvement"),
+            "ruleSuggestion": CategorizationRuleService.suggest_keyword_from_label(
+                str(_field(row, "label", "") or "")
+            ),
             "category": str(_field(row, "category", "") or "À catégoriser"),
             "status": str(_field(row, "status", "") or "À catégoriser"),
             "amount": _number(_field(row, "amount", 0)),
