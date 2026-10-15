@@ -111,6 +111,7 @@ class TransactionBulkPayload(BaseModel):
 
 class TransactionCategorizationRulePayload(BaseModel):
     target_category_id: int
+    match_value: str | None = None
 
 
 def create_app(database: Database | None = None) -> FastAPI:
@@ -347,6 +348,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             return SettingsReadService(active_database).create_rule_from_transaction(
                 transaction_id,
                 payload.target_category_id,
+                payload.match_value,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
