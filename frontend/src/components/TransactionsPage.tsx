@@ -299,6 +299,7 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [rememberCategory, setRememberCategory] = useState(false);
+  const [ruleValue, setRuleValue] = useState(transaction.ruleSuggestion);
   const statuses = Array.from(new Set([
     transaction.status,
     "Validée",
@@ -326,6 +327,10 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
       setFormError("La catégorie choisie ne permet pas de créer une règle.");
       return;
     }
+    if (rememberCategory && !ruleValue.trim()) {
+      setFormError("Indiquez le nom du tiers à rechercher.");
+      return;
+    }
 
     setBusy(true);
     setFormError(undefined);
@@ -334,7 +339,12 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
       const result = await updateTransaction(token, transaction.id, draft);
       transactionSaved = true;
       if (rememberCategory && selectedCategory) {
-        const rule = await createTransactionCategorizationRule(token, transaction.id, selectedCategory.id);
+        const rule = await createTransactionCategorizationRule(
+          token,
+          transaction.id,
+          selectedCategory.id,
+          ruleValue.trim(),
+        );
         onCompleted({ ...result, message: `${result.message} ${rule.message}` });
         return;
       }
@@ -368,13 +378,29 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
             <label className="account-field account-field--wide"><span>Statut *</span><select onChange={(event) => field("status", event.target.value)} value={draft.status}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>
           </div>
           {draft.category && (
-            <label className="transaction-rule-option">
-              <input checked={rememberCategory} onChange={(event) => setRememberCategory(event.target.checked)} type="checkbox" />
-              <span>
-                <strong>Mémoriser cette catégorisation</strong>
-                <small>Les prochaines opérations similaires de ce compte seront classées automatiquement.</small>
-              </span>
-            </label>
+            <div className="transaction-rule-option">
+              <label className="transaction-rule-toggle">
+                <input checked={rememberCategory} onChange={(event) => setRememberCategory(event.target.checked)} type="checkbox" />
+                <span>
+                  <strong>Mémoriser cette catégorisation</strong>
+                  <small>Les prochaines opérations similaires de ce compte seront classées automatiquement.</small>
+                </span>
+              </label>
+              {rememberCategory && (
+                <label className="transaction-rule-value">
+                  <span>Nom du tiers à rechercher *</span>
+                  <input
+                    autoComplete="off"
+                    maxLength={120}
+                    onChange={(event) => setRuleValue(event.target.value)}
+                    placeholder="Ex. LIDL"
+                    required
+                    value={ruleValue}
+                  />
+                  <small>Les références de carte, dates et numéros doivent être exclus.</small>
+                </label>
+              )}
+            </div>
           )}
           <p className="account-editor-note">La modification réévalue automatiquement les budgets, le prévisionnel et les rapprochements liés.</p>
           {formError && <div className="account-form-error" role="alert">{formError}</div>}
