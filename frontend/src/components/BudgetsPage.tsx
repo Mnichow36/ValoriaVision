@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getBudgets } from "../api/client";
 import type { BudgetCategoryRow, BudgetsSnapshot } from "../api/contracts";
+import { InteractiveGroupedBarChart } from "./InteractiveCharts";
 
 interface BudgetsPageProps {
   month: string;
@@ -66,7 +67,6 @@ export function BudgetsPage({ month, onMonthChange, onMonthsChange, token }: Bud
   }
 
   const selected = snapshot.rows.find((row) => row.category === selectedCategory) ?? snapshot.rows[0];
-  const maximum = Math.max(...chartRows.flatMap((row) => [row.planned, row.actual]), 1);
   const gapTone = snapshot.summary.biggestGap > 0 ? "danger" : "success";
 
   return (
@@ -80,13 +80,14 @@ export function BudgetsPage({ month, onMonthChange, onMonthsChange, token }: Bud
 
       <section className="budget-main-grid">
         <article className="card budget-chart-card">
-          <div className="budget-heading"><h2>Prévu vs réalisé</h2><p>Lecture immédiate des principaux postes.</p></div>
-          <div className="budget-bars">
-            {chartRows.length > 0 ? chartRows.map((row) => (
-              <BudgetBar maximum={maximum} onSelect={() => setSelectedCategory(row.category)} row={row} selected={row.category === selected?.category} key={row.category} />
-            )) : <p className="budget-empty">Aucune donnée budgétaire pour ce mois.</p>}
-          </div>
-          <div className="budget-legend"><span><i className="budget-legend__planned" />Prévu</span><span><i className="budget-legend__actual" />Réalisé</span></div>
+          <div className="budget-heading"><h2>Prévu vs réalisé</h2><p>{formatBudgetMonth(snapshot.month)} · montants par catégorie.</p></div>
+          <InteractiveGroupedBarChart
+            ariaLabel={`Comparaison du budget prévu et réalisé pour ${formatBudgetMonth(snapshot.month)}`}
+            onSelect={setSelectedCategory}
+            rows={chartRows.map((row) => ({ label: row.category, planned: row.planned, actual: row.actual }))}
+            selectedLabel={selected?.category}
+            valueFormatter={formatMoney}
+          />
         </article>
 
         <BudgetDetail row={selected} />
@@ -102,19 +103,6 @@ function BudgetKpi({ detail, label, tone, value, valueTone }: { detail: string; 
       <strong className={valueTone ? `budget-kpi__value--${valueTone}` : ""}>{value}</strong>
       <small className={valueTone === "danger" ? "budget-kpi__detail--danger" : ""}>{detail}</small>
     </article>
-  );
-}
-
-function BudgetBar({ maximum, onSelect, row, selected }: { maximum: number; onSelect: () => void; row: BudgetCategoryRow; selected: boolean }) {
-  return (
-    <button aria-pressed={selected} className={selected ? "budget-bar budget-bar--selected" : "budget-bar"} onClick={onSelect} type="button">
-      <strong>{row.category}</strong>
-      <div className="budget-bar__tracks">
-        <span><i className="budget-bar__planned" style={{ width: `${Math.min(100, (row.planned / maximum) * 100)}%` }} /></span>
-        <span><i className="budget-bar__actual" style={{ width: `${Math.min(100, (row.actual / maximum) * 100)}%` }} /></span>
-      </div>
-      <b>{formatMoney(row.actual)}</b>
-    </button>
   );
 }
 
@@ -145,4 +133,11 @@ function signedMoney(value: number): string {
 
 function formatMoney(value: number): string {
   return currencyFormatter.format(value);
+}
+
+function formatBudgetMonth(value: string): string {
+  const [year, month] = value.split("-").map(Number);
+  if (!year || !month) return value;
+  const label = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
