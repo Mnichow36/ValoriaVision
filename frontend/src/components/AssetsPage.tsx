@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getAssets } from "../api/client";
 import type { AssetEvolutionPoint, AssetsSnapshot, PatrimonialAsset } from "../api/contracts";
+import { InteractiveDonutChart, InteractiveLineChart } from "./InteractiveCharts";
 
 interface AssetsPageProps {
   token: string;
@@ -96,7 +97,7 @@ export function AssetsPage({ token }: AssetsPageProps) {
           </div>
         </article>
 
-        <AssetDetail asset={selectedAsset} selectedWeight={selectedWeight} />
+        <AssetDetail asset={selectedAsset} selectedWeight={selectedWeight} totalAssets={snapshot.summary.totalAssets} />
       </section>
     </div>
   );
@@ -112,15 +113,23 @@ function AssetKpi({ detail, label, tone, value }: { detail: string; label: strin
   );
 }
 
-function AssetDetail({ asset, selectedWeight }: { asset?: PatrimonialAsset; selectedWeight: number }) {
+function AssetDetail({ asset, selectedWeight, totalAssets }: { asset?: PatrimonialAsset; selectedWeight: number; totalAssets: number }) {
   if (!asset) {
     return <aside className="card asset-detail"><div className="assets-heading"><h2>Volet actif</h2><p>Aucun actif disponible.</p></div></aside>;
   }
-  const gradient = `conic-gradient(#2563eb 0 ${selectedWeight}%, #7c3aed ${selectedWeight}% ${Math.min(100, selectedWeight + 8)}%, #dfe6ef ${Math.min(100, selectedWeight + 8)}% 100%)`;
+  const otherAssets = Math.max(0, totalAssets - asset.value);
   return (
     <aside className="card asset-detail">
-      <div className="assets-heading"><h2>Volet actif</h2><p>{asset.name}.</p></div>
-      <div className="asset-detail__donut" style={{ background: gradient }}><div><strong>{compactMoney(asset.value)}</strong><span>Valeur</span></div></div>
+      <div className="assets-heading"><h2>Volet actif</h2><p>{asset.name} · {selectedWeight.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % du portefeuille.</p></div>
+      <InteractiveDonutChart
+        ariaLabel={`Poids de ${asset.name} dans les actifs`}
+        showLegend={false}
+        slices={[
+          { label: asset.name, value: asset.value, color: "#2563eb" },
+          { label: "Autres actifs", value: otherAssets, color: "#dfe6ef" },
+        ]}
+        valueFormatter={compactMoney}
+      />
       <dl>
         <div><dt>Type</dt><dd>{asset.type}</dd></div>
         <div><dt>Valeur estimée</dt><dd>{money.format(asset.value)}</dd></div>
@@ -136,27 +145,33 @@ function AssetDetail({ asset, selectedWeight }: { asset?: PatrimonialAsset; sele
 
 function AssetsEvolutionChart({ points }: { points: AssetEvolutionPoint[] }) {
   if (points.length < 2) return <div className="assets-chart-empty">Ajoutez au moins deux valorisations pour afficher une évolution.</div>;
-  const width = 720;
-  const height = 220;
-  const padding = 28;
-  const values = points.flatMap((point) => [point.net, point.assets, point.liabilities, 0]);
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const range = maximum - minimum || 1;
-  const x = (index: number) => padding + index * ((width - padding * 2) / Math.max(1, points.length - 1));
-  const y = (value: number) => padding + (maximum - value) / range * (height - padding * 2);
-  const path = (selector: (point: AssetEvolutionPoint) => number) => points.map((point, index) => `${index ? "L" : "M"}${x(index)},${y(selector(point))}`).join(" ");
   return (
-    <div className="assets-chart">
-      <svg aria-label="Évolution des actifs, passifs et du patrimoine net" role="img" viewBox={`0 0 ${width} ${height}`}>
-        {[0, 1, 2, 3].map((line) => <line className="assets-chart__grid" key={line} x1={padding} x2={width - padding} y1={padding + line * ((height - padding * 2) / 3)} y2={padding + line * ((height - padding * 2) / 3)} />)}
-        <path className="assets-chart__line assets-chart__line--assets" d={path((point) => point.assets)} />
-        <path className="assets-chart__line assets-chart__line--net" d={path((point) => point.net)} />
-        <path className="assets-chart__line assets-chart__line--liabilities" d={path((point) => point.liabilities)} />
-        {points.map((point, index) => <circle className="assets-chart__point" cx={x(index)} cy={y(point.net)} key={point.date} r="4" />)}
-      </svg>
-      <div className="assets-chart__dates"><span>{formatDate(points[0].date)}</span><span>{formatDate(points[points.length - 1].date)}</span></div>
-    </div>
+    <InteractiveLineChart
+      ariaLabel="Évolution des actifs, passifs et du patrimoine net"
+      series={[
+        {
+          id: "net",
+          label: "Patrimoine net",
+          color: "#2563eb",
+          area: true,
+          points: points.map((point) => ({ date: point.date, value: point.net })),
+        },
+        {
+          id: "assets",
+          label: "Actifs",
+          color: "#7c3aed",
+          points: points.map((point) => ({ date: point.date, value: point.assets })),
+        },
+        {
+          id: "liabilities",
+          label: "Passifs",
+          color: "#e11d48",
+          dashed: true,
+          points: points.map((point) => ({ date: point.date, value: point.liabilities })),
+        },
+      ]}
+      valueFormatter={compactMoney}
+    />
   );
 }
 
