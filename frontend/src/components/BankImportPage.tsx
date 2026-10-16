@@ -189,7 +189,7 @@ export function BankImportPage({
 
             {busy && <div className="import-loading"><span aria-hidden="true" />Analyse locale du relevé…</div>}
             {error && <div className="import-message import-message--error"><strong>Import impossible</strong><p>{error}</p></div>}
-            {result && <ImportSuccess result={result} onReset={reset} />}
+            {result && <ImportSuccess result={result} onReset={reset} onViewTransactions={() => onViewChange("journal")} />}
 
             {!busy && !result && !preview && !error && (
               <button className="import-dropzone" onClick={() => inputRef.current?.click()} type="button">
@@ -276,7 +276,7 @@ function ControlMetric({ label, tone, value }: { label: string; tone: "blue" | "
   );
 }
 
-function ImportSuccess({ onReset, result }: { onReset: () => void; result: BankImportResult }) {
+function ImportSuccess({ onReset, onViewTransactions, result }: { onReset: () => void; onViewTransactions: () => void; result: BankImportResult }) {
   return (
     <div className="import-success">
       <span aria-hidden="true">✓</span>
@@ -288,7 +288,7 @@ function ImportSuccess({ onReset, result }: { onReset: () => void; result: BankI
           <li>{result.reconciliation.automatic} rapprochement(s) automatique(s)</li>
           <li>{result.reconciliation.toReview} rapprochement(s) à vérifier</li>
         </ul>
-        <button className="secondary-button" onClick={onReset} type="button">Importer un autre relevé</button>
+        <div className="import-success-actions"><button onClick={onViewTransactions} type="button">Voir les opérations</button><button className="secondary-button" onClick={onReset} type="button">Importer un autre relevé</button></div>
       </div>
     </div>
   );
