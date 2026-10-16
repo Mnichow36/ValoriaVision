@@ -37,6 +37,7 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
   const [accountId, setAccountId] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [allDates, setAllDates] = useState(true);
   const [editing, setEditing] = useState<TransactionRow>();
   const [notice, setNotice] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -67,6 +68,7 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
     const query = search.trim().toLocaleLowerCase("fr");
     return snapshot.transactions.filter((transaction) => {
       const matchesSearch = !query || [
+        transaction.beneficiary,
         transaction.label,
         transaction.category,
         transaction.accountName,
@@ -74,11 +76,11 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
         String(transaction.amount),
       ].some((value) => value.toLocaleLowerCase("fr").includes(query));
       const matchesAccount = accountId === "all" || transaction.accountId === Number(accountId);
-      const matchesFrom = !dateFrom || transaction.date >= dateFrom;
-      const matchesTo = !dateTo || transaction.date <= dateTo;
+      const matchesFrom = allDates || !dateFrom || transaction.date >= dateFrom;
+      const matchesTo = allDates || !dateTo || transaction.date <= dateTo;
       return matchesSearch && matchesAccount && matchesFrom && matchesTo;
     });
-  }, [accountId, dateFrom, dateTo, search, snapshot]);
+  }, [accountId, allDates, dateFrom, dateTo, search, snapshot]);
 
   const visibleIds = visibleTransactions.map((transaction) => transaction.id);
   const visibleSelectedIds = selectedIds.filter((id) => visibleIds.includes(id));
@@ -164,13 +166,14 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
         <div className="transaction-filters" role="search">
-          <input aria-label="Rechercher une transaction" onChange={(event) => clearSelectionForFilter(() => setSearch(event.target.value))} placeholder="Recherche libellé, montant…" type="search" value={search} />
+          <input aria-label="Rechercher une transaction" onChange={(event) => clearSelectionForFilter(() => setSearch(event.target.value))} placeholder="Recherche tiers, libellé, montant…" type="search" value={search} />
           <select aria-label="Filtrer par compte" onChange={(event) => clearSelectionForFilter(() => setAccountId(event.target.value))} value={accountId}>
             <option value="all">Tous les comptes</option>
             {snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
           </select>
-          <label><span>Du</span><input aria-label="Date de début" onChange={(event) => clearSelectionForFilter(() => setDateFrom(event.target.value))} type="date" value={dateFrom} /></label>
-          <label><span>Au</span><input aria-label="Date de fin" onChange={(event) => clearSelectionForFilter(() => setDateTo(event.target.value))} type="date" value={dateTo} /></label>
+          <label><span>Du</span><input aria-label="Date de début" disabled={allDates} onChange={(event) => clearSelectionForFilter(() => setDateFrom(event.target.value))} type="date" value={dateFrom} /></label>
+          <label><span>Au</span><input aria-label="Date de fin" disabled={allDates} onChange={(event) => clearSelectionForFilter(() => setDateTo(event.target.value))} type="date" value={dateTo} /></label>
+          <label className="transaction-all-dates"><input aria-label="Afficher toutes les dates" checked={allDates} onChange={(event) => clearSelectionForFilter(() => setAllDates(event.target.checked))} type="checkbox" /><span>Toutes dates</span></label>
           <span className="transaction-count">{visibleTransactions.length} opération{visibleTransactions.length > 1 ? "s" : ""}</span>
         </div>
 
@@ -190,7 +193,7 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
 
         <div className="transactions-table-wrap">
           <table className="transactions-table">
-            <thead><tr><th><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />Date</label></th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
+            <thead><tr><th><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />Date</label></th><th>Compte</th><th>Tiers / Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
             <tbody>
               {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
                 <TransactionLine
@@ -256,6 +259,8 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
 }
 
 function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
+  const hasDistinctBankLabel = Boolean(transaction.beneficiary)
+    && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
   return (
     <tr
       aria-label={`Modifier la transaction ${transaction.label}`}
@@ -272,7 +277,7 @@ function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: 
     >
       <td><label className="transaction-select" onClick={(event) => event.stopPropagation()}><input aria-label={`Sélectionner ${transaction.label}`} checked={selected} onChange={onToggle} type="checkbox" />{formatDate(transaction.date)}</label></td>
       <td>{shortAccount(transaction)}</td>
-      <td>{transaction.label}</td>
+      <td><div className="transaction-counterparty"><strong>{transaction.beneficiary || transaction.label}</strong>{hasDistinctBankLabel && <small title={transaction.label}>{transaction.label}</small>}</div></td>
       <td><span className={`transaction-pill transaction-pill--${categoryTone(transaction.category)}`}>{transaction.category}</span></td>
       <td><span className={`transaction-pill transaction-pill--${statusTone(transaction.status)}`}>{transaction.status}</span></td>
       <td className={transaction.amount < 0 ? "transaction-amount transaction-amount--negative" : "transaction-amount transaction-amount--positive"}>{signedMoney(transaction.amount)}</td>
