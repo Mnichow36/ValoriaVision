@@ -225,7 +225,14 @@ export function InteractiveDonutChart({
             <path
               aria-label={`${segment.label} : ${valueFormatter(segment.value)}`}
               className={segment.index === activeIndex ? "interactive-donut__segment interactive-donut__segment--active" : "interactive-donut__segment"}
-              d={donutSegmentPath(110, 110, 88, 60, segment.start + .7, segment.end - .7)}
+              d={donutSegmentPath(
+                110,
+                110,
+                88,
+                60,
+                segment.start + Math.min(.7, (segment.end - segment.start) / 4),
+                segment.end - Math.min(.7, (segment.end - segment.start) / 4),
+              )}
               key={segment.label}
               onBlur={() => undefined}
               onFocus={() => setActiveIndex(segment.index)}
