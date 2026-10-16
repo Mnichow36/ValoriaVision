@@ -68,6 +68,7 @@ class ForecastReadService:
                 "startDate": str(start_date),
             },
             "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "")) == "Actif"],
+            "categories": [self._category(row) for row in self.database.list_categories()],
             "series": {
                 "selected": self._series(selected_points),
                 "realized": self._realized_series(_number(selected.get("starting_cash")), selected_points),
@@ -95,6 +96,19 @@ class ForecastReadService:
             "name": str(_field(row, "name", "Compte") or "Compte"),
             "bank": str(_field(row, "bank", "") or ""),
             "type": str(_field(row, "account_type", "") or ""),
+        }
+
+    @staticmethod
+    def _category(row: Any) -> dict[str, Any]:
+        kind = str(_field(row, "kind", "Dépense") or "Dépense")
+        direction = str(_field(row, "direction", "") or "")
+        if direction not in {"Recette", "Dépense", "Neutre"}:
+            direction = "Recette" if kind == "Revenu" else "Neutre" if kind == "Neutre" else "Dépense"
+        return {
+            "id": _integer(_field(row, "id", 0)),
+            "name": str(_field(row, "name", "") or ""),
+            "direction": direction,
+            "color": str(_field(row, "color", "#64748B") or "#64748B"),
         }
 
     @staticmethod
