@@ -95,12 +95,6 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
 
         <ForecastChart snapshot={snapshot} />
 
-        <div className="forecast-legend" aria-label="Légende du graphique">
-          <span><i className="forecast-legend__dot forecast-legend__dot--selected" />Solde prévu</span>
-          <span><i className="forecast-legend__dot forecast-legend__dot--realized" />Réalisé</span>
-          <span><i className="forecast-legend__dot forecast-legend__dot--prudent" />Scénario prudent</span>
-        </div>
-
         <div className="forecast-summary-cards">
           <ForecastSummaryCard
             badge={snapshot.summary.lowBalance >= 5000 ? "Cash stable" : snapshot.summary.alert}
