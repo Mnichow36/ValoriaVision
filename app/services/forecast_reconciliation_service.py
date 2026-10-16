@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from uuid import uuid4
 
+from app.services.counterparty_parser import extract_counterparty
+
 
 STATUS_LABELS = {
     "planned": "Prévue",
@@ -822,7 +824,16 @@ class ForecastReconciliationService:
 
         expected_label = _norm(occurrence["expected_label"])
         tx_label = _norm(transaction["label"])
-        if expected_label and tx_label:
+        transaction_counterparty = _norm(
+            transaction["beneficiary"]
+            if "beneficiary" in transaction.keys() and transaction["beneficiary"]
+            else extract_counterparty(transaction["label"])
+        )
+        expected_counterparty = _norm(extract_counterparty(occurrence["expected_label"]))
+        if transaction_counterparty and expected_counterparty and transaction_counterparty == expected_counterparty:
+            score += 5
+            reasons.append("tiers identifié identique +5")
+        elif expected_label and tx_label:
             ratio = SequenceMatcher(None, expected_label, tx_label).ratio()
             token_hit = any(token and token in tx_label for token in expected_label.split() if len(token) >= 4)
             if token_hit or ratio * 100 >= int(rules["label_similarity_min"]):
