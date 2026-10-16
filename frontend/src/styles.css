@@ -474,6 +474,10 @@ button { cursor: pointer; }
 .import-history-empty { align-items: center; border: 1px dashed #cbd5e1; border-radius: 12px; color: #697b99; display: flex; font-size: 13px; justify-content: center; margin-top: 24px; min-height: 280px; }
 
 .forecast-page { display: grid; gap: 20px; grid-template-columns: minmax(0, 2.08fr) minmax(330px, .98fr); }
+.forecast-notice { margin-bottom: 20px; }
+.recurrence-editor { width: min(560px, 100vw); }
+.recurrence-editor .account-field input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.recurrence-editor .account-field small { margin-top: -1px; }
 .forecast-projection { min-height: 743px; padding: 20px; }
 .forecast-card-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
 .forecast-card-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 4px; }
