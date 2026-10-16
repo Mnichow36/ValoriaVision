@@ -15,6 +15,7 @@ import { ReconciliationPage } from "./components/ReconciliationPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 import type { TransactionsView } from "./components/TransactionsPage";
+import { InteractiveDonutChart } from "./components/InteractiveCharts";
 
 type AppState =
   | { status: "booting" }
@@ -436,8 +437,16 @@ function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
   const budgetVariance = snapshot.budget.totalRealized - snapshot.budget.totalPlanned;
   const toProcess = snapshot.alerts.filter((alert) => alert.level === "warning" || alert.level === "critical").length
     + snapshot.budget.rows.filter((row) => row.usage > 100).length;
-  const expenseGradient = buildGradient(expenseRows.map((row) => row.actual), ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626"]);
-  const assetGradient = buildGradient(snapshot.assets.map((item) => item.value), ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b"]);
+  const expenseSlices = expenseRows.map((row, index) => ({
+    label: row.category,
+    value: row.actual,
+    color: ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626"][index % 4],
+  }));
+  const assetSlices = snapshot.assets.filter((item) => item.value > 0).slice(0, 5).map((item, index) => ({
+    label: item.label,
+    value: item.value,
+    color: ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b"][index % 5],
+  }));
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
 
   return (
@@ -451,23 +460,15 @@ function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
 
       <section className="r8-dashboard-main">
         <article className="card r8-panel r8-expenses-panel">
-          <div className="panel-heading"><div><h2>Répartition des dépenses</h2><p>Dépenses du mois par catégorie.</p></div></div>
-          <div className="r8-expenses-content">
-            <Donut gradient={expenseGradient} primary={money.format(expenseTotal)} secondary="EUR" />
-            <ul className="r8-legend-list">
-              {expenseRows.map((row, index) => (
-                <li key={row.category}><i className={`r8-dot r8-dot--${index}`} /><strong>{row.category}</strong><span>{moneyCode.format(row.actual)}</span></li>
-              ))}
-            </ul>
+          <div className="panel-heading"><div><h2>Répartition des dépenses</h2><p>{formatPeriod(snapshot.period)} · total {moneyCode.format(expenseTotal)}.</p></div></div>
+          <div className="r8-expenses-content r8-expenses-content--interactive">
+            <InteractiveDonutChart ariaLabel="Répartition des dépenses par catégorie" slices={expenseSlices} valueFormatter={(value) => moneyCode.format(value)} />
           </div>
           <span className={budgetVariance > 0 ? "r8-variance r8-variance--warning" : "r8-variance"}>{budgetVariance > 0 ? "+ " : ""}{moneyCode.format(budgetVariance)} vs budget</span>
         </article>
         <article className="card r8-panel r8-assets-panel">
-          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Actifs nets par famille.</p></div></div>
-          <Donut gradient={assetGradient} primary={money.format(assetTotal / 1000)} secondary="kEUR" />
-          <ul>
-            {snapshot.assets.slice(0, 3).map((item) => <li key={item.label}><span>{item.label}</span><strong>{assetTotal ? Math.round((item.value / assetTotal) * 100) : 0} %</strong></li>)}
-          </ul>
+          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Total des actifs · {moneyCode.format(assetTotal)}.</p></div></div>
+          <InteractiveDonutChart ariaLabel="Répartition du patrimoine par famille" slices={assetSlices} valueFormatter={(value) => moneyCode.format(value)} />
         </article>
         <article className="card r8-panel r8-flow-panel">
           <div className="panel-heading"><div><h2>Flux du mois</h2><p>Revenus, dépenses et épargne nette.</p></div></div>
@@ -513,14 +514,6 @@ function DashboardKpi({ detail, label, tone, value }: { detail: string; label: s
   );
 }
 
-function Donut({ gradient, primary, secondary }: { gradient: string; primary: string; secondary: string }) {
-  return (
-    <div className="r8-donut" style={{ background: gradient }}>
-      <div><strong>{primary}</strong><span>{secondary}</span></div>
-    </div>
-  );
-}
-
 function FlowBar({ label, maximum, tone, value }: { label: string; maximum: number; tone: string; value: number }) {
   const width = Math.max(0, Math.min(100, (Math.abs(value) / maximum) * 100));
   return (
@@ -562,16 +555,4 @@ async function waitForEngine(signal: AbortSignal): Promise<void> {
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Le moteur local ne répond pas.");
-}
-
-function buildGradient(values: number[], colors: string[]): string {
-  const total = values.reduce((sum, value) => sum + Math.max(0, value), 0);
-  if (!total) return "#e2e8f0";
-  let cursor = 0;
-  const segments = values.map((value, index) => {
-    const start = cursor;
-    cursor += (Math.max(0, value) / total) * 100;
-    return `${colors[index % colors.length]} ${start}% ${cursor}%`;
-  });
-  return `conic-gradient(${segments.join(", ")})`;
 }
