@@ -216,9 +216,13 @@ function QueuePanel({ children, count, subtitle, title }: { children: ReactNode;
 }
 
 function TransactionCard({ onSelect, selected, transaction }: { onSelect: () => void; selected: boolean; transaction: ReconciliationTransaction }) {
+  const displayName = transaction.beneficiary || transaction.label;
+  const hasDistinctBankLabel = Boolean(transaction.beneficiary)
+    && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
   return (
     <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} type="button">
-      <div className="reconciliation-item__top"><strong>{transaction.label}</strong><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b></div>
+      <div className="reconciliation-item__top"><strong>{displayName}</strong><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b></div>
+      {hasDistinctBankLabel && <small className="reconciliation-item__bank-label" title={transaction.label}>{transaction.label}</small>}
       <div className="reconciliation-item__meta"><span>{formatDate(transaction.date)}</span><span>{transaction.accountName}</span></div>
       <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span><small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small></div>
     </button>
@@ -271,11 +275,13 @@ function ProposalPanel({
     );
   }
 
+  const transactionDisplayName = transaction.beneficiary || transaction.label;
+
   if (!occurrence) {
     return (
       <aside className="card reconciliation-proposal">
         <div className="reconciliation-heading"><div><h2>Proposition de rapprochement</h2><p>Sélectionnez également une prévision à traiter.</p></div></div>
-        <SelectionSummary label="Transaction" name={transaction.label} amount={transaction.amount} />
+        <SelectionSummary label="Transaction" name={transactionDisplayName} amount={transaction.amount} />
         <p className="reconciliation-proposal__empty">Aucune prévision n’est sélectionnée.</p>
       </aside>
     );
@@ -286,7 +292,7 @@ function ProposalPanel({
   return (
     <aside className="card reconciliation-proposal">
       <div className="reconciliation-heading"><div><h2>Proposition de rapprochement</h2><p>{suggestion ? "Meilleure correspondance expliquée par le moteur." : "Paire sélectionnée pour un contrôle manuel."}</p></div></div>
-      <SelectionSummary label="Transaction réelle" name={transaction.label} amount={transaction.amount} />
+      <SelectionSummary label="Transaction réelle" name={transactionDisplayName} amount={transaction.amount} />
       <div className="reconciliation-link" aria-hidden="true"><span /><b>↕</b><span /></div>
       <SelectionSummary label="Prévision attendue" name={occurrence.label} amount={occurrence.amount} />
       {suggestion ? (
