@@ -16,6 +16,12 @@ class StubDatabase:
             {"id": 8, "name": "Clos", "bank": "SG", "account_type": "Compte courant", "status": "Clos"},
         ]
 
+    def list_categories(self):
+        return [
+            {"id": 3, "name": "Logement", "kind": "Dépense", "direction": "Dépense", "color": "#2563EB"},
+            {"id": 4, "name": "Salaire", "kind": "Revenu", "direction": "Recette", "color": "#16A34A"},
+        ]
+
     def cash_forecast(self, start_date, horizon_days, scenario, account_id=None):
         end_balance = {"Prudent": 900, "Réaliste": 1000, "Optimiste": 1200}[scenario]
         return {
@@ -60,6 +66,8 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["series"]["realized"][-1]["balance"], 850.0)
         self.assertEqual(snapshot["upcoming"][0]["name"], "Salaire")
         self.assertEqual(len(snapshot["accounts"]), 1)
+        self.assertEqual(snapshot["categories"][0]["name"], "Logement")
+        self.assertEqual(snapshot["categories"][1]["direction"], "Recette")
 
     def test_falls_back_to_supported_filter_values(self):
         snapshot = ForecastReadService(StubDatabase()).snapshot(horizon_days=45, scenario="Inconnu")
