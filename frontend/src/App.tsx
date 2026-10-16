@@ -23,7 +23,6 @@ type AppState =
   | { status: "ready"; snapshot: DashboardSnapshot; token: string }
   | { status: "error"; message: string };
 
-const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const moneyCode = new Intl.NumberFormat("fr-FR", {
   currency: "EUR",
   currencyDisplay: "code",
