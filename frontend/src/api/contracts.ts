@@ -258,6 +258,32 @@ export interface ForecastAccount {
   type: string;
 }
 
+export interface ForecastCategory {
+  id: number;
+  name: string;
+  direction: "Recette" | "Dépense" | "Neutre";
+  color: string;
+}
+
+export interface RecurrencePayload {
+  accountId: number;
+  name: string;
+  category: string;
+  direction: "Débit" | "Crédit";
+  amount: number;
+  frequency: "Ponctuel" | "Hebdomadaire" | "Mensuel" | "Trimestriel" | "Annuel";
+  nextDate: string;
+  endDate: string;
+  scenario: "Prudent" | "Réaliste" | "Optimiste";
+}
+
+export interface RecurrenceActionResult {
+  success: boolean;
+  message: string;
+  recurringItemId: number;
+  generatedOccurrences: number;
+}
+
 export interface ForecastPoint {
   date: string;
   label: string;
@@ -285,6 +311,7 @@ export interface ForecastSnapshot {
     startDate: string;
   };
   accounts: ForecastAccount[];
+  categories: ForecastCategory[];
   series: {
     selected: ForecastPoint[];
     realized: ForecastPoint[];
