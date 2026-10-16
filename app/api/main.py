@@ -17,6 +17,7 @@ from app.services.bank_import_workflow_service import BankImportWorkflowService
 from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
+from app.services.recurrence_write_service import RecurrenceWriteService
 from app.services.reconciliation_read_service import ReconciliationReadService
 from app.services.settings_read_service import SettingsReadService
 from app.services.transactions_read_service import TransactionsReadService
@@ -112,6 +113,18 @@ class TransactionBulkPayload(BaseModel):
 class TransactionCategorizationRulePayload(BaseModel):
     target_category_id: int
     match_value: str | None = None
+
+
+class RecurrencePayload(BaseModel):
+    account_id: int
+    name: str
+    category: str
+    direction: str
+    amount: float
+    frequency: str = "Mensuel"
+    next_date: str
+    end_date: str | None = None
+    scenario: str = "Réaliste"
 
 
 def create_app(database: Database | None = None) -> FastAPI:
@@ -451,6 +464,20 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return ForecastReadService(active_database).snapshot(account_id, horizon_days, scenario)
+
+    @app.post("/api/v1/recurrences")
+    def create_recurrence(
+        payload: RecurrencePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return RecurrenceWriteService(active_database).create(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/v1/budgets")
     def budgets(
