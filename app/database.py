@@ -2614,17 +2614,18 @@ class Database:
                 )
             )
 
-    def add_recurring_item(self, data: dict) -> None:
+    def add_recurring_item(self, data: dict) -> int:
         payload = dict(data)
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
         with self.connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO recurring_items(account_id, name, category, amount, frequency, next_date, end_date, scenario, status)
                 VALUES (:account_id, :name, :category, :amount, :frequency, :next_date, :end_date, :scenario, :status)
                 """,
                 payload,
             )
+            return int(cursor.lastrowid)
 
     def get_recurring_item(self, item_id: int) -> sqlite3.Row | None:
         with self.connect() as conn:
