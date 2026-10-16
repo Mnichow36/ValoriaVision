@@ -30,7 +30,8 @@ class StubEngine:
         transaction = {
             "id": 7,
             "tx_date": "2026-10-12",
-            "label": "Loyer octobre",
+            "label": "PRLV SEPA FONCIA LOYER OCTOBRE",
+            "beneficiary": "FONCIA",
             "amount": -900,
             "allocated_amount": 0,
             "category": "Logement",
@@ -93,6 +94,7 @@ class ReconciliationReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["summary"]["matched"], 6)
         self.assertEqual(snapshot["summary"]["averageScore"], 96)
         self.assertEqual(snapshot["transactions"][0]["remainingAmount"], 900.0)
+        self.assertEqual(snapshot["transactions"][0]["beneficiary"], "FONCIA")
         self.assertEqual(snapshot["occurrences"][0]["statusLabel"], "À vérifier")
         self.assertEqual(snapshot["suggestions"][0]["proposalId"], 91)
         self.assertEqual(snapshot["accounts"], [{"id": 1, "name": "Compte courant", "bank": "Banque A"}])
