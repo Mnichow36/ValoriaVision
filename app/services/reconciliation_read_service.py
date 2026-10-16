@@ -155,6 +155,7 @@ class ReconciliationReadService:
             "id": int(_field(row, "id", 0) or 0),
             "date": str(_field(row, "tx_date", "") or ""),
             "label": str(_field(row, "label", "Transaction") or "Transaction"),
+            "beneficiary": str(_field(row, "beneficiary", "") or ""),
             "amount": amount,
             "remainingAmount": round(max(abs(amount) - allocated, 0), 2),
             "category": str(_field(row, "category", "") or "À catégoriser"),
