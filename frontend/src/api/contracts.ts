@@ -361,6 +361,7 @@ export interface ReconciliationTransaction {
   id: number;
   date: string;
   label: string;
+  beneficiary: string;
   amount: number;
   remainingAmount: number;
   category: string;
