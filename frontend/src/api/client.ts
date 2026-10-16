@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -221,6 +221,24 @@ export function getForecast(
   });
   if (filters.accountId !== "all") query.set("account_id", filters.accountId);
   return request<ForecastSnapshot>(`/api/v1/forecast?${query.toString()}`, { token, signal });
+}
+
+export function createRecurrence(token: string, payload: RecurrencePayload): Promise<RecurrenceActionResult> {
+  return request<RecurrenceActionResult>("/api/v1/recurrences", {
+    method: "POST",
+    token,
+    body: {
+      account_id: payload.accountId,
+      name: payload.name,
+      category: payload.category,
+      direction: payload.direction,
+      amount: payload.amount,
+      frequency: payload.frequency,
+      next_date: payload.nextDate,
+      end_date: payload.endDate || null,
+      scenario: payload.scenario,
+    },
+  });
 }
 
 export function getBudgets(token: string, month: string, signal?: AbortSignal): Promise<BudgetsSnapshot> {
