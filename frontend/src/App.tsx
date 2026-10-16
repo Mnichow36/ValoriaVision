@@ -78,6 +78,7 @@ export function App() {
   const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
   const [forecastHorizonDays, setForecastHorizonDays] = useState(90);
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
+  const [forecastRecurrenceRequestKey, setForecastRecurrenceRequestKey] = useState(0);
   const [budgetMonth, setBudgetMonth] = useState("");
   const [budgetMonths, setBudgetMonths] = useState<string[]>([]);
   const [reconciliationAccountId, setReconciliationAccountId] = useState("all");
@@ -185,6 +186,7 @@ export function App() {
             onBudgetMonthChange={setBudgetMonth}
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
+            onCreateRecurrence={() => setForecastRecurrenceRequestKey((key) => key + 1)}
             onOpenTransactionImport={() => openBankImport()}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
@@ -221,8 +223,13 @@ export function App() {
           {activeModule === "forecast" && (
             <ForecastPage
               accountId={forecastAccountId}
+              editorRequestKey={forecastRecurrenceRequestKey}
               horizonDays={forecastHorizonDays}
               onAccountsChange={setForecastAccounts}
+              onDataChanged={() => {
+                void refreshDashboard();
+                setReconciliationRefreshKey((key) => key + 1);
+              }}
               onScenarioChange={setForecastScenario}
               scenario={forecastScenario}
               token={state.token}
@@ -261,6 +268,7 @@ function HeaderActions({
   onBudgetMonthChange,
   onForecastAccountChange,
   onForecastHorizonChange,
+  onCreateRecurrence,
   onOpenTransactionImport,
   onReconciliationAccountChange,
   onReconciliationRefresh,
@@ -284,6 +292,7 @@ function HeaderActions({
   onBudgetMonthChange: (value: string) => void;
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
+  onCreateRecurrence: () => void;
   onOpenTransactionImport: () => void;
   onReconciliationAccountChange: (value: string) => void;
   onReconciliationRefresh: () => void;
@@ -352,7 +361,7 @@ function HeaderActions({
           <option value={60}>60 jours</option>
           <option value={90}>90 jours</option>
         </select>
-        <button aria-disabled="true" className="header-action-disabled" title="Création de récurrence prévue dans l’incrément d’édition" type="button">Nouvelle récurrence</button>
+        <button onClick={onCreateRecurrence} type="button">Nouvelle récurrence</button>
       </div>
     );
   }
