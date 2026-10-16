@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRecurrence, getForecast } from "../api/client";
-import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload } from "../api/contracts";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload } from "../api/contracts";
+import { InteractiveLineChart } from "./InteractiveCharts";
 
 interface ForecastPageProps {
   accountId: string;
@@ -312,23 +313,33 @@ function ScenarioButton({ active, children, onClick }: { active: boolean; childr
 }
 
 function ForecastChart({ snapshot }: { snapshot: ForecastSnapshot }) {
-  const geometry = useMemo(() => chartGeometry([
-    snapshot.series.selected,
-    snapshot.series.realized,
-    snapshot.series.prudent,
-  ]), [snapshot]);
-  const selectedDots = geometry.selected.filter((_, index) => index % Math.max(1, Math.floor(geometry.selected.length / 6)) === 0 || index === geometry.selected.length - 1);
-
   return (
-    <div className="forecast-chart-r8" aria-label={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`} role="img">
-      <svg viewBox="0 0 720 310">
-        {[36, 104, 172, 240, 308].map((y) => <line className="forecast-grid-line" key={y} x1="30" x2="700" y1={y} y2={y} />)}
-        <polyline className="forecast-line-r8 forecast-line-r8--prudent" points={geometry.prudent.map(pointPair).join(" ")} />
-        <polyline className="forecast-line-r8 forecast-line-r8--realized" points={geometry.realized.map(pointPair).join(" ")} />
-        <polyline className="forecast-line-r8 forecast-line-r8--selected" points={geometry.selected.map(pointPair).join(" ")} />
-        {selectedDots.map((point, index) => <circle className="forecast-point-r8" cx={point.x} cy={point.y} key={index} r="5" />)}
-      </svg>
-    </div>
+    <InteractiveLineChart
+      ariaLabel={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`}
+      series={[
+        {
+          id: "selected",
+          label: `Solde prévu · ${snapshot.filters.scenario}`,
+          color: "#2563eb",
+          area: true,
+          points: snapshot.series.selected.map((point) => ({ date: point.date, value: point.balance })),
+        },
+        {
+          id: "realized",
+          label: "Réalisé",
+          color: "#06a9c2",
+          points: snapshot.series.realized.map((point) => ({ date: point.date, value: point.balance })),
+        },
+        {
+          id: "prudent",
+          label: "Scénario prudent",
+          color: "#e11d48",
+          dashed: true,
+          points: snapshot.series.prudent.map((point) => ({ date: point.date, value: point.balance })),
+        },
+      ]}
+      valueFormatter={formatMoney}
+    />
   );
 }
 
@@ -355,30 +366,6 @@ function UpcomingEvent({ event }: { event: ForecastEvent }) {
 
 function Metric({ label, tone, value }: { label: string; tone: "blue" | "negative" | "positive"; value: string }) {
   return <div className="forecast-metric"><span>{label}</span><strong className={`forecast-metric__value forecast-metric__value--${tone}`}>{value}</strong></div>;
-}
-
-interface ChartCoordinate { x: number; y: number }
-
-function chartGeometry(series: ForecastPoint[][]): { selected: ChartCoordinate[]; realized: ChartCoordinate[]; prudent: ChartCoordinate[] } {
-  const values = series.flat().map((point) => point.balance);
-  const minimum = values.length ? Math.min(...values) : 0;
-  const maximum = values.length ? Math.max(...values) : 1;
-  const padding = Math.max((maximum - minimum) * 0.1, 1);
-  const minY = minimum - padding;
-  const maxY = maximum + padding;
-  const toCoordinates = (points: ForecastPoint[]) => points.map((point, index) => ({
-    x: 32 + (points.length <= 1 ? 0 : (index / (points.length - 1)) * 666),
-    y: 306 - ((point.balance - minY) / (maxY - minY)) * 266,
-  }));
-  return {
-    selected: toCoordinates(series[0]),
-    realized: toCoordinates(series[1]),
-    prudent: toCoordinates(series[2]),
-  };
-}
-
-function pointPair(point: ChartCoordinate): string {
-  return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
 }
 
 function percentageChange(start: number, end: number): string {
