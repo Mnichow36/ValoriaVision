@@ -649,6 +649,7 @@ button { cursor: pointer; }
 .reconciliation-item__top, .reconciliation-item__meta, .reconciliation-item__footer { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
 .reconciliation-item__top strong { font-size: 13px; max-width: 68%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reconciliation-item__top b { font-size: 12px; white-space: nowrap; }
+.reconciliation-item__bank-label { color: #71819e; display: block; font-size: 9px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reconciliation-item .positive { color: var(--success); }
 .reconciliation-item .negative { color: var(--danger); }
 .reconciliation-item__meta { color: #697b99; font-size: 10px; margin: 9px 0; }
