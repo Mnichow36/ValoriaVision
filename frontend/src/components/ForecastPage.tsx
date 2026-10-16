@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { getForecast } from "../api/client";
-import type { ForecastAccount, ForecastEvent, ForecastPoint, ForecastSnapshot } from "../api/contracts";
+import { createRecurrence, getForecast } from "../api/client";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload } from "../api/contracts";
 
 interface ForecastPageProps {
   accountId: string;
+  editorRequestKey: number;
   horizonDays: number;
   onAccountsChange: (accounts: ForecastAccount[]) => void;
+  onDataChanged: () => void;
   onScenarioChange: (scenario: string) => void;
   scenario: string;
   token: string;
@@ -25,10 +27,13 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function ForecastPage({ accountId, horizonDays, onAccountsChange, onScenarioChange, scenario, token }: ForecastPageProps) {
+export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccountsChange, onDataChanged, onScenarioChange, scenario, token }: ForecastPageProps) {
   const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const lastEditorRequestKey = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -46,6 +51,20 @@ export function ForecastPage({ accountId, horizonDays, onAccountsChange, onScena
     return () => controller.abort();
   }, [accountId, horizonDays, onAccountsChange, refreshKey, scenario, token]);
 
+  useEffect(() => {
+    if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
+      lastEditorRequestKey.current = editorRequestKey;
+      setEditorOpen(true);
+    }
+  }, [editorRequestKey]);
+
+  function completed(result: RecurrenceActionResult) {
+    setEditorOpen(false);
+    setNotice(result.message);
+    setRefreshKey((key) => key + 1);
+    onDataChanged();
+  }
+
   if (error) {
     return (
       <section className="error-state">
@@ -61,7 +80,9 @@ export function ForecastPage({ accountId, horizonDays, onAccountsChange, onScena
   }
 
   return (
-    <div className="forecast-page">
+    <>
+      {notice && <div className="transaction-notice forecast-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
+      <div className="forecast-page">
       <article className="card forecast-projection">
         <div className="forecast-card-heading">
           <div><h2>Projection journalière</h2><p>Solde de départ + transactions réelles + occurrences prévues.</p></div>
@@ -114,8 +135,176 @@ export function ForecastPage({ accountId, horizonDays, onAccountsChange, onScena
           <Metric label="Écart vs scénario prudent" tone="blue" value={signedMoney(snapshot.summary.prudentDifference)} />
         </article>
       </aside>
+      </div>
+      {editorOpen && (
+        <RecurrenceEditor
+          accounts={snapshot.accounts}
+          categories={snapshot.categories}
+          defaultAccountId={accountId}
+          defaultScenario={scenario}
+          onClose={() => setEditorOpen(false)}
+          onCompleted={completed}
+          token={token}
+        />
+      )}
+    </>
+  );
+}
+
+function RecurrenceEditor({
+  accounts,
+  categories,
+  defaultAccountId,
+  defaultScenario,
+  onClose,
+  onCompleted,
+  token,
+}: {
+  accounts: ForecastAccount[];
+  categories: ForecastCategory[];
+  defaultAccountId: string;
+  defaultScenario: string;
+  onClose: () => void;
+  onCompleted: (result: RecurrenceActionResult) => void;
+  token: string;
+}) {
+  const initialDirection: RecurrencePayload["direction"] = "Débit";
+  const initialCategories = compatibleCategories(categories, initialDirection);
+  const [draft, setDraft] = useState<RecurrencePayload>(() => ({
+    accountId: defaultAccountId !== "all" ? Number(defaultAccountId) : accounts[0]?.id ?? 0,
+    name: "",
+    category: initialCategories[0]?.name ?? "",
+    direction: initialDirection,
+    amount: 0,
+    frequency: "Mensuel",
+    nextDate: today(),
+    endDate: "",
+    scenario: isScenario(defaultScenario) ? defaultScenario : "Réaliste",
+  }));
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+  const availableCategories = useMemo(
+    () => compatibleCategories(categories, draft.direction),
+    [categories, draft.direction],
+  );
+
+  function field<Key extends keyof RecurrencePayload>(key: Key, value: RecurrencePayload[Key]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function changeDirection(direction: RecurrencePayload["direction"]) {
+    const options = compatibleCategories(categories, direction);
+    setDraft((current) => ({
+      ...current,
+      direction,
+      category: options.some((category) => category.name === current.category)
+        ? current.category
+        : options[0]?.name ?? "",
+    }));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      onCompleted(await createRecurrence(token, draft));
+    } catch (cause: unknown) {
+      setFormError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être créée.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="recurrence-editor-title" aria-modal="true" className="account-editor recurrence-editor" role="dialog">
+        <header>
+          <div><span className="eyebrow">Prévisionnel</span><h2 id="recurrence-editor-title">Nouvelle récurrence</h2></div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="account-editor-grid">
+            <label className="account-field account-field--wide">
+              <span>Nom du tiers ou libellé attendu *</span>
+              <input autoFocus maxLength={120} onChange={(event) => field("name", event.target.value)} placeholder="Ex. Loyer Dupont" required value={draft.name} />
+              <small>Ce nom sera utilisé par le moteur pour rapprocher l’échéance du relevé bancaire.</small>
+            </label>
+            <label className="account-field account-field--wide">
+              <span>Compte *</span>
+              <select onChange={(event) => field("accountId", Number(event.target.value))} required value={draft.accountId}>
+                {accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}
+              </select>
+            </label>
+            <label className="account-field">
+              <span>Sens *</span>
+              <select onChange={(event) => changeDirection(event.target.value as RecurrencePayload["direction"])} value={draft.direction}>
+                <option value="Débit">Débit</option>
+                <option value="Crédit">Crédit</option>
+              </select>
+            </label>
+            <label className="account-field">
+              <span>Montant *</span>
+              <input min="0.01" onChange={(event) => field("amount", Number(event.target.value))} required step="0.01" type="number" value={draft.amount || ""} />
+            </label>
+            <label className="account-field account-field--wide">
+              <span>Catégorie *</span>
+              <select onChange={(event) => field("category", event.target.value)} required value={draft.category}>
+                {availableCategories.map((category) => <option key={category.id} value={category.name}>{category.name}</option>)}
+              </select>
+            </label>
+            <label className="account-field">
+              <span>Fréquence *</span>
+              <select onChange={(event) => field("frequency", event.target.value as RecurrencePayload["frequency"])} value={draft.frequency}>
+                <option value="Ponctuel">Une seule fois</option>
+                <option value="Hebdomadaire">Hebdomadaire</option>
+                <option value="Mensuel">Mensuelle</option>
+                <option value="Trimestriel">Trimestrielle</option>
+                <option value="Annuel">Annuelle</option>
+              </select>
+            </label>
+            <label className="account-field">
+              <span>Première échéance *</span>
+              <input onChange={(event) => field("nextDate", event.target.value)} required type="date" value={draft.nextDate} />
+            </label>
+            <label className="account-field">
+              <span>Date de fin</span>
+              <input disabled={draft.frequency === "Ponctuel"} min={draft.nextDate} onChange={(event) => field("endDate", event.target.value)} type="date" value={draft.frequency === "Ponctuel" ? "" : draft.endDate} />
+            </label>
+            <label className="account-field">
+              <span>Scénario *</span>
+              <select onChange={(event) => field("scenario", event.target.value as RecurrencePayload["scenario"])} value={draft.scenario}>
+                <option value="Prudent">Prudent</option>
+                <option value="Réaliste">Réaliste</option>
+                <option value="Optimiste">Optimiste</option>
+              </select>
+            </label>
+          </div>
+          <p className="account-editor-note">La récurrence alimentera immédiatement le prévisionnel et les propositions de rapprochement.</p>
+          {formError && <p className="account-form-error" role="alert">{formError}</p>}
+          <footer>
+            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+            <button disabled={busy || availableCategories.length === 0 || accounts.length === 0} type="submit">{busy ? "Création…" : "Créer la récurrence"}</button>
+          </footer>
+        </form>
+      </aside>
     </div>
   );
+}
+
+function compatibleCategories(categories: ForecastCategory[], direction: RecurrencePayload["direction"]): ForecastCategory[] {
+  const expected = direction === "Crédit" ? "Recette" : "Dépense";
+  return categories.filter((category) => category.direction === expected || category.direction === "Neutre");
+}
+
+function isScenario(value: string): value is RecurrencePayload["scenario"] {
+  return value === "Prudent" || value === "Réaliste" || value === "Optimiste";
+}
+
+function today(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
 }
 
 function ScenarioButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
