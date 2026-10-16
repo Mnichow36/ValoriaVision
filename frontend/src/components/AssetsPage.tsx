@@ -79,7 +79,6 @@ export function AssetsPage({ token }: AssetsPageProps) {
         <article className="card assets-evolution-card">
           <div className="assets-heading"><h2>Évolution du patrimoine net</h2><p>Historique réel des valorisations consolidées.</p></div>
           <AssetsEvolutionChart points={snapshot.evolution} />
-          <div className="assets-chart-legend"><span><i className="assets-dot assets-dot--net" />Net</span><span><i className="assets-dot assets-dot--assets" />Actifs</span><span><i className="assets-dot assets-dot--liabilities" />Passifs</span></div>
           <div className="assets-family-table-wrap">
             <table className="assets-family-table">
               <thead><tr><th>Famille</th><th>Valeur</th><th>Poids</th><th>Statut</th></tr></thead>
