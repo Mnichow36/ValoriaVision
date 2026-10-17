@@ -480,6 +480,33 @@ button { cursor: pointer; }
 .recurrence-editor { width: min(560px, 100vw); }
 .recurrence-editor .account-field input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 .recurrence-editor .account-field small { margin-top: -1px; }
+.forecast-manage-button { align-items: center; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9px; color: #1d4ed8; display: inline-flex; flex: 0 0 auto; font-size: 11px; font-weight: 850; gap: 7px; min-height: 34px; padding: 7px 10px; }
+.forecast-manage-button:hover { background: #dbeafe; border-color: #93c5fd; }
+.forecast-manage-button span { align-items: center; background: #2563eb; border-radius: 999px; color: #fff; display: inline-flex; font-size: 9px; height: 19px; justify-content: center; min-width: 19px; padding: 0 5px; }
+.recurrence-manager { width: min(760px, 100vw); }
+.recurrence-manager__body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 24px 30px 30px; }
+.recurrence-manager__summary { align-items: center; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; display: flex; justify-content: space-between; padding: 11px 13px; }
+.recurrence-manager__summary strong { color: #1d4ed8; font-size: 13px; }
+.recurrence-manager__summary span { color: #60708e; font-size: 10px; font-weight: 700; }
+.recurrence-manager__list { display: grid; gap: 12px; margin-top: 16px; max-height: calc(100vh - 235px); overflow-y: auto; padding-right: 5px; }
+.recurrence-manager__item { background: #fff; border: 1px solid #dbe3ef; border-radius: 12px; padding: 14px; }
+.recurrence-manager__item:hover { border-color: #93b4fb; box-shadow: 0 4px 14px rgba(37, 99, 235, .07); }
+.recurrence-manager__item-main { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.recurrence-manager__item-main > div { min-width: 0; }
+.recurrence-manager__item-main strong { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recurrence-manager__item-main span { color: #697b99; display: block; font-size: 10px; margin-top: 4px; }
+.recurrence-manager__item-main b { font-size: 14px; white-space: nowrap; }
+.recurrence-manager__item-main .positive { color: #15803d; }
+.recurrence-manager__item-main .negative { color: #dc2626; }
+.recurrence-manager__meta { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.recurrence-manager__meta > span:not(.recurrence-status) { background: #f1f5f9; border-radius: 999px; color: #52627d; font-size: 9px; font-weight: 750; padding: 5px 8px; }
+.recurrence-status { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 999px; color: #64748b; font-size: 9px; font-weight: 800; padding: 4px 8px; }
+.recurrence-status--active { background: #ecfdf5; border-color: #bbf7d0; color: #15803d; }
+.recurrence-manager__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 13px; }
+.recurrence-manager__actions button { border-radius: 9px; font-size: 10px; font-weight: 800; min-height: 34px; padding: 7px 11px; }
+.recurrence-manager__actions .danger-button { background: #fff; border: 1px solid #fecaca; color: #b91c1c; }
+.recurrence-manager__actions .danger-button:hover:not(:disabled) { background: #fff1f2; }
+.recurrence-manager__body footer { flex: 0 0 auto; }
 .forecast-projection { min-height: 743px; padding: 20px; }
 .forecast-card-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
 .forecast-card-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 4px; }
@@ -800,6 +827,7 @@ button { cursor: pointer; }
 .interactive-line-chart__crosshair { stroke: #334155; stroke-dasharray: 4 4; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .interactive-line-chart__point { stroke: #fff; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .interactive-line-chart__point--muted { opacity: .68; stroke-width: 1.5; }
+.interactive-line-chart__event-marker { fill: #fff; pointer-events: none; stroke: #7c3aed; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .interactive-chart-tooltip { background: rgba(15, 23, 42, .96); border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; box-shadow: 0 12px 32px rgba(15, 23, 42, .2); color: #fff; display: grid; gap: 7px; min-width: 190px; padding: 11px 12px; pointer-events: none; position: absolute; top: 18px; z-index: 5; }
 .interactive-chart-tooltip--right { transform: translateX(10px); }
 .interactive-chart-tooltip--left { transform: translateX(calc(-100% - 10px)); }
@@ -807,6 +835,12 @@ button { cursor: pointer; }
 .interactive-chart-tooltip > span { align-items: center; color: #dbeafe; display: grid; font-size: 10px; gap: 7px; grid-template-columns: 8px minmax(0, 1fr) auto; }
 .interactive-chart-tooltip i, .interactive-chart-legend i { border-radius: 50%; display: inline-block; height: 8px; width: 8px; }
 .interactive-chart-tooltip b { color: #fff; font-size: 10px; white-space: nowrap; }
+.interactive-chart-tooltip__details { border-top: 1px solid rgba(255, 255, 255, .16); display: grid; gap: 7px; margin-top: 3px; max-width: 290px; padding-top: 9px; }
+.interactive-chart-tooltip__details > small { color: #bfdbfe; font-size: 9px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
+.interactive-chart-tooltip__details > span { align-items: center; display: grid; gap: 7px; grid-template-columns: 8px minmax(0, 1fr) auto; }
+.interactive-chart-tooltip__details > span > span { color: #fff; display: grid; font-size: 10px; gap: 2px; min-width: 0; }
+.interactive-chart-tooltip__details > span > span > small { color: #94a3b8; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interactive-chart-tooltip__details em { color: #cbd5e1; font-size: 8px; font-style: normal; }
 .interactive-chart-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 24px; min-height: 28px; padding: 2px 8px 0; }
 .interactive-chart-legend > span { align-items: center; color: #52627d; display: inline-flex; font-size: 10px; font-weight: 800; gap: 7px; }
 .interactive-chart-legend > small { color: #7c8ba3; font-size: 9px; margin-left: auto; }

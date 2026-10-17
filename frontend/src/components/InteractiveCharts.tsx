@@ -1,8 +1,16 @@
 import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from "react";
 
+export interface InteractiveLineDetail {
+  label: string;
+  value: number;
+  meta?: string;
+  color?: string;
+}
+
 export interface InteractiveLinePoint {
   date: string;
   value: number;
+  details?: InteractiveLineDetail[];
 }
 
 export interface InteractiveLineSeries {
@@ -97,6 +105,9 @@ export function InteractiveLineChart({
   const activeDate = activeIndex === null
     ? ""
     : series.find((item) => item.points[activeIndex])?.points[activeIndex]?.date ?? "";
+  const activeDetails = activeIndex === null
+    ? []
+    : series[0]?.points[activeIndex]?.details ?? [];
 
   if (!domainLength || !values.length) {
     return <div className="interactive-chart-empty">Données insuffisantes pour afficher le graphique.</div>;
@@ -155,6 +166,21 @@ export function InteractiveLineChart({
           if (!point || !coordinate) return null;
           return <circle className="interactive-line-chart__point interactive-line-chart__point--muted" cx={coordinate.x} cy={coordinate.y} key={`${item.id}-${index}`} r="2.6" style={{ fill: item.color }} />;
         }))}
+        {series[0]?.points.map((point, index) => {
+          const coordinate = coordinates[0]?.[index];
+          if (!coordinate || !point.details?.length) return null;
+          return (
+            <circle
+              className="interactive-line-chart__event-marker"
+              cx={coordinate.x}
+              cy={coordinate.y}
+              key={`event-${point.date}-${index}`}
+              r="4.5"
+            >
+              <title>{`${point.details.length} mouvement(s) · ${dateFormatter(point.date)}`}</title>
+            </circle>
+          );
+        })}
         {activeIndex !== null && (
           <>
             <line className="interactive-line-chart__crosshair" x1={x(activeIndex)} x2={x(activeIndex)} y1={plot.top} y2={height - plot.bottom} />
@@ -179,6 +205,19 @@ export function InteractiveLineChart({
               <span key={item.id}><i style={{ background: item.color }} />{item.label}<b>{valueFormatter(point.value)}</b></span>
             ) : null;
           })}
+          {activeDetails.length > 0 && (
+            <div className="interactive-chart-tooltip__details">
+              <small>Mouvements du jour</small>
+              {activeDetails.slice(0, 5).map((detail, index) => (
+                <span key={`${detail.label}-${index}`}>
+                  <i style={{ background: detail.color ?? (detail.value >= 0 ? "#22c55e" : "#ef4444") }} />
+                  <span>{detail.label}<small>{detail.meta}</small></span>
+                  <b>{detail.value > 0 ? "+ " : detail.value < 0 ? "- " : ""}{valueFormatter(Math.abs(detail.value))}</b>
+                </span>
+              ))}
+              {activeDetails.length > 5 && <em>+ {activeDetails.length - 5} autre(s) mouvement(s)</em>}
+            </div>
+          )}
         </div>
       )}
       <div className="interactive-chart-legend">

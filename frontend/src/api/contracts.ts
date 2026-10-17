@@ -284,10 +284,27 @@ export interface RecurrenceActionResult {
   generatedOccurrences: number;
 }
 
+export interface RecurrenceItem {
+  id: number;
+  accountId: number;
+  accountName: string;
+  bank: string;
+  name: string;
+  category: string;
+  direction: RecurrencePayload["direction"];
+  amount: number;
+  frequency: RecurrencePayload["frequency"];
+  nextDate: string;
+  endDate: string;
+  scenario: RecurrencePayload["scenario"];
+  status: string;
+}
+
 export interface ForecastPoint {
   date: string;
   label: string;
   balance: number;
+  events: ForecastEvent[];
 }
 
 export interface ForecastEvent {
@@ -312,6 +329,7 @@ export interface ForecastSnapshot {
   };
   accounts: ForecastAccount[];
   categories: ForecastCategory[];
+  recurrences: RecurrenceItem[];
   series: {
     selected: ForecastPoint[];
     realized: ForecastPoint[];

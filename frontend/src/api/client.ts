@@ -227,18 +227,37 @@ export function createRecurrence(token: string, payload: RecurrencePayload): Pro
   return request<RecurrenceActionResult>("/api/v1/recurrences", {
     method: "POST",
     token,
-    body: {
-      account_id: payload.accountId,
-      name: payload.name,
-      category: payload.category,
-      direction: payload.direction,
-      amount: payload.amount,
-      frequency: payload.frequency,
-      next_date: payload.nextDate,
-      end_date: payload.endDate || null,
-      scenario: payload.scenario,
-    },
+    body: recurrenceBody(payload),
   });
+}
+
+export function updateRecurrence(token: string, itemId: number, payload: RecurrencePayload): Promise<RecurrenceActionResult> {
+  return request<RecurrenceActionResult>(`/api/v1/recurrences/${itemId}`, {
+    method: "PUT",
+    token,
+    body: recurrenceBody(payload),
+  });
+}
+
+export function deleteRecurrence(token: string, itemId: number): Promise<RecurrenceActionResult> {
+  return request<RecurrenceActionResult>(`/api/v1/recurrences/${itemId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+function recurrenceBody(payload: RecurrencePayload) {
+  return {
+    account_id: payload.accountId,
+    name: payload.name,
+    category: payload.category,
+    direction: payload.direction,
+    amount: payload.amount,
+    frequency: payload.frequency,
+    next_date: payload.nextDate,
+    end_date: payload.endDate || null,
+    scenario: payload.scenario,
+  };
 }
 
 export function getBudgets(token: string, month: string, signal?: AbortSignal): Promise<BudgetsSnapshot> {

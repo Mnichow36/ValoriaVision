@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { createRecurrence, getForecast } from "../api/client";
-import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload } from "../api/contracts";
+import { createRecurrence, deleteRecurrence, getForecast, updateRecurrence } from "../api/client";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, RecurrencePayload } from "../api/contracts";
 import { InteractiveLineChart } from "./InteractiveCharts";
 
 interface ForecastPageProps {
@@ -34,6 +34,8 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   const [notice, setNotice] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [editingRecurrence, setEditingRecurrence] = useState<RecurrenceItem>();
   const lastEditorRequestKey = useRef(0);
 
   useEffect(() => {
@@ -55,12 +57,16 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   useEffect(() => {
     if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
       lastEditorRequestKey.current = editorRequestKey;
+      setEditingRecurrence(undefined);
+      setManagerOpen(false);
       setEditorOpen(true);
     }
   }, [editorRequestKey]);
 
   function completed(result: RecurrenceActionResult) {
     setEditorOpen(false);
+    setManagerOpen(false);
+    setEditingRecurrence(undefined);
     setNotice(result.message);
     setRefreshKey((key) => key + 1);
     onDataChanged();
@@ -115,7 +121,12 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
 
       <aside className="forecast-side">
         <article className="card forecast-upcoming">
-          <div className="forecast-card-heading"><div><h2>Récurrences à venir</h2><p>Occurrences traçables par statut.</p></div></div>
+          <div className="forecast-card-heading">
+            <div><h2>Récurrences à venir</h2><p>Occurrences traçables par statut.</p></div>
+            <button className="forecast-manage-button" onClick={() => setManagerOpen(true)} type="button">
+              Gérer <span>{snapshot.recurrences.length}</span>
+            </button>
+          </div>
           <div className="forecast-upcoming-list">
             {snapshot.upcoming.length > 0
               ? snapshot.upcoming.map((event, index) => <UpcomingEvent event={event} key={`${event.date}-${event.name}-${index}`} />)
@@ -137,8 +148,27 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
           categories={snapshot.categories}
           defaultAccountId={accountId}
           defaultScenario={scenario}
-          onClose={() => setEditorOpen(false)}
+          key={editingRecurrence?.id ?? "new"}
+          onClose={() => {
+            setEditorOpen(false);
+            setEditingRecurrence(undefined);
+          }}
           onCompleted={completed}
+          recurrence={editingRecurrence}
+          token={token}
+        />
+      )}
+      {managerOpen && (
+        <RecurrenceManager
+          accountId={accountId}
+          items={snapshot.recurrences}
+          onClose={() => setManagerOpen(false)}
+          onCompleted={completed}
+          onEdit={(item) => {
+            setManagerOpen(false);
+            setEditingRecurrence(item);
+            setEditorOpen(true);
+          }}
           token={token}
         />
       )}
@@ -153,6 +183,7 @@ function RecurrenceEditor({
   defaultScenario,
   onClose,
   onCompleted,
+  recurrence,
   token,
 }: {
   accounts: ForecastAccount[];
@@ -161,11 +192,22 @@ function RecurrenceEditor({
   defaultScenario: string;
   onClose: () => void;
   onCompleted: (result: RecurrenceActionResult) => void;
+  recurrence?: RecurrenceItem;
   token: string;
 }) {
-  const initialDirection: RecurrencePayload["direction"] = "Débit";
+  const initialDirection: RecurrencePayload["direction"] = recurrence?.direction ?? "Débit";
   const initialCategories = compatibleCategories(categories, initialDirection);
-  const [draft, setDraft] = useState<RecurrencePayload>(() => ({
+  const [draft, setDraft] = useState<RecurrencePayload>(() => recurrence ? {
+    accountId: recurrence.accountId,
+    name: recurrence.name,
+    category: recurrence.category,
+    direction: recurrence.direction,
+    amount: recurrence.amount,
+    frequency: recurrence.frequency,
+    nextDate: recurrence.nextDate,
+    endDate: recurrence.endDate,
+    scenario: recurrence.scenario,
+  } : {
     accountId: defaultAccountId !== "all" ? Number(defaultAccountId) : accounts[0]?.id ?? 0,
     name: "",
     category: initialCategories[0]?.name ?? "",
@@ -175,7 +217,7 @@ function RecurrenceEditor({
     nextDate: today(),
     endDate: "",
     scenario: isScenario(defaultScenario) ? defaultScenario : "Réaliste",
-  }));
+  });
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string>();
   const availableCategories = useMemo(
@@ -203,9 +245,11 @@ function RecurrenceEditor({
     setBusy(true);
     setFormError(undefined);
     try {
-      onCompleted(await createRecurrence(token, draft));
+      onCompleted(recurrence
+        ? await updateRecurrence(token, recurrence.id, draft)
+        : await createRecurrence(token, draft));
     } catch (cause: unknown) {
-      setFormError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être créée.");
+      setFormError(cause instanceof Error ? cause.message : `La récurrence ne peut pas être ${recurrence ? "modifiée" : "créée"}.`);
     } finally {
       setBusy(false);
     }
@@ -215,7 +259,7 @@ function RecurrenceEditor({
     <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
       <aside aria-labelledby="recurrence-editor-title" aria-modal="true" className="account-editor recurrence-editor" role="dialog">
         <header>
-          <div><span className="eyebrow">Prévisionnel</span><h2 id="recurrence-editor-title">Nouvelle récurrence</h2></div>
+          <div><span className="eyebrow">Prévisionnel</span><h2 id="recurrence-editor-title">{recurrence ? "Modifier la récurrence" : "Nouvelle récurrence"}</h2></div>
           <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
         </header>
         <form onSubmit={(event) => void submit(event)}>
@@ -275,13 +319,101 @@ function RecurrenceEditor({
               </select>
             </label>
           </div>
-          <p className="account-editor-note">La récurrence alimentera immédiatement le prévisionnel et les propositions de rapprochement.</p>
+          <p className="account-editor-note">{recurrence ? "Les prochaines projections et propositions de rapprochement seront recalculées." : "La récurrence alimentera immédiatement le prévisionnel et les propositions de rapprochement."}</p>
           {formError && <p className="account-form-error" role="alert">{formError}</p>}
           <footer>
             <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
-            <button disabled={busy || availableCategories.length === 0 || accounts.length === 0} type="submit">{busy ? "Création…" : "Créer la récurrence"}</button>
+            <button disabled={busy || availableCategories.length === 0 || accounts.length === 0} type="submit">{busy ? "Enregistrement…" : recurrence ? "Enregistrer les modifications" : "Créer la récurrence"}</button>
           </footer>
         </form>
+      </aside>
+    </div>
+  );
+}
+
+function RecurrenceManager({
+  accountId,
+  items,
+  onClose,
+  onCompleted,
+  onEdit,
+  token,
+}: {
+  accountId: string;
+  items: RecurrenceItem[];
+  onClose: () => void;
+  onCompleted: (result: RecurrenceActionResult) => void;
+  onEdit: (item: RecurrenceItem) => void;
+  token: string;
+}) {
+  const [deletingId, setDeletingId] = useState<number>();
+  const [error, setError] = useState<string>();
+  const visibleItems = accountId === "all"
+    ? items
+    : items.filter((item) => item.accountId === Number(accountId));
+
+  async function remove(item: RecurrenceItem) {
+    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
+    setDeletingId(item.id);
+    setError(undefined);
+    try {
+      onCompleted(await deleteRecurrence(token, item.id));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
+      setDeletingId(undefined);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deletingId && onClose()}>
+      <aside aria-labelledby="recurrence-manager-title" aria-modal="true" className="account-editor recurrence-manager" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Prévisionnel</span>
+            <h2 id="recurrence-manager-title">Gérer les récurrences</h2>
+          </div>
+          <button aria-label="Fermer" disabled={Boolean(deletingId)} onClick={onClose} type="button">×</button>
+        </header>
+        <div className="recurrence-manager__body">
+          <div className="recurrence-manager__summary">
+            <strong>{visibleItems.length} récurrence(s)</strong>
+            <span>{accountId === "all" ? "Tous les comptes" : "Compte sélectionné"}</span>
+          </div>
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          <div className="recurrence-manager__list">
+            {visibleItems.map((item) => (
+              <article className="recurrence-manager__item" key={item.id}>
+                <div className="recurrence-manager__item-main">
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</span>
+                  </div>
+                  <b className={item.direction === "Crédit" ? "positive" : "negative"}>
+                    {signedMoney(item.direction === "Crédit" ? item.amount : -item.amount)}
+                  </b>
+                </div>
+                <div className="recurrence-manager__meta">
+                  <span>{item.category}</span>
+                  <span>{item.frequency}</span>
+                  <span>Prochaine : {formatDate(item.nextDate)}</span>
+                  <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>
+                    {item.status}
+                  </span>
+                </div>
+                <div className="recurrence-manager__actions">
+                  <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(item)} type="button">Modifier</button>
+                  <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(item)} type="button">
+                    {deletingId === item.id ? "Suppression…" : "Supprimer"}
+                  </button>
+                </div>
+              </article>
+            ))}
+            {visibleItems.length === 0 && <p className="forecast-empty">Aucune récurrence pour ce filtre.</p>}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
+          </footer>
+        </div>
       </aside>
     </div>
   );
@@ -316,7 +448,16 @@ function ForecastChart({ snapshot }: { snapshot: ForecastSnapshot }) {
           label: `Solde prévu · ${snapshot.filters.scenario}`,
           color: "#2563eb",
           area: true,
-          points: snapshot.series.selected.map((point) => ({ date: point.date, value: point.balance })),
+          points: snapshot.series.selected.map((point) => ({
+            date: point.date,
+            value: point.balance,
+            details: (point.events ?? []).map((event) => ({
+              label: event.name,
+              meta: `${event.source} · ${event.account}`,
+              value: event.amount,
+              color: event.source === "Récurrence" ? "#7c3aed" : event.amount >= 0 ? "#16a34a" : "#dc2626",
+            })),
+          })),
         },
         {
           id: "realized",

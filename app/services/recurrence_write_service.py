@@ -33,6 +33,56 @@ class RecurrenceWriteService:
         self.database = database
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        item = self._validated_item(payload)
+        item_id = self.database.add_recurring_item(item)
+        generated = self._generate_occurrences(
+            item_id,
+            item["next_date"],
+            item.get("end_date"),
+            reason="Nouvelle prévision récurrente",
+        )
+        return {
+            "success": True,
+            "message": f"Récurrence « {item['name']} » créée.",
+            "recurringItemId": item_id,
+            "generatedOccurrences": generated,
+        }
+
+    def update(self, item_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        existing = self.database.get_recurring_item(item_id)
+        if existing is None:
+            raise ValueError("La récurrence sélectionnée n’existe pas.")
+
+        item = self._validated_item(payload)
+        item["status"] = str(_field(existing, "status", "Actif") or "Actif")
+        self.database.update_recurring_item(item_id, item)
+        generated = self._generate_occurrences(
+            item_id,
+            item["next_date"],
+            item.get("end_date"),
+            reason="Prévision récurrente modifiée",
+        )
+        return {
+            "success": True,
+            "message": f"Récurrence « {item['name']} » modifiée.",
+            "recurringItemId": item_id,
+            "generatedOccurrences": generated,
+        }
+
+    def delete(self, item_id: int) -> dict[str, Any]:
+        existing = self.database.get_recurring_item(item_id)
+        if existing is None:
+            raise ValueError("La récurrence sélectionnée n’existe pas.")
+        name = str(_field(existing, "name", "Récurrence") or "Récurrence")
+        self.database.delete_recurring_item(item_id)
+        return {
+            "success": True,
+            "message": f"Récurrence « {name} » supprimée.",
+            "recurringItemId": item_id,
+            "generatedOccurrences": 0,
+        }
+
+    def _validated_item(self, payload: dict[str, Any]) -> dict[str, Any]:
         name = str(payload.get("name") or "").strip()
         category = str(payload.get("category") or "").strip()
         frequency = str(payload.get("frequency") or "Mensuel").strip()
@@ -63,7 +113,7 @@ class RecurrenceWriteService:
         if account is None:
             raise ValueError("Le compte sélectionné n’existe pas.")
         if str(_field(account, "status", "")) != "Actif":
-            raise ValueError("Une récurrence ne peut être créée que sur un compte actif.")
+            raise ValueError("Une récurrence ne peut être enregistrée que sur un compte actif.")
 
         category_row = next(
             (
@@ -86,21 +136,28 @@ class RecurrenceWriteService:
                 f"La catégorie « {category} » attend un {expected_direction.lower()}."
             )
 
-        signed_amount = amount if direction == "Crédit" else -amount
-        item_id = self.database.add_recurring_item(
-            {
-                "account_id": account_id,
-                "name": name,
-                "category": category,
-                "amount": signed_amount,
-                "frequency": frequency,
-                "next_date": next_date.isoformat(),
-                "end_date": end_date.isoformat() if end_date else None,
-                "scenario": scenario,
-                "status": "Actif",
-            }
-        )
+        return {
+            "account_id": account_id,
+            "name": name,
+            "category": category,
+            "amount": amount if direction == "Crédit" else -amount,
+            "frequency": frequency,
+            "next_date": next_date.isoformat(),
+            "end_date": end_date.isoformat() if end_date else None,
+            "scenario": scenario,
+            "status": "Actif",
+        }
 
+    def _generate_occurrences(
+        self,
+        item_id: int,
+        next_date_value: str,
+        end_date_value: str | None,
+        *,
+        reason: str,
+    ) -> int:
+        next_date = date.fromisoformat(next_date_value)
+        end_date = date.fromisoformat(end_date_value) if end_date_value else None
         generation_end = min(end_date or next_date + timedelta(days=365), next_date + timedelta(days=365))
         ForecastReconciliationService(self.database).generate_occurrences(next_date, generation_end)
 
@@ -126,15 +183,9 @@ class RecurrenceWriteService:
                     conn,
                     occurrence_ids,
                     self.database.reconciliation_rules(conn),
-                    reason="Nouvelle prévision récurrente",
+                    reason=reason,
                 )
-
-        return {
-            "success": True,
-            "message": f"Récurrence « {name} » créée.",
-            "recurringItemId": item_id,
-            "generatedOccurrences": len(occurrence_ids),
-        }
+        return len(occurrence_ids)
 
     @staticmethod
     def _positive_integer(value: Any, message: str) -> int:

@@ -22,6 +22,22 @@ class StubDatabase:
             {"id": 4, "name": "Salaire", "kind": "Revenu", "direction": "Recette", "color": "#16A34A"},
         ]
 
+    def list_recurring_items(self, active_only=False):
+        return [{
+            "id": 42,
+            "account_id": 7,
+            "account_name": "Courant",
+            "bank": "SG",
+            "name": "Salaire",
+            "category": "Salaire",
+            "amount": 300,
+            "frequency": "Mensuel",
+            "next_date": "2026-10-28",
+            "end_date": None,
+            "scenario": "Réaliste",
+            "status": "Actif",
+        }]
+
     def cash_forecast(self, start_date, horizon_days, scenario, account_id=None):
         end_balance = {"Prudent": 900, "Réaliste": 1000, "Optimiste": 1200}[scenario]
         return {
@@ -68,6 +84,9 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(len(snapshot["accounts"]), 1)
         self.assertEqual(snapshot["categories"][0]["name"], "Logement")
         self.assertEqual(snapshot["categories"][1]["direction"], "Recette")
+        self.assertEqual(snapshot["recurrences"][0]["id"], 42)
+        self.assertEqual(snapshot["recurrences"][0]["direction"], "Crédit")
+        self.assertEqual(snapshot["series"]["selected"][-1]["events"][0]["source"], "Récurrence")
 
     def test_falls_back_to_supported_filter_values(self):
         snapshot = ForecastReadService(StubDatabase()).snapshot(horizon_days=45, scenario="Inconnu")

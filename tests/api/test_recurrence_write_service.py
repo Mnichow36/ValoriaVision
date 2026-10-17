@@ -6,6 +6,11 @@ from unittest.mock import patch
 from app.services.recurrence_write_service import RecurrenceWriteService
 
 
+class StubCursor(list):
+    def fetchall(self):
+        return list(self)
+
+
 class StubConnection:
     def __init__(self) -> None:
         self.queries = []
@@ -18,12 +23,14 @@ class StubConnection:
 
     def execute(self, query, params):
         self.queries.append((query, params))
-        return [(901,), (902,)]
+        return StubCursor([(901,), (902,)])
 
 
 class StubDatabase:
     def __init__(self) -> None:
         self.created = None
+        self.updated = None
+        self.deleted = None
         self.connection = StubConnection()
 
     def list_accounts(self):
@@ -45,6 +52,17 @@ class StubDatabase:
     def add_recurring_item(self, data):
         self.created = data
         return 42
+
+    def get_recurring_item(self, item_id):
+        if item_id == 42:
+            return {"id": 42, "name": "Loyer Dupont", "status": "Actif"}
+        return None
+
+    def update_recurring_item(self, item_id, data):
+        self.updated = (item_id, data)
+
+    def delete_recurring_item(self, item_id):
+        self.deleted = item_id
 
     def connect(self):
         return self.connection
@@ -108,6 +126,43 @@ class RecurrenceWriteServiceTest(unittest.TestCase):
                 }
             )
         reconciliation_service.assert_not_called()
+
+    @patch("app.services.recurrence_write_service.reevaluate_for_occurrences")
+    @patch("app.services.recurrence_write_service.ForecastReconciliationService")
+    def test_updates_existing_recurrence_and_regenerates_occurrences(
+        self,
+        reconciliation_service,
+        reevaluate,
+    ):
+        database = StubDatabase()
+        result = RecurrenceWriteService(database).update(
+            42,
+            {
+                "account_id": 7,
+                "name": "Salaire principal",
+                "category": "Salaire",
+                "direction": "Crédit",
+                "amount": 3100,
+                "frequency": "Mensuel",
+                "next_date": "2026-11-28",
+                "scenario": "Réaliste",
+            },
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(database.updated[0], 42)
+        self.assertEqual(database.updated[1]["amount"], 3100)
+        self.assertEqual(database.updated[1]["status"], "Actif")
+        reconciliation_service.return_value.generate_occurrences.assert_called_once()
+        reevaluate.assert_called_once()
+
+    def test_deletes_existing_recurrence(self):
+        database = StubDatabase()
+        result = RecurrenceWriteService(database).delete(42)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["recurringItemId"], 42)
+        self.assertEqual(database.deleted, 42)
 
     def test_rejects_end_date_before_first_due_date(self):
         with self.assertRaisesRegex(ValueError, "date de fin"):

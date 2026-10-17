@@ -69,6 +69,7 @@ class ForecastReadService:
             },
             "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "")) == "Actif"],
             "categories": [self._category(row) for row in self.database.list_categories()],
+            "recurrences": [self._recurrence(row) for row in self.database.list_recurring_items(active_only=False)],
             "series": {
                 "selected": self._series(selected_points),
                 "realized": self._realized_series(_number(selected.get("starting_cash")), selected_points),
@@ -112,12 +113,35 @@ class ForecastReadService:
         }
 
     @staticmethod
+    def _recurrence(row: Any) -> dict[str, Any]:
+        signed_amount = _number(_field(row, "amount", 0))
+        return {
+            "id": _integer(_field(row, "id", 0)),
+            "accountId": _integer(_field(row, "account_id", 0)),
+            "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
+            "bank": str(_field(row, "bank", "") or ""),
+            "name": str(_field(row, "name", "Récurrence") or "Récurrence"),
+            "category": str(_field(row, "category", "Prévisionnel") or "Prévisionnel"),
+            "direction": "Crédit" if signed_amount >= 0 else "Débit",
+            "amount": abs(signed_amount),
+            "frequency": str(_field(row, "frequency", "Mensuel") or "Mensuel"),
+            "nextDate": str(_field(row, "next_date", "") or ""),
+            "endDate": str(_field(row, "end_date", "") or ""),
+            "scenario": str(_field(row, "scenario", "Réaliste") or "Réaliste"),
+            "status": str(_field(row, "status", "Actif") or "Actif"),
+        }
+
+    @staticmethod
     def _series(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
             {
                 "date": str(point.get("date") or ""),
                 "label": str(point.get("label") or ""),
                 "balance": _number(point.get("balance")),
+                "events": [
+                    ForecastReadService._event(event)
+                    for event in point.get("events") or []
+                ],
             }
             for point in points
         ]
@@ -137,6 +161,7 @@ class ForecastReadService:
                 "date": str(point.get("date") or ""),
                 "label": str(point.get("label") or ""),
                 "balance": _number(balance),
+                "events": [],
             })
         return series
 
