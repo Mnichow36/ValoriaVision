@@ -507,6 +507,36 @@ button { cursor: pointer; }
 .recurrence-manager__actions .danger-button { background: #fff; border: 1px solid #fecaca; color: #b91c1c; }
 .recurrence-manager__actions .danger-button:hover:not(:disabled) { background: #fff1f2; }
 .recurrence-manager__body footer { flex: 0 0 auto; }
+
+.forecast-day-details { width: min(760px, 100vw); }
+.forecast-day-details__body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 24px 30px 30px; }
+.forecast-day-details__summary { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.forecast-day-details__summary > div { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 11px; min-width: 0; padding: 12px 13px; }
+.forecast-day-details__summary span { color: #697b99; display: block; font-size: 9px; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+.forecast-day-details__summary strong { color: #17213c; display: block; font-size: 16px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forecast-day-details__summary .positive, .forecast-day-event .positive { color: #15803d; }
+.forecast-day-details__summary .negative, .forecast-day-event .negative { color: #dc2626; }
+.forecast-day-details__list { display: grid; gap: 11px; margin-top: 16px; max-height: calc(100vh - 265px); overflow-y: auto; padding-right: 5px; }
+.forecast-day-event { align-items: stretch; background: #fff; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; grid-template-columns: 5px minmax(0, 1fr); overflow: hidden; }
+.forecast-day-event__marker { background: #2563eb; }
+.forecast-day-event__marker[data-source="Récurrence"] { background: #7c3aed; }
+.forecast-day-event__marker[data-source="Scénario"] { background: #f59e0b; }
+.forecast-day-event__main { min-width: 0; padding: 13px 14px; }
+.forecast-day-event__heading { align-items: flex-start; display: flex; gap: 14px; justify-content: space-between; }
+.forecast-day-event__heading > div { min-width: 0; }
+.forecast-day-event__heading span { color: #64748b; display: block; font-size: 9px; font-weight: 850; letter-spacing: .035em; margin-bottom: 4px; text-transform: uppercase; }
+.forecast-day-event__heading strong { color: #17213c; display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forecast-day-event__heading b { font-size: 14px; white-space: nowrap; }
+.forecast-day-event__main > p { color: #697b99; font-size: 10px; margin: 7px 0 0; }
+.forecast-day-event__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.forecast-day-event__actions button { border-radius: 9px; font-size: 10px; font-weight: 800; min-height: 34px; padding: 7px 11px; }
+.forecast-day-event__actions .danger-button { background: #fff; border: 1px solid #fecaca; color: #b91c1c; }
+.forecast-day-event__actions .danger-button:hover:not(:disabled) { background: #fff1f2; }
+.forecast-day-details__empty { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 28px 20px; text-align: center; }
+.forecast-day-details__empty strong { color: #334155; display: block; font-size: 14px; }
+.forecast-day-details__empty p { color: #64748b; font-size: 11px; margin: 7px 0 0; }
+.forecast-day-details__body footer { flex: 0 0 auto; }
+
 .forecast-projection { min-height: 743px; padding: 20px; }
 .forecast-card-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
 .forecast-card-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 4px; }
@@ -816,6 +846,8 @@ button { cursor: pointer; }
 /* Shared interactive charts */
 .interactive-chart-empty { align-items: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; color: #697b99; display: flex; font-size: 12px; justify-content: center; min-height: 240px; padding: 24px; text-align: center; }
 .interactive-line-chart { background: linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%); border: 1px solid #dbe3ef; border-radius: 14px; margin-top: 24px; min-width: 0; padding: 10px 12px 12px; position: relative; }
+.interactive-line-chart--clickable { cursor: crosshair; outline: none; }
+.interactive-line-chart--clickable:focus-visible { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
 .interactive-line-chart svg { display: block; min-height: 270px; overflow: visible; width: 100%; }
 .interactive-line-chart__grid { stroke: #dbe5f0; stroke-dasharray: 3 5; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .interactive-line-chart__tick { stroke: #94a3b8; stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -841,6 +873,7 @@ button { cursor: pointer; }
 .interactive-chart-tooltip__details > span > span { color: #fff; display: grid; font-size: 10px; gap: 2px; min-width: 0; }
 .interactive-chart-tooltip__details > span > span > small { color: #94a3b8; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .interactive-chart-tooltip__details em { color: #cbd5e1; font-size: 8px; font-style: normal; }
+.interactive-chart-tooltip__hint { border-top: 1px solid rgba(255, 255, 255, .16); color: #bfdbfe; font-size: 8px; font-style: normal; font-weight: 750; margin-top: 2px; padding-top: 7px; }
 .interactive-chart-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 24px; min-height: 28px; padding: 2px 8px 0; }
 .interactive-chart-legend > span { align-items: center; color: #52627d; display: inline-flex; font-size: 10px; font-weight: 800; gap: 7px; }
 .interactive-chart-legend > small { color: #7c8ba3; font-size: 9px; margin-left: auto; }

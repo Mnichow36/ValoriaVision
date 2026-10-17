@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRecurrence, deleteRecurrence, getForecast, updateRecurrence } from "../api/client";
-import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, RecurrencePayload } from "../api/contracts";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, RecurrencePayload } from "../api/contracts";
 import { InteractiveLineChart } from "./InteractiveCharts";
 
 interface ForecastPageProps {
@@ -36,11 +36,13 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   const [editorOpen, setEditorOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [editingRecurrence, setEditingRecurrence] = useState<RecurrenceItem>();
+  const [selectedPoint, setSelectedPoint] = useState<ForecastPoint>();
   const lastEditorRequestKey = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setError(undefined);
+    setSelectedPoint(undefined);
     getForecast(token, { accountId, horizonDays, scenario }, controller.signal)
       .then((data) => {
         setSnapshot(data);
@@ -59,6 +61,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
       lastEditorRequestKey.current = editorRequestKey;
       setEditingRecurrence(undefined);
       setManagerOpen(false);
+      setSelectedPoint(undefined);
       setEditorOpen(true);
     }
   }, [editorRequestKey]);
@@ -67,6 +70,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
     setEditorOpen(false);
     setManagerOpen(false);
     setEditingRecurrence(undefined);
+    setSelectedPoint(undefined);
     setNotice(result.message);
     setRefreshKey((key) => key + 1);
     onDataChanged();
@@ -99,7 +103,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
           </div>
         </div>
 
-        <ForecastChart snapshot={snapshot} />
+        <ForecastChart onPointSelect={setSelectedPoint} snapshot={snapshot} />
 
         <div className="forecast-summary-cards">
           <ForecastSummaryCard
@@ -123,7 +127,10 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
         <article className="card forecast-upcoming">
           <div className="forecast-card-heading">
             <div><h2>Récurrences à venir</h2><p>Occurrences traçables par statut.</p></div>
-            <button className="forecast-manage-button" onClick={() => setManagerOpen(true)} type="button">
+            <button className="forecast-manage-button" onClick={() => {
+              setSelectedPoint(undefined);
+              setManagerOpen(true);
+            }} type="button">
               Gérer <span>{snapshot.recurrences.length}</span>
             </button>
           </div>
@@ -169,6 +176,20 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
             setEditingRecurrence(item);
             setEditorOpen(true);
           }}
+          token={token}
+        />
+      )}
+      {selectedPoint && (
+        <ForecastDayDetails
+          onClose={() => setSelectedPoint(undefined)}
+          onCompleted={completed}
+          onEdit={(item) => {
+            setSelectedPoint(undefined);
+            setEditingRecurrence(item);
+            setEditorOpen(true);
+          }}
+          point={selectedPoint}
+          recurrences={snapshot.recurrences}
           token={token}
         />
       )}
@@ -331,6 +352,99 @@ function RecurrenceEditor({
   );
 }
 
+function ForecastDayDetails({
+  onClose,
+  onCompleted,
+  onEdit,
+  point,
+  recurrences,
+  token,
+}: {
+  onClose: () => void;
+  onCompleted: (result: RecurrenceActionResult) => void;
+  onEdit: (item: RecurrenceItem) => void;
+  point: ForecastPoint;
+  recurrences: RecurrenceItem[];
+  token: string;
+}) {
+  const [deletingId, setDeletingId] = useState<number>();
+  const [error, setError] = useState<string>();
+  const dailyNet = point.events.reduce((sum, event) => sum + event.amount, 0);
+
+  async function remove(item: RecurrenceItem) {
+    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
+    setDeletingId(item.id);
+    setError(undefined);
+    try {
+      onCompleted(await deleteRecurrence(token, item.id));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
+      setDeletingId(undefined);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deletingId && onClose()}>
+      <aside aria-labelledby="forecast-day-title" aria-modal="true" className="account-editor forecast-day-details" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Trésorerie prévisionnelle</span>
+            <h2 id="forecast-day-title">{formatDate(point.date)}</h2>
+          </div>
+          <button aria-label="Fermer" disabled={Boolean(deletingId)} onClick={onClose} type="button">×</button>
+        </header>
+        <div className="forecast-day-details__body">
+          <div className="forecast-day-details__summary">
+            <div><span>Solde prévu</span><strong>{formatMoney(point.balance)}</strong></div>
+            <div><span>Impact du jour</span><strong className={dailyNet >= 0 ? "positive" : "negative"}>{signedMoney(dailyNet)}</strong></div>
+            <div><span>Mouvements</span><strong>{point.events.length}</strong></div>
+          </div>
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          <div className="forecast-day-details__list">
+            {point.events.map((event, index) => {
+              const recurrence = event.recurringId === null
+                ? undefined
+                : recurrences.find((item) => item.id === event.recurringId);
+              return (
+                <article className="forecast-day-event" key={`${event.source}-${event.name}-${index}`}>
+                  <div className="forecast-day-event__marker" data-source={event.source} aria-hidden="true" />
+                  <div className="forecast-day-event__main">
+                    <div className="forecast-day-event__heading">
+                      <div>
+                        <span>{event.source}</span>
+                        <strong>{event.name}</strong>
+                      </div>
+                      <b className={event.amount >= 0 ? "positive" : "negative"}>{signedMoney(event.amount)}</b>
+                    </div>
+                    <p>{event.account} · {event.category}{event.scenario && event.scenario !== "Tous" ? ` · ${event.scenario}` : ""}</p>
+                    {recurrence && (
+                      <div className="forecast-day-event__actions">
+                        <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(recurrence)} type="button">Modifier la récurrence</button>
+                        <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(recurrence)} type="button">
+                          {deletingId === recurrence.id ? "Suppression…" : "Supprimer"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            {point.events.length === 0 && (
+              <div className="forecast-day-details__empty">
+                <strong>Aucune opération ce jour</strong>
+                <p>Le solde reste inchangé entre les deux points de la courbe.</p>
+              </div>
+            )}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
+          </footer>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function RecurrenceManager({
   accountId,
   items,
@@ -438,10 +552,14 @@ function ScenarioButton({ active, children, onClick }: { active: boolean; childr
   return <button aria-selected={active} className={active ? "forecast-scenario forecast-scenario--active" : "forecast-scenario"} onClick={onClick} role="tab" type="button">{children}</button>;
 }
 
-function ForecastChart({ snapshot }: { snapshot: ForecastSnapshot }) {
+function ForecastChart({ onPointSelect, snapshot }: { onPointSelect: (point: ForecastPoint) => void; snapshot: ForecastSnapshot }) {
   return (
     <InteractiveLineChart
       ariaLabel={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`}
+      onPointSelect={(index) => {
+        const point = snapshot.series.selected[index];
+        if (point) onPointSelect(point);
+      }}
       series={[
         {
           id: "selected",

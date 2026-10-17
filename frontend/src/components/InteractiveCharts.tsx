@@ -39,6 +39,7 @@ interface InteractiveLineChartProps {
   series: InteractiveLineSeries[];
   valueFormatter?: (value: number) => string;
   dateFormatter?: (value: string) => string;
+  onPointSelect?: (index: number) => void;
 }
 
 interface InteractiveDonutChartProps {
@@ -70,6 +71,7 @@ export function InteractiveLineChart({
   series,
   valueFormatter = (value) => compactNumber.format(value),
   dateFormatter = formatDate,
+  onPointSelect,
 }: InteractiveLineChartProps) {
   const width = 780;
   const height = 330;
@@ -102,6 +104,17 @@ export function InteractiveLineChart({
     setActiveIndex(Math.round(ratio * (domainLength - 1)));
   }
 
+  function selectActive() {
+    if (activeIndex !== null) onPointSelect?.(activeIndex);
+  }
+
+  function selectWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if ((event.key === "Enter" || event.key === " ") && activeIndex !== null && onPointSelect) {
+      event.preventDefault();
+      onPointSelect(activeIndex);
+    }
+  }
+
   const activeDate = activeIndex === null
     ? ""
     : series.find((item) => item.points[activeIndex])?.points[activeIndex]?.date ?? "";
@@ -114,7 +127,18 @@ export function InteractiveLineChart({
   }
 
   return (
-    <div className="interactive-line-chart" onPointerLeave={() => setActiveIndex(null)} onPointerMove={move}>
+    <div
+      aria-label={onPointSelect ? ariaLabel + ". Cliquez pour afficher le détail du jour." : undefined}
+      className={onPointSelect ? "interactive-line-chart interactive-line-chart--clickable" : "interactive-line-chart"}
+      onBlur={() => onPointSelect && setActiveIndex(null)}
+      onClick={selectActive}
+      onFocus={() => onPointSelect && activeIndex === null && setActiveIndex(0)}
+      onKeyDown={selectWithKeyboard}
+      onPointerLeave={() => setActiveIndex(null)}
+      onPointerMove={move}
+      role={onPointSelect ? "button" : undefined}
+      tabIndex={onPointSelect ? 0 : undefined}
+    >
       <svg aria-label={ariaLabel} role="img" viewBox={`0 0 ${width} ${height}`}>
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -218,6 +242,7 @@ export function InteractiveLineChart({
               {activeDetails.length > 5 && <em>+ {activeDetails.length - 5} autre(s) mouvement(s)</em>}
             </div>
           )}
+          {onPointSelect && <em className="interactive-chart-tooltip__hint">Cliquer pour ouvrir le détail du jour</em>}
         </div>
       )}
       <div className="interactive-chart-legend">

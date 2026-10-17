@@ -315,6 +315,7 @@ export interface ForecastEvent {
   source: string;
   account: string;
   scenario: string;
+  recurringId: number | null;
 }
 
 export interface ForecastSnapshot {

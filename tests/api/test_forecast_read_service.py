@@ -51,8 +51,8 @@ class StubDatabase:
             "daily_points": [
                 {"date": "2026-10-14", "label": "14/10", "balance": 800, "events": []},
                 {"date": "2026-10-15", "label": "15/10", "balance": end_balance, "events": [
-                    {"source": "Récurrence", "amount": 150},
-                    {"source": "Transaction future", "amount": 50},
+                    {"source": "Récurrence", "amount": 150, "recurring_id": 42},
+                    {"source": "Transaction future", "amount": 50, "recurring_id": None},
                 ]},
             ],
             "upcoming": [{
@@ -63,6 +63,7 @@ class StubDatabase:
                 "source": "Récurrence",
                 "account": "Courant",
                 "scenario": "Réaliste",
+                "recurring_id": 42,
             }],
         }
 
@@ -87,6 +88,9 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["recurrences"][0]["id"], 42)
         self.assertEqual(snapshot["recurrences"][0]["direction"], "Crédit")
         self.assertEqual(snapshot["series"]["selected"][-1]["events"][0]["source"], "Récurrence")
+        self.assertEqual(snapshot["series"]["selected"][-1]["events"][0]["recurringId"], 42)
+        self.assertEqual(snapshot["series"]["selected"][-1]["events"][1]["recurringId"], None)
+        self.assertEqual(snapshot["upcoming"][0]["recurringId"], 42)
 
     def test_falls_back_to_supported_filter_values(self):
         snapshot = ForecastReadService(StubDatabase()).snapshot(horizon_days=45, scenario="Inconnu")
