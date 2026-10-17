@@ -25,7 +25,7 @@ async function apiConnection(): Promise<ApiConnection> {
 
 async function request<T>(
   path: string,
-  options: { method?: "GET" | "POST"; body?: unknown; token?: string; signal?: AbortSignal } = {},
+  options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown; token?: string; signal?: AbortSignal } = {},
 ): Promise<T> {
   const connection = await apiConnection();
   const headers: Record<string, string> = { Accept: "application/json" };
