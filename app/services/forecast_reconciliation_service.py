@@ -1077,7 +1077,7 @@ class ForecastReconciliationService:
         account_id: int | None = None,
         reference_date: str | date | None = None,
     ) -> list:
-        """Return unrealized recurring occurrences due no later than reference_date."""
+        """Return unrealized recurring occurrences due no later than the forecast reference date."""
         reference = _parse_date(reference_date) if reference_date else date.today()
         with self.db.connect() as conn:
             rows = list(
@@ -1129,7 +1129,7 @@ class ForecastReconciliationService:
         if not normalized_ids:
             return 0, "Sélectionne au moins une échéance à décaler."
         if target <= reference:
-            return 0, "La nouvelle date doit être strictement postérieure à aujourd’hui."
+            return 0, "La nouvelle date doit être strictement postérieure à la date de référence du prévisionnel."
 
         placeholders = ",".join("?" for _ in normalized_ids)
         with self.db.connect() as conn:

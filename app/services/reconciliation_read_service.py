@@ -121,7 +121,7 @@ class ReconciliationReadService:
         }
 
     def reschedulable_occurrences(self, account_id: int | None = None) -> dict[str, Any]:
-        reference = date.today()
+        reference = self._forecast_reference_date()
         engine = self.engine_factory(self.database)
         rows = engine.list_reschedulable_occurrences(account_id, reference)
         items = []
@@ -159,17 +159,26 @@ class ReconciliationReadService:
         occurrence_ids: list[int],
         target_date: str,
     ) -> dict[str, Any]:
+        reference = self._forecast_reference_date()
         count, message = self.engine_factory(self.database).reschedule_occurrences(
             occurrence_ids,
             target_date,
+            reference_date=reference,
         )
         return {
             "success": count > 0,
             "message": message,
             "updatedCount": int(count),
             "targetDate": target_date,
+            "referenceDate": reference.isoformat(),
             "occurrenceIds": list(dict.fromkeys(int(value) for value in occurrence_ids)),
         }
+
+    def _forecast_reference_date(self) -> date:
+        try:
+            return date.fromisoformat(str(self.database.default_forecast_start_date()))
+        except (AttributeError, TypeError, ValueError):
+            return date.today()
 
     def confirm_proposal(self, proposal_id: int) -> dict[str, Any]:
         return self._action_result(self.engine_factory(self.database).confirm_proposal(proposal_id))

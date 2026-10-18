@@ -491,6 +491,7 @@ button { cursor: pointer; }
 .occurrence-reschedule__intro { background: linear-gradient(135deg, #eff6ff, #f8fafc); border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 16px; }
 .occurrence-reschedule__intro strong { color: #1d4ed8; display: block; font-size: 14px; }
 .occurrence-reschedule__intro p { color: #60708e; font-size: 11px; line-height: 1.55; margin: 5px 0 0; }
+.occurrence-reschedule__reference { background: #dbeafe; border-radius: 7px; color: #1e40af; display: inline-flex; font-size: 10px; font-weight: 800; margin-top: 9px; padding: 6px 8px; }
 .occurrence-reschedule__toolbar { align-items: end; display: grid; gap: 14px; grid-template-columns: minmax(160px, .7fr) minmax(200px, 1fr); margin-top: 16px; }
 .occurrence-reschedule__toolbar > button { background: #fff; border: 1px solid #cbd9ed; border-radius: 9px; color: #1d4ed8; font-size: 11px; font-weight: 800; height: 43px; padding: 0 13px; }
 .occurrence-reschedule__summary { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }

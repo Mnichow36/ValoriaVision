@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable
 
 
@@ -56,6 +56,16 @@ class ForecastReadService:
         selected_points = selected.get("daily_points") or []
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
+        recurrences = [
+            self._recurrence(row, start_date)
+            for row in self.database.list_recurring_items(active_only=False)
+        ]
+        recurrences.sort(
+            key=lambda item: (
+                item["nextOccurrenceDate"] or "9999-12-31",
+                item["name"].casefold(),
+            )
+        )
 
         return {
             "generatedAt": self.now_provider().isoformat(),
@@ -69,7 +79,7 @@ class ForecastReadService:
             },
             "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "")) == "Actif"],
             "categories": [self._category(row) for row in self.database.list_categories()],
-            "recurrences": [self._recurrence(row) for row in self.database.list_recurring_items(active_only=False)],
+            "recurrences": recurrences,
             "series": {
                 "selected": self._series(selected_points),
                 "realized": self._realized_series(_number(selected.get("starting_cash")), selected_points),
@@ -112,9 +122,9 @@ class ForecastReadService:
             "color": str(_field(row, "color", "#64748B") or "#64748B"),
         }
 
-    @staticmethod
-    def _recurrence(row: Any) -> dict[str, Any]:
+    def _recurrence(self, row: Any, reference_date: str) -> dict[str, Any]:
         signed_amount = _number(_field(row, "amount", 0))
+        next_occurrence_date = self._next_recurrence_date(row, reference_date)
         return {
             "id": _integer(_field(row, "id", 0)),
             "accountId": _integer(_field(row, "account_id", 0)),
@@ -126,10 +136,37 @@ class ForecastReadService:
             "amount": abs(signed_amount),
             "frequency": str(_field(row, "frequency", "Mensuel") or "Mensuel"),
             "nextDate": str(_field(row, "next_date", "") or ""),
+            "nextOccurrenceDate": next_occurrence_date,
             "endDate": str(_field(row, "end_date", "") or ""),
             "scenario": str(_field(row, "scenario", "Réaliste") or "Réaliste"),
             "status": str(_field(row, "status", "Actif") or "Actif"),
         }
+
+    def _next_recurrence_date(self, row: Any, reference_date: str) -> str:
+        try:
+            candidate = date.fromisoformat(str(_field(row, "next_date", "") or ""))
+            reference = date.fromisoformat(str(reference_date))
+        except ValueError:
+            return ""
+
+        end_value = str(_field(row, "end_date", "") or "")
+        try:
+            end_date = date.fromisoformat(end_value) if end_value else None
+        except ValueError:
+            end_date = None
+        frequency = str(_field(row, "frequency", "Mensuel") or "Mensuel")
+        one_off = frequency in {"Ponctuel", "Une fois", "Ponctuel / une seule fois"}
+
+        if one_off and candidate <= reference:
+            return ""
+        while candidate <= reference:
+            advanced = self.database.add_period(candidate, frequency)
+            if advanced <= candidate:
+                return ""
+            candidate = advanced
+        if end_date is not None and candidate > end_date:
+            return ""
+        return candidate.isoformat()
 
     @staticmethod
     def _series(points: list[dict[str, Any]]) -> list[dict[str, Any]]:

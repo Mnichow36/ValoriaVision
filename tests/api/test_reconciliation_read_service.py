@@ -7,6 +7,9 @@ from app.services.reconciliation_read_service import ReconciliationReadService
 
 
 class StubDatabase:
+    def default_forecast_start_date(self):
+        return "2032-09-25"
+
     def list_accounts(self):
         return [
             {"id": 1, "name": "Compte courant", "bank": "Banque A", "status": "Actif"},
@@ -69,6 +72,27 @@ class StubEngine:
     def decision_for_candidates(self, candidates):
         return "automatic"
 
+    def list_reschedulable_occurrences(self, account_id, reference_date):
+        self.reschedule_list_args = (account_id, reference_date)
+        return [{
+            "id": 44,
+            "expected_date": "2026-10-20",
+            "original_expected_date": "2026-06-20",
+            "expected_label": "Salaire",
+            "expected_amount": 180,
+            "expected_category": "Revenus",
+            "direction": "credit",
+            "account_id": 1,
+            "account_name": "Compte courant",
+            "bank": "Banque A",
+            "recurring_frequency": "Mensuel",
+            "status": "planned",
+        }]
+
+    def reschedule_occurrences(self, occurrence_ids, target_date, reference_date=None):
+        self.reschedule_write_args = (occurrence_ids, target_date, reference_date)
+        return len(occurrence_ids), "Échéances décalées."
+
     def confirm_proposal(self, proposal_id):
         return True, f"Proposition {proposal_id} validée."
 
@@ -98,6 +122,24 @@ class ReconciliationReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["occurrences"][0]["statusLabel"], "À vérifier")
         self.assertEqual(snapshot["suggestions"][0]["proposalId"], 91)
         self.assertEqual(snapshot["accounts"], [{"id": 1, "name": "Compte courant", "bank": "Banque A"}])
+
+    def test_rescheduling_uses_the_forecast_reference_date(self):
+        engine = StubEngine(None)
+        service = ReconciliationReadService(
+            StubDatabase(),
+            engine_factory=lambda database: engine,
+        )
+
+        available = service.reschedulable_occurrences(account_id=1)
+        result = service.reschedule_occurrences([44], "2032-10-20")
+
+        self.assertEqual(available["referenceDate"], "2032-09-25")
+        self.assertEqual(available["minTargetDate"], "2032-09-26")
+        self.assertEqual(available["items"][0]["date"], "2026-10-20")
+        self.assertTrue(available["items"][0]["alreadyRescheduled"])
+        self.assertEqual(engine.reschedule_list_args[1].isoformat(), "2032-09-25")
+        self.assertEqual(engine.reschedule_write_args[2].isoformat(), "2032-09-25")
+        self.assertEqual(result["referenceDate"], "2032-09-25")
 
     def test_delegates_secure_actions_to_the_existing_engine(self):
         engine = StubEngine(None)

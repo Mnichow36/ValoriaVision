@@ -345,8 +345,9 @@ function RecurrenceEditor({
               </select>
             </label>
             <label className="account-field">
-              <span>Première échéance *</span>
+              <span>Date de départ du calendrier *</span>
               <input onChange={(event) => field("nextDate", event.target.value)} required type="date" value={draft.nextDate} />
+              <small>Cette date sert d’ancrage à la fréquence ; la prochaine échéance est recalculée automatiquement.</small>
             </label>
             <label className="account-field">
               <span>Date de fin</span>
@@ -547,7 +548,12 @@ function OccurrenceRescheduleDrawer({
         <form className="occurrence-reschedule__body" onSubmit={(event) => void submit(event)}>
           <div className="occurrence-reschedule__intro">
             <strong>Régulariser les prévisions non réalisées</strong>
-            <p>Seules les échéances récurrentes arrivées à aujourd’hui et sans transaction rapprochée sont proposées.</p>
+            <p>Seules les échéances arrivées à la date de référence du prévisionnel et sans transaction rapprochée sont proposées.</p>
+            {data && (
+              <span className="occurrence-reschedule__reference">
+                Référence : {formatDate(data.referenceDate)} · première date cible : {formatDate(data.minTargetDate)}
+              </span>
+            )}
           </div>
 
           {data && data.items.length > 0 && (
@@ -625,7 +631,11 @@ function OccurrenceRescheduleDrawer({
               disabled={busy || !data || selectedIds.length === 0 || targetDate < data.minTargetDate}
               type="submit"
             >
-              {busy ? "Décalage…" : `Décaler ${selectedIds.length || ""} échéance${selectedIds.length > 1 ? "s" : ""}`}
+              {busy
+                ? "Décalage…"
+                : selectedIds.length > 0
+                  ? `Décaler ${selectedIds.length} échéance${selectedIds.length > 1 ? "s" : ""}`
+                  : "Sélectionner des échéances"}
             </button>
           </footer>
         </form>
@@ -698,7 +708,7 @@ function RecurrenceManager({
                 <div className="recurrence-manager__meta">
                   <span>{item.category}</span>
                   <span>{item.frequency}</span>
-                  <span>Prochaine : {formatDate(item.nextDate)}</span>
+                  <span>Prochaine échéance : {item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "aucune à venir"}</span>
                   <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>
                     {item.status}
                   </span>

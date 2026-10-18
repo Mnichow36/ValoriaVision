@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.services.forecast_read_service import ForecastReadService
 
@@ -9,6 +9,14 @@ from app.services.forecast_read_service import ForecastReadService
 class StubDatabase:
     def default_forecast_start_date(self):
         return "2026-10-14"
+
+    @staticmethod
+    def add_period(source, frequency):
+        if frequency == "Ponctuel":
+            return source.replace(year=source.year + 100)
+        month = source.month + (3 if frequency == "Trimestriel" else 12 if frequency == "Annuel" else 1)
+        year = source.year + (month - 1) // 12
+        return date(year, (month - 1) % 12 + 1, min(source.day, 28))
 
     def list_accounts(self):
         return [
@@ -32,7 +40,7 @@ class StubDatabase:
             "category": "Salaire",
             "amount": 300,
             "frequency": "Mensuel",
-            "next_date": "2026-10-28",
+            "next_date": "2026-06-06",
             "end_date": None,
             "scenario": "Réaliste",
             "status": "Actif",
@@ -87,6 +95,8 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["categories"][1]["direction"], "Recette")
         self.assertEqual(snapshot["recurrences"][0]["id"], 42)
         self.assertEqual(snapshot["recurrences"][0]["direction"], "Crédit")
+        self.assertEqual(snapshot["recurrences"][0]["nextDate"], "2026-06-06")
+        self.assertEqual(snapshot["recurrences"][0]["nextOccurrenceDate"], "2026-11-06")
         self.assertEqual(snapshot["series"]["selected"][-1]["events"][0]["source"], "Récurrence")
         self.assertEqual(snapshot["series"]["selected"][-1]["events"][0]["recurringId"], 42)
         self.assertEqual(snapshot["series"]["selected"][-1]["events"][1]["recurringId"], None)

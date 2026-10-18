@@ -312,6 +312,7 @@ export interface OccurrenceRescheduleResult {
   message: string;
   updatedCount: number;
   targetDate: string;
+  referenceDate: string;
   occurrenceIds: number[];
 }
 
@@ -326,6 +327,7 @@ export interface RecurrenceItem {
   amount: number;
   frequency: RecurrencePayload["frequency"];
   nextDate: string;
+  nextOccurrenceDate: string;
   endDate: string;
   scenario: RecurrencePayload["scenario"];
   status: string;
