@@ -460,7 +460,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     @app.get("/api/v1/forecast")
     def forecast(
         account_id: int | None = None,
-        horizon_days: int = 90,
+        horizon_days: int = 15,
         scenario: str = "Réaliste",
         x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),

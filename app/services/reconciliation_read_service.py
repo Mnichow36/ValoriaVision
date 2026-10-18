@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 
@@ -46,7 +46,7 @@ class ReconciliationReadService:
         self,
         database: Any,
         engine_factory: Callable[[Any], Any] | None = None,
-        now_provider: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        now_provider: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     ) -> None:
         if engine_factory is None:
             # Kept lazy so this adapter can be contract-tested in isolation.
@@ -121,7 +121,7 @@ class ReconciliationReadService:
         }
 
     def reschedulable_occurrences(self, account_id: int | None = None) -> dict[str, Any]:
-        reference = self._forecast_reference_date()
+        reference = self._reference_date()
         engine = self.engine_factory(self.database)
         rows = engine.list_reschedulable_occurrences(account_id, reference)
         items = []
@@ -159,7 +159,7 @@ class ReconciliationReadService:
         occurrence_ids: list[int],
         target_date: str,
     ) -> dict[str, Any]:
-        reference = self._forecast_reference_date()
+        reference = self._reference_date()
         count, message = self.engine_factory(self.database).reschedule_occurrences(
             occurrence_ids,
             target_date,
@@ -174,11 +174,13 @@ class ReconciliationReadService:
             "occurrenceIds": list(dict.fromkeys(int(value) for value in occurrence_ids)),
         }
 
-    def _forecast_reference_date(self) -> date:
-        try:
-            return date.fromisoformat(str(self.database.default_forecast_start_date()))
-        except (AttributeError, TypeError, ValueError):
-            return date.today()
+    def _reference_date(self) -> date:
+        current_time = self.now_provider()
+        return (
+            current_time.astimezone().date()
+            if current_time.tzinfo is not None
+            else current_time.date()
+        )
 
     def confirm_proposal(self, proposal_id: int) -> dict[str, Any]:
         return self._action_result(self.engine_factory(self.database).confirm_proposal(proposal_id))

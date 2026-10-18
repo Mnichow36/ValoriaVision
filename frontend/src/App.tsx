@@ -76,7 +76,7 @@ export function App() {
   const [accountStatusFilter, setAccountStatusFilter] = useState("Tous");
   const [forecastAccountId, setForecastAccountId] = useState("all");
   const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
-  const [forecastHorizonDays, setForecastHorizonDays] = useState(90);
+  const [forecastHorizonDays, setForecastHorizonDays] = useState(15);
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
   const [forecastRecurrenceRequestKey, setForecastRecurrenceRequestKey] = useState(0);
   const [budgetMonth, setBudgetMonth] = useState("");
@@ -357,9 +357,10 @@ function HeaderActions({
           {forecastAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
         </select>
         <select aria-label="Horizon de la projection" onChange={(event) => onForecastHorizonChange(Number(event.target.value))} value={forecastHorizonDays}>
-          <option value={30}>30 jours</option>
-          <option value={60}>60 jours</option>
-          <option value={90}>90 jours</option>
+          <option value={15}>J−5 à J+10</option>
+          <option value={30}>J−5 à J+25</option>
+          <option value={60}>J−5 à J+55</option>
+          <option value={90}>J−5 à J+85</option>
         </select>
         <button onClick={onCreateRecurrence} type="button">Nouvelle récurrence</button>
       </div>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 
@@ -30,13 +30,13 @@ def _integer(value: Any) -> int:
 class ForecastReadService:
     """Expose daily cash projections without coupling React to SQLite rows."""
 
-    ALLOWED_HORIZONS = {30, 60, 90}
+    ALLOWED_HORIZONS = {15, 30, 60, 90}
     ALLOWED_SCENARIOS = {"Prudent", "Réaliste", "Optimiste"}
 
     def __init__(
         self,
         database: Any,
-        now_provider: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        now_provider: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     ) -> None:
         self.database = database
         self.now_provider = now_provider
@@ -44,12 +44,20 @@ class ForecastReadService:
     def snapshot(
         self,
         account_id: int | None = None,
-        horizon_days: int = 90,
+        horizon_days: int = 15,
         scenario: str = "Réaliste",
     ) -> dict[str, Any]:
-        horizon = horizon_days if horizon_days in self.ALLOWED_HORIZONS else 90
+        horizon = horizon_days if horizon_days in self.ALLOWED_HORIZONS else 15
         selected_scenario = scenario if scenario in self.ALLOWED_SCENARIOS else "Réaliste"
-        start_date = self.database.default_forecast_start_date()
+        current_time = self.now_provider()
+        reference_date = (
+            current_time.astimezone().date()
+            if current_time.tzinfo is not None
+            else current_time.date()
+        )
+        forecast_start = reference_date - timedelta(days=5)
+        start_date = forecast_start.isoformat()
+        end_date = (forecast_start + timedelta(days=horizon)).isoformat()
         selected = self.database.cash_forecast(start_date, horizon, selected_scenario, account_id=account_id)
         prudent = self.database.cash_forecast(start_date, horizon, "Prudent", account_id=account_id)
         optimistic = self.database.cash_forecast(start_date, horizon, "Optimiste", account_id=account_id)
@@ -57,7 +65,7 @@ class ForecastReadService:
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
         recurrences = [
-            self._recurrence(row, start_date)
+            self._recurrence(row, reference_date.isoformat())
             for row in self.database.list_recurring_items(active_only=False)
         ]
         recurrences.sort(
@@ -68,14 +76,16 @@ class ForecastReadService:
         )
 
         return {
-            "generatedAt": self.now_provider().isoformat(),
+            "generatedAt": current_time.isoformat(),
             "currency": "EUR",
             "filters": {
                 "accountId": account_id,
                 "accountLabel": str(selected.get("account_label") or "Tous les comptes"),
                 "horizonDays": horizon,
                 "scenario": selected_scenario,
-                "startDate": str(start_date),
+                "referenceDate": reference_date.isoformat(),
+                "startDate": start_date,
+                "endDate": end_date,
             },
             "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "")) == "Actif"],
             "categories": [self._category(row) for row in self.database.list_categories()],

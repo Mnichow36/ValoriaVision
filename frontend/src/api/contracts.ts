@@ -360,7 +360,9 @@ export interface ForecastSnapshot {
     accountLabel: string;
     horizonDays: number;
     scenario: string;
+    referenceDate: string;
     startDate: string;
+    endDate: string;
   };
   accounts: ForecastAccount[];
   categories: ForecastCategory[];

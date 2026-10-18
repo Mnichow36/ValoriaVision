@@ -86,6 +86,9 @@ class ForecastReadServiceTest(unittest.TestCase):
         snapshot = service.snapshot(account_id=7, horizon_days=90, scenario="Réaliste")
 
         self.assertEqual(snapshot["filters"]["accountId"], 7)
+        self.assertEqual(snapshot["filters"]["referenceDate"], "2026-10-14")
+        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-09")
+        self.assertEqual(snapshot["filters"]["endDate"], "2027-01-07")
         self.assertEqual(snapshot["summary"]["endBalance"], 1000.0)
         self.assertEqual(snapshot["summary"]["prudentDifference"], 100.0)
         self.assertEqual(snapshot["series"]["realized"][-1]["balance"], 850.0)
@@ -103,9 +106,14 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["upcoming"][0]["recurringId"], 42)
 
     def test_falls_back_to_supported_filter_values(self):
-        snapshot = ForecastReadService(StubDatabase()).snapshot(horizon_days=45, scenario="Inconnu")
-        self.assertEqual(snapshot["filters"]["horizonDays"], 90)
+        snapshot = ForecastReadService(
+            StubDatabase(),
+            now_provider=lambda: datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc),
+        ).snapshot(horizon_days=45, scenario="Inconnu")
+        self.assertEqual(snapshot["filters"]["horizonDays"], 15)
         self.assertEqual(snapshot["filters"]["scenario"], "Réaliste")
+        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-13")
+        self.assertEqual(snapshot["filters"]["endDate"], "2026-10-28")
 
 
 if __name__ == "__main__":

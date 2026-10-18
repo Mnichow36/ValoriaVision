@@ -1129,7 +1129,7 @@ class ForecastReconciliationService:
         if not normalized_ids:
             return 0, "Sélectionne au moins une échéance à décaler."
         if target <= reference:
-            return 0, "La nouvelle date doit être strictement postérieure à la date de référence du prévisionnel."
+            return 0, "La nouvelle date doit être strictement postérieure à aujourd’hui."
 
         placeholders = ",".join("?" for _ in normalized_ids)
         with self.db.connect() as conn:

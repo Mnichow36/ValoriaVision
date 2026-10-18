@@ -99,7 +99,10 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
       <div className="forecast-page">
       <article className="card forecast-projection">
         <div className="forecast-card-heading">
-          <div><h2>Projection journalière</h2><p>Solde de départ + transactions réelles + occurrences prévues.</p></div>
+          <div>
+            <h2>Projection journalière</h2>
+            <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · solde réel et échéances prévues.</p>
+          </div>
           <div className="forecast-scenarios" role="tablist" aria-label="Scénario de projection">
             <ScenarioButton active={scenario === "Réaliste"} onClick={() => onScenarioChange("Réaliste")}>Réaliste</ScenarioButton>
             <ScenarioButton active={scenario === "Optimiste"} onClick={() => onScenarioChange("Optimiste")}>Optimiste</ScenarioButton>
@@ -548,10 +551,10 @@ function OccurrenceRescheduleDrawer({
         <form className="occurrence-reschedule__body" onSubmit={(event) => void submit(event)}>
           <div className="occurrence-reschedule__intro">
             <strong>Régulariser les prévisions non réalisées</strong>
-            <p>Seules les échéances arrivées à la date de référence du prévisionnel et sans transaction rapprochée sont proposées.</p>
+            <p>Seules les échéances arrivées aujourd’hui et sans transaction rapprochée sont proposées.</p>
             {data && (
               <span className="occurrence-reschedule__reference">
-                Référence : {formatDate(data.referenceDate)} · première date cible : {formatDate(data.minTargetDate)}
+                Aujourd’hui : {formatDate(data.referenceDate)} · première date cible : {formatDate(data.minTargetDate)}
               </span>
             )}
           </div>

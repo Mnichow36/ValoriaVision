@@ -123,23 +123,24 @@ class ReconciliationReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["suggestions"][0]["proposalId"], 91)
         self.assertEqual(snapshot["accounts"], [{"id": 1, "name": "Compte courant", "bank": "Banque A"}])
 
-    def test_rescheduling_uses_the_forecast_reference_date(self):
+    def test_rescheduling_uses_local_today_not_future_bank_data(self):
         engine = StubEngine(None)
         service = ReconciliationReadService(
             StubDatabase(),
             engine_factory=lambda database: engine,
+            now_provider=lambda: datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc),
         )
 
         available = service.reschedulable_occurrences(account_id=1)
-        result = service.reschedule_occurrences([44], "2032-10-20")
+        result = service.reschedule_occurrences([44], "2026-10-20")
 
-        self.assertEqual(available["referenceDate"], "2032-09-25")
-        self.assertEqual(available["minTargetDate"], "2032-09-26")
+        self.assertEqual(available["referenceDate"], "2026-10-18")
+        self.assertEqual(available["minTargetDate"], "2026-10-19")
         self.assertEqual(available["items"][0]["date"], "2026-10-20")
         self.assertTrue(available["items"][0]["alreadyRescheduled"])
-        self.assertEqual(engine.reschedule_list_args[1].isoformat(), "2032-09-25")
-        self.assertEqual(engine.reschedule_write_args[2].isoformat(), "2032-09-25")
-        self.assertEqual(result["referenceDate"], "2032-09-25")
+        self.assertEqual(engine.reschedule_list_args[1].isoformat(), "2026-10-18")
+        self.assertEqual(engine.reschedule_write_args[2].isoformat(), "2026-10-18")
+        self.assertEqual(result["referenceDate"], "2026-10-18")
 
     def test_delegates_secure_actions_to_the_existing_engine(self):
         engine = StubEngine(None)
