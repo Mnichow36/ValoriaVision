@@ -284,6 +284,37 @@ export interface RecurrenceActionResult {
   generatedOccurrences: number;
 }
 
+export interface ReschedulableOccurrence {
+  id: number;
+  date: string;
+  originalDate: string;
+  label: string;
+  amount: number;
+  category: string;
+  direction: string;
+  accountId: number | null;
+  accountName: string;
+  bank: string;
+  frequency: string;
+  status: string;
+  statusLabel: string;
+  alreadyRescheduled: boolean;
+}
+
+export interface ReschedulableOccurrencesResult {
+  referenceDate: string;
+  minTargetDate: string;
+  items: ReschedulableOccurrence[];
+}
+
+export interface OccurrenceRescheduleResult {
+  success: boolean;
+  message: string;
+  updatedCount: number;
+  targetDate: string;
+  occurrenceIds: number[];
+}
+
 export interface RecurrenceItem {
   id: number;
   accountId: number;
@@ -315,6 +346,7 @@ export interface ForecastEvent {
   source: string;
   account: string;
   scenario: string;
+  originalDate: string;
   recurringId: number | null;
 }
 

@@ -385,6 +385,8 @@ class Database:
                 source_id INTEGER,
                 account_id INTEGER,
                 expected_date TEXT NOT NULL,
+                original_expected_date TEXT,
+                rescheduled_at TEXT,
                 expected_amount REAL NOT NULL,
                 expected_label TEXT,
                 expected_category TEXT,
@@ -858,6 +860,8 @@ class Database:
                 source_id INTEGER,
                 account_id INTEGER,
                 expected_date TEXT NOT NULL,
+                original_expected_date TEXT,
+                rescheduled_at TEXT,
                 expected_amount REAL NOT NULL,
                 expected_label TEXT,
                 expected_category TEXT,
@@ -885,6 +889,8 @@ class Database:
             "source_id": "INTEGER",
             "account_id": "INTEGER",
             "expected_date": "TEXT",
+            "original_expected_date": "TEXT",
+            "rescheduled_at": "TEXT",
             "expected_amount": "REAL NOT NULL DEFAULT 0",
             "expected_label": "TEXT",
             "expected_category": "TEXT",
@@ -905,9 +911,20 @@ class Database:
         })
         self.populate_uuid(conn, "forecast_occurrences")
         conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_occurrences_source_date
-            ON forecast_occurrences(source_type, source_id, expected_date)
-            WHERE deleted_at IS NULL AND source_id IS NOT NULL
+            UPDATE forecast_occurrences
+            SET original_expected_date = expected_date
+            WHERE original_expected_date IS NULL OR original_expected_date = ''
+        """)
+        # The identity of a generated occurrence is its original due date.
+        # Several overdue occurrences from one recurrence may therefore be
+        # rescheduled to the same target date without being merged.
+        conn.execute("DROP INDEX IF EXISTS idx_forecast_occurrences_source_date")
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_occurrences_source_origin
+            ON forecast_occurrences(source_type, source_id, original_expected_date)
+            WHERE deleted_at IS NULL
+              AND source_id IS NOT NULL
+              AND original_expected_date IS NOT NULL
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_status ON forecast_occurrences(status, expected_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_actual_tx ON forecast_occurrences(actual_transaction_id)")
@@ -2826,28 +2843,78 @@ class Database:
             })
 
         suppressed_occurrences: set[tuple[int, str]] = set()
+        moved_occurrences = []
         with self.connect() as conn:
-            occ_params: list = [start_date, end.isoformat()]
+            occ_params: list = [
+                start_date,
+                end.isoformat(),
+                start_date,
+                end.isoformat(),
+            ]
             occ_account = ""
             if account_id is not None:
-                occ_account = " AND account_id = ?"
+                occ_account = " AND o.account_id = ?"
                 occ_params.append(account_id)
             for occurrence in conn.execute(
                 f"""
-                SELECT source_id, expected_date, status, actual_transaction_id
-                FROM forecast_occurrences
-                WHERE source_type = 'recurring'
-                  AND deleted_at IS NULL
-                  AND source_id IS NOT NULL
-                  AND expected_date > ?
-                  AND expected_date <= ?{occ_account}
+                SELECT o.source_id, o.expected_date, o.original_expected_date,
+                       o.expected_amount, o.expected_label, o.expected_category,
+                       o.status, o.actual_transaction_id, o.remaining_amount,
+                       o.account_id, a.name AS account_name, r.scenario
+                FROM forecast_occurrences o
+                LEFT JOIN accounts a ON a.id = o.account_id
+                LEFT JOIN recurring_items r ON r.id = o.source_id
+                WHERE o.source_type = 'recurring'
+                  AND o.deleted_at IS NULL
+                  AND o.source_id IS NOT NULL
+                  AND (
+                        (COALESCE(o.original_expected_date, o.expected_date) > ?
+                         AND COALESCE(o.original_expected_date, o.expected_date) <= ?)
+                     OR (o.expected_date > ? AND o.expected_date <= ?)
+                  ){occ_account}
                 """,
                 occ_params,
             ):
-                status = occurrence["status"]
+                status = str(occurrence["status"] or "")
                 has_real = occurrence["actual_transaction_id"] is not None
-                if status in {"auto_matched", "ignored", "cancelled"} or (status in {"confirmed", "to_review"} and has_real):
-                    suppressed_occurrences.add((int(occurrence["source_id"]), occurrence["expected_date"]))
+                expected_date = str(occurrence["expected_date"])
+                original_date = str(occurrence["original_expected_date"] or expected_date)
+                source_id = int(occurrence["source_id"])
+                was_rescheduled = original_date != expected_date
+
+                if was_rescheduled:
+                    suppressed_occurrences.add((source_id, original_date))
+                    if (
+                        status in {"planned", "overdue", "to_review", "partially_matched"}
+                        and not has_real
+                        and start_date < expected_date <= end.isoformat()
+                    ):
+                        moved_occurrences.append(occurrence)
+                elif status in {"auto_matched", "ignored", "cancelled"} or (
+                    status in {"confirmed", "to_review"} and has_real
+                ):
+                    suppressed_occurrences.add((source_id, expected_date))
+
+        for occurrence in moved_occurrences:
+            occurrence_scenario = str(occurrence["scenario"] or "Réaliste")
+            if scenario in {"Réaliste", "Prudent"} and occurrence_scenario == "Optimiste":
+                continue
+            amount = float(occurrence["expected_amount"] or 0)
+            if occurrence["status"] == "partially_matched" and occurrence["remaining_amount"] is not None:
+                remaining = abs(float(occurrence["remaining_amount"] or 0))
+                amount = remaining if amount >= 0 else -remaining
+            events.append({
+                "date": occurrence["expected_date"],
+                "name": occurrence["expected_label"] or "Récurrence",
+                "category": occurrence["expected_category"] or "Prévisionnel",
+                "amount": amount,
+                "source": "Récurrence décalée",
+                "account": occurrence["account_name"] or "Compte",
+                "account_id": occurrence["account_id"],
+                "recurring_id": occurrence["source_id"],
+                "scenario": occurrence_scenario,
+                "original_date": occurrence["original_expected_date"] or occurrence["expected_date"],
+            })
 
         for item in self.list_recurring_items(active_only=True):
             if account_id is not None and item["account_id"] != account_id:

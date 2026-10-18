@@ -480,9 +480,45 @@ button { cursor: pointer; }
 .recurrence-editor { width: min(560px, 100vw); }
 .recurrence-editor .account-field input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 .recurrence-editor .account-field small { margin-top: -1px; }
+.forecast-heading-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.forecast-reschedule-button { align-items: center; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 9px; color: #c2410c; display: inline-flex; flex: 0 0 auto; font-size: 11px; font-weight: 850; min-height: 34px; padding: 7px 10px; }
+.forecast-reschedule-button:hover { background: #ffedd5; border-color: #fdba74; }
 .forecast-manage-button { align-items: center; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9px; color: #1d4ed8; display: inline-flex; flex: 0 0 auto; font-size: 11px; font-weight: 850; gap: 7px; min-height: 34px; padding: 7px 10px; }
 .forecast-manage-button:hover { background: #dbeafe; border-color: #93c5fd; }
 .forecast-manage-button span { align-items: center; background: #2563eb; border-radius: 999px; color: #fff; display: inline-flex; font-size: 9px; height: 19px; justify-content: center; min-width: 19px; padding: 0 5px; }
+.occurrence-reschedule { width: min(780px, 100vw); }
+.occurrence-reschedule__body { min-height: 0; overflow: hidden; }
+.occurrence-reschedule__intro { background: linear-gradient(135deg, #eff6ff, #f8fafc); border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 16px; }
+.occurrence-reschedule__intro strong { color: #1d4ed8; display: block; font-size: 14px; }
+.occurrence-reschedule__intro p { color: #60708e; font-size: 11px; line-height: 1.55; margin: 5px 0 0; }
+.occurrence-reschedule__toolbar { align-items: end; display: grid; gap: 14px; grid-template-columns: minmax(160px, .7fr) minmax(200px, 1fr); margin-top: 16px; }
+.occurrence-reschedule__toolbar > button { background: #fff; border: 1px solid #cbd9ed; border-radius: 9px; color: #1d4ed8; font-size: 11px; font-weight: 800; height: 43px; padding: 0 13px; }
+.occurrence-reschedule__summary { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+.occurrence-reschedule__summary > div { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 10px; min-width: 0; padding: 10px 12px; }
+.occurrence-reschedule__summary span { color: #697b99; display: block; font-size: 9px; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+.occurrence-reschedule__summary strong { color: #17213c; display: block; font-size: 15px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.occurrence-reschedule__summary .positive { color: #15803d; }
+.occurrence-reschedule__summary .negative { color: #dc2626; }
+.occurrence-reschedule__list { display: grid; gap: 10px; margin-top: 16px; max-height: calc(100vh - 470px); min-height: 110px; overflow-y: auto; padding-right: 5px; }
+.occurrence-reschedule__item { align-items: flex-start; background: #fff; border: 1px solid #dbe3ef; border-radius: 12px; cursor: pointer; display: grid; gap: 12px; grid-template-columns: 18px minmax(0, 1fr); padding: 13px 14px; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
+.occurrence-reschedule__item:hover { border-color: #93b4fb; box-shadow: 0 4px 14px rgba(37, 99, 235, .07); }
+.occurrence-reschedule__item--selected { background: #f3f7ff; border-color: #60a5fa; box-shadow: inset 3px 0 #2563eb; }
+.occurrence-reschedule__item > input { accent-color: #2563eb; cursor: pointer; height: 17px; margin: 2px 0 0; width: 17px; }
+.occurrence-reschedule__item-content { display: block; min-width: 0; }
+.occurrence-reschedule__item-main { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.occurrence-reschedule__item-main > span { min-width: 0; }
+.occurrence-reschedule__item-main strong { color: #17213c; display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.occurrence-reschedule__item-main small { color: #697b99; display: block; font-size: 10px; margin-top: 4px; }
+.occurrence-reschedule__item-main b { font-size: 14px; white-space: nowrap; }
+.occurrence-reschedule__item-main .positive { color: #15803d; }
+.occurrence-reschedule__item-main .negative { color: #dc2626; }
+.occurrence-reschedule__item-meta { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.occurrence-reschedule__item-meta > span { background: #f1f5f9; border-radius: 999px; color: #52627d; font-size: 9px; font-weight: 750; padding: 5px 8px; }
+.occurrence-reschedule__item-meta > em { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 999px; color: #c2410c; font-size: 9px; font-style: normal; font-weight: 850; padding: 4px 8px; }
+.occurrence-reschedule__history { color: #7c3aed; display: block; font-size: 9px; font-weight: 750; margin-top: 8px; }
+.occurrence-reschedule .loading-state { min-height: 150px; }
+.occurrence-reschedule .account-editor-note { margin-top: 14px; }
+
 .recurrence-manager { width: min(760px, 100vw); }
 .recurrence-manager__body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 24px 30px 30px; }
 .recurrence-manager__summary { align-items: center; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; display: flex; justify-content: space-between; padding: 11px 13px; }
@@ -519,7 +555,8 @@ button { cursor: pointer; }
 .forecast-day-details__list { display: grid; gap: 11px; margin-top: 16px; max-height: calc(100vh - 265px); overflow-y: auto; padding-right: 5px; }
 .forecast-day-event { align-items: stretch; background: #fff; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; grid-template-columns: 5px minmax(0, 1fr); overflow: hidden; }
 .forecast-day-event__marker { background: #2563eb; }
-.forecast-day-event__marker[data-source="Récurrence"] { background: #7c3aed; }
+.forecast-day-event__marker[data-source="Récurrence"],
+.forecast-day-event__marker[data-source="Récurrence décalée"] { background: #7c3aed; }
 .forecast-day-event__marker[data-source="Scénario"] { background: #f59e0b; }
 .forecast-day-event__main { min-width: 0; padding: 13px 14px; }
 .forecast-day-event__heading { align-items: flex-start; display: flex; gap: 14px; justify-content: space-between; }
@@ -995,4 +1032,13 @@ button { cursor: pointer; }
   .r8-expenses-panel .interactive-donut--with-legend,
   .r8-assets-panel .interactive-donut--with-legend { grid-template-columns: minmax(220px, .8fr) minmax(230px, 1.2fr); }
   .r8-flow-panel { grid-column: 1 / -1; }
+}
+
+
+@media (max-width: 680px) {
+  .forecast-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
+  .forecast-heading-actions > button { justify-content: center; width: 100%; }
+  .occurrence-reschedule__toolbar { grid-template-columns: 1fr; }
+  .occurrence-reschedule__summary { grid-template-columns: 1fr; }
+  .occurrence-reschedule__list { max-height: calc(100vh - 560px); }
 }

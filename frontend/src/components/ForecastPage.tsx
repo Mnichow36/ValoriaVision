@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { createRecurrence, deleteRecurrence, getForecast, updateRecurrence } from "../api/client";
-import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, RecurrencePayload } from "../api/contracts";
+import { createRecurrence, deleteRecurrence, getForecast, getReschedulableOccurrences, rescheduleOccurrences, updateRecurrence } from "../api/client";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, RecurrencePayload, ReschedulableOccurrence, ReschedulableOccurrencesResult } from "../api/contracts";
 import { InteractiveLineChart } from "./InteractiveCharts";
 
 interface ForecastPageProps {
@@ -35,6 +35,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   const [refreshKey, setRefreshKey] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [editingRecurrence, setEditingRecurrence] = useState<RecurrenceItem>();
   const [selectedPoint, setSelectedPoint] = useState<ForecastPoint>();
   const lastEditorRequestKey = useRef(0);
@@ -61,14 +62,16 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
       lastEditorRequestKey.current = editorRequestKey;
       setEditingRecurrence(undefined);
       setManagerOpen(false);
+      setRescheduleOpen(false);
       setSelectedPoint(undefined);
       setEditorOpen(true);
     }
   }, [editorRequestKey]);
 
-  function completed(result: RecurrenceActionResult) {
+  function completed(result: { message: string }) {
     setEditorOpen(false);
     setManagerOpen(false);
+    setRescheduleOpen(false);
     setEditingRecurrence(undefined);
     setSelectedPoint(undefined);
     setNotice(result.message);
@@ -127,12 +130,22 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
         <article className="card forecast-upcoming">
           <div className="forecast-card-heading">
             <div><h2>Récurrences à venir</h2><p>Occurrences traçables par statut.</p></div>
-            <button className="forecast-manage-button" onClick={() => {
-              setSelectedPoint(undefined);
-              setManagerOpen(true);
-            }} type="button">
-              Gérer <span>{snapshot.recurrences.length}</span>
-            </button>
+            <div className="forecast-heading-actions">
+              <button className="forecast-reschedule-button" onClick={() => {
+                setManagerOpen(false);
+                setSelectedPoint(undefined);
+                setRescheduleOpen(true);
+              }} type="button">
+                Décaler des échéances
+              </button>
+              <button className="forecast-manage-button" onClick={() => {
+                setRescheduleOpen(false);
+                setSelectedPoint(undefined);
+                setManagerOpen(true);
+              }} type="button">
+                Gérer <span>{snapshot.recurrences.length}</span>
+              </button>
+            </div>
           </div>
           <div className="forecast-upcoming-list">
             {snapshot.upcoming.length > 0
@@ -176,6 +189,14 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
             setEditingRecurrence(item);
             setEditorOpen(true);
           }}
+          token={token}
+        />
+      )}
+      {rescheduleOpen && (
+        <OccurrenceRescheduleDrawer
+          accountId={accountId}
+          onClose={() => setRescheduleOpen(false)}
+          onCompleted={completed}
           token={token}
         />
       )}
@@ -416,7 +437,11 @@ function ForecastDayDetails({
                       </div>
                       <b className={event.amount >= 0 ? "positive" : "negative"}>{signedMoney(event.amount)}</b>
                     </div>
-                    <p>{event.account} · {event.category}{event.scenario && event.scenario !== "Tous" ? ` · ${event.scenario}` : ""}</p>
+                    <p>
+                      {event.account} · {event.category}
+                      {event.scenario && event.scenario !== "Tous" ? ` · ${event.scenario}` : ""}
+                      {event.originalDate && event.originalDate !== event.date ? ` · initialement le ${formatDate(event.originalDate)}` : ""}
+                    </p>
                     {recurrence && (
                       <div className="forecast-day-event__actions">
                         <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(recurrence)} type="button">Modifier la récurrence</button>
@@ -440,6 +465,170 @@ function ForecastDayDetails({
             <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
           </footer>
         </div>
+      </aside>
+    </div>
+  );
+}
+
+function OccurrenceRescheduleDrawer({
+  accountId,
+  onClose,
+  onCompleted,
+  token,
+}: {
+  accountId: string;
+  onClose: () => void;
+  onCompleted: (result: OccurrenceRescheduleResult) => void;
+  token: string;
+}) {
+  const [data, setData] = useState<ReschedulableOccurrencesResult>();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [targetDate, setTargetDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(undefined);
+    getReschedulableOccurrences(token, accountId, controller.signal)
+      .then((result) => {
+        setData(result);
+        setTargetDate(result.minTargetDate);
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "Les échéances à décaler ne peuvent pas être chargées.");
+        }
+      });
+    return () => controller.abort();
+  }, [accountId, token]);
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedItems = useMemo(
+    () => (data?.items ?? []).filter((item) => selectedSet.has(item.id)),
+    [data, selectedSet],
+  );
+  const selectedTotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
+  const allSelected = Boolean(data?.items.length) && selectedIds.length === data?.items.length;
+
+  function toggle(item: ReschedulableOccurrence) {
+    setSelectedIds((current) => current.includes(item.id)
+      ? current.filter((id) => id !== item.id)
+      : [...current, item.id]);
+  }
+
+  function toggleAll() {
+    setSelectedIds(allSelected ? [] : (data?.items ?? []).map((item) => item.id));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!data || selectedIds.length === 0 || targetDate < data.minTargetDate) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      onCompleted(await rescheduleOccurrences(token, selectedIds, targetDate));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Le décalage groupé n’a pas pu être enregistré.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="reschedule-title" aria-modal="true" className="account-editor occurrence-reschedule" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Prévisionnel</span>
+            <h2 id="reschedule-title">Décaler des échéances</h2>
+          </div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form className="occurrence-reschedule__body" onSubmit={(event) => void submit(event)}>
+          <div className="occurrence-reschedule__intro">
+            <strong>Régulariser les prévisions non réalisées</strong>
+            <p>Seules les échéances récurrentes arrivées à aujourd’hui et sans transaction rapprochée sont proposées.</p>
+          </div>
+
+          {data && data.items.length > 0 && (
+            <>
+              <div className="occurrence-reschedule__toolbar">
+                <button className="secondary-button" disabled={busy} onClick={toggleAll} type="button">
+                  {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                </button>
+                <label className="account-field">
+                  <span>Nouvelle date *</span>
+                  <input
+                    min={data.minTargetDate}
+                    onChange={(event) => setTargetDate(event.target.value)}
+                    required
+                    type="date"
+                    value={targetDate}
+                  />
+                </label>
+              </div>
+              <div className="occurrence-reschedule__summary" aria-live="polite">
+                <div><span>Sélection</span><strong>{selectedIds.length}</strong></div>
+                <div><span>Impact net</span><strong className={selectedTotal >= 0 ? "positive" : "negative"}>{signedMoney(selectedTotal)}</strong></div>
+                <div><span>Date cible</span><strong>{targetDate ? formatDate(targetDate) : "—"}</strong></div>
+              </div>
+            </>
+          )}
+
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          {!data && !error && <div className="loading-state"><span aria-hidden="true" />Recherche des échéances à régulariser…</div>}
+          {data && (
+            <div className="occurrence-reschedule__list">
+              {data.items.map((item) => (
+                <label className={selectedSet.has(item.id) ? "occurrence-reschedule__item occurrence-reschedule__item--selected" : "occurrence-reschedule__item"} key={item.id}>
+                  <input
+                    checked={selectedSet.has(item.id)}
+                    disabled={busy}
+                    onChange={() => toggle(item)}
+                    type="checkbox"
+                  />
+                  <span className="occurrence-reschedule__item-content">
+                    <span className="occurrence-reschedule__item-main">
+                      <span>
+                        <strong>{item.label}</strong>
+                        <small>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</small>
+                      </span>
+                      <b className={item.amount >= 0 ? "positive" : "negative"}>{signedMoney(item.amount)}</b>
+                    </span>
+                    <span className="occurrence-reschedule__item-meta">
+                      <span>Échéance : {formatDate(item.date)}</span>
+                      <span>{item.category}</span>
+                      {item.frequency && <span>{item.frequency}</span>}
+                      <em>{item.statusLabel}</em>
+                    </span>
+                    {item.alreadyRescheduled && item.originalDate !== item.date && (
+                      <small className="occurrence-reschedule__history">Date d’origine : {formatDate(item.originalDate)}</small>
+                    )}
+                  </span>
+                </label>
+              ))}
+              {data.items.length === 0 && (
+                <div className="forecast-day-details__empty">
+                  <strong>Aucune échéance à décaler</strong>
+                  <p>Toutes les opérations arrivées à échéance sont déjà réalisées, rapprochées ou traitées.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="account-editor-note">
+            Le décalage porte uniquement sur les occurrences sélectionnées. Les prochaines dates de chaque récurrence restent inchangées.
+          </p>
+          <footer>
+            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+            <button
+              disabled={busy || !data || selectedIds.length === 0 || targetDate < data.minTargetDate}
+              type="submit"
+            >
+              {busy ? "Décalage…" : `Décaler ${selectedIds.length || ""} échéance${selectedIds.length > 1 ? "s" : ""}`}
+            </button>
+          </footer>
+        </form>
       </aside>
     </div>
   );
@@ -573,7 +762,7 @@ function ForecastChart({ onPointSelect, snapshot }: { onPointSelect: (point: For
               label: event.name,
               meta: `${event.source} · ${event.account}`,
               value: event.amount,
-              color: event.source === "Récurrence" ? "#7c3aed" : event.amount >= 0 ? "#16a34a" : "#dc2626",
+              color: event.source.startsWith("Récurrence") ? "#7c3aed" : event.amount >= 0 ? "#16a34a" : "#dc2626",
             })),
           })),
         },

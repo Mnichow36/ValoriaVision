@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 
@@ -118,6 +118,57 @@ class ReconciliationReadService:
             "transactions": mapped_transactions,
             "occurrences": mapped_occurrences,
             "suggestions": mapped_suggestions,
+        }
+
+    def reschedulable_occurrences(self, account_id: int | None = None) -> dict[str, Any]:
+        reference = date.today()
+        engine = self.engine_factory(self.database)
+        rows = engine.list_reschedulable_occurrences(account_id, reference)
+        items = []
+        for row in rows:
+            status = str(_field(row, "status", "planned") or "planned")
+            occurrence_date = str(_field(row, "expected_date", "") or "")
+            effective_status = "overdue" if status == "planned" and occurrence_date < reference.isoformat() else status
+            items.append({
+                "id": int(_field(row, "id", 0) or 0),
+                "date": occurrence_date,
+                "originalDate": str(_field(row, "original_expected_date", occurrence_date) or occurrence_date),
+                "label": str(_field(row, "expected_label", "Échéance") or "Échéance"),
+                "amount": _number(_field(row, "expected_amount", 0)),
+                "category": str(_field(row, "expected_category", "") or "Sans catégorie"),
+                "direction": str(_field(row, "direction", "") or ""),
+                "accountId": _integer(_field(row, "account_id")),
+                "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
+                "bank": str(_field(row, "bank", "") or ""),
+                "frequency": str(_field(row, "recurring_frequency", "") or ""),
+                "status": effective_status,
+                "statusLabel": STATUS_LABELS.get(effective_status, effective_status),
+                "alreadyRescheduled": bool(
+                    _field(row, "original_expected_date")
+                    and str(_field(row, "original_expected_date")) != occurrence_date
+                ),
+            })
+        return {
+            "referenceDate": reference.isoformat(),
+            "minTargetDate": (reference + timedelta(days=1)).isoformat(),
+            "items": items,
+        }
+
+    def reschedule_occurrences(
+        self,
+        occurrence_ids: list[int],
+        target_date: str,
+    ) -> dict[str, Any]:
+        count, message = self.engine_factory(self.database).reschedule_occurrences(
+            occurrence_ids,
+            target_date,
+        )
+        return {
+            "success": count > 0,
+            "message": message,
+            "updatedCount": int(count),
+            "targetDate": target_date,
+            "occurrenceIds": list(dict.fromkeys(int(value) for value in occurrence_ids)),
         }
 
     def confirm_proposal(self, proposal_id: int) -> dict[str, Any]:

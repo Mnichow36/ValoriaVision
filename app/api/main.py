@@ -127,6 +127,11 @@ class RecurrencePayload(BaseModel):
     scenario: str = "Réaliste"
 
 
+class OccurrenceReschedulePayload(BaseModel):
+    occurrence_ids: list[int]
+    target_date: str
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -464,6 +469,34 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return ForecastReadService(active_database).snapshot(account_id, horizon_days, scenario)
+
+    @app.get("/api/v1/forecast/reschedulable-occurrences")
+    def reschedulable_forecast_occurrences(
+        account_id: int | None = None,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return ReconciliationReadService(active_database).reschedulable_occurrences(account_id)
+
+    @app.post("/api/v1/forecast/occurrences/reschedule")
+    def reschedule_forecast_occurrences(
+        payload: OccurrenceReschedulePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        result = ReconciliationReadService(active_database).reschedule_occurrences(
+            payload.occurrence_ids,
+            payload.target_date,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result
 
     @app.post("/api/v1/recurrences")
     def create_recurrence(

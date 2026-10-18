@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, RecurrenceActionResult, RecurrencePayload, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -221,6 +221,32 @@ export function getForecast(
   });
   if (filters.accountId !== "all") query.set("account_id", filters.accountId);
   return request<ForecastSnapshot>(`/api/v1/forecast?${query.toString()}`, { token, signal });
+}
+
+export function getReschedulableOccurrences(
+  token: string,
+  accountId: string,
+  signal?: AbortSignal,
+): Promise<ReschedulableOccurrencesResult> {
+  const query = new URLSearchParams();
+  if (accountId !== "all") query.set("account_id", accountId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<ReschedulableOccurrencesResult>(
+    `/api/v1/forecast/reschedulable-occurrences${suffix}`,
+    { token, signal },
+  );
+}
+
+export function rescheduleOccurrences(
+  token: string,
+  occurrenceIds: number[],
+  targetDate: string,
+): Promise<OccurrenceRescheduleResult> {
+  return request<OccurrenceRescheduleResult>("/api/v1/forecast/occurrences/reschedule", {
+    method: "POST",
+    token,
+    body: { occurrence_ids: occurrenceIds, target_date: targetDate },
+  });
 }
 
 export function createRecurrence(token: string, payload: RecurrencePayload): Promise<RecurrenceActionResult> {

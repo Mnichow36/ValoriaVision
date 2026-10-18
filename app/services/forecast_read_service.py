@@ -175,6 +175,7 @@ class ForecastReadService:
             "source": str(event.get("source") or ""),
             "account": str(event.get("account") or "Compte"),
             "scenario": str(event.get("scenario") or "Tous"),
+            "originalDate": str(event.get("original_date") or ""),
             "recurringId": (
                 _integer(event.get("recurring_id"))
                 if event.get("recurring_id") is not None
