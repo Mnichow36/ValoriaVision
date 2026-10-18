@@ -328,6 +328,10 @@ export interface RecurrenceItem {
   frequency: RecurrencePayload["frequency"];
   nextDate: string;
   nextOccurrenceDate: string;
+  nextScheduledDate: string;
+  nextRescheduledDate: string;
+  forecastOccurrenceCount: number;
+  rescheduledOccurrenceCount: number;
   endDate: string;
   scenario: RecurrencePayload["scenario"];
   status: string;

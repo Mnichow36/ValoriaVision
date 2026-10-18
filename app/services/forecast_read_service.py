@@ -64,8 +64,13 @@ class ForecastReadService:
         selected_points = selected.get("daily_points") or []
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
+        occurrences_by_recurrence = self._recurrence_events(selected_points)
         recurrences = [
-            self._recurrence(row, reference_date.isoformat())
+            self._recurrence(
+                row,
+                reference_date.isoformat(),
+                occurrences_by_recurrence.get(_integer(_field(row, "id", 0)), []),
+            )
             for row in self.database.list_recurring_items(active_only=False)
         ]
         recurrences.sort(
@@ -132,9 +137,26 @@ class ForecastReadService:
             "color": str(_field(row, "color", "#64748B") or "#64748B"),
         }
 
-    def _recurrence(self, row: Any, reference_date: str) -> dict[str, Any]:
+    def _recurrence(
+        self,
+        row: Any,
+        reference_date: str,
+        forecast_occurrences: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         signed_amount = _number(_field(row, "amount", 0))
-        next_occurrence_date = self._next_recurrence_date(row, reference_date)
+        next_scheduled_date = self._next_recurrence_date(row, reference_date)
+        visible_dates = sorted(
+            str(event.get("date") or "")
+            for event in forecast_occurrences
+            if str(event.get("date") or "")
+        )
+        rescheduled_dates = sorted(
+            str(event.get("date") or "")
+            for event in forecast_occurrences
+            if str(event.get("source") or "") == "Récurrence décalée"
+            and str(event.get("date") or "")
+        )
+        next_occurrence_date = visible_dates[0] if visible_dates else next_scheduled_date
         return {
             "id": _integer(_field(row, "id", 0)),
             "accountId": _integer(_field(row, "account_id", 0)),
@@ -147,10 +169,29 @@ class ForecastReadService:
             "frequency": str(_field(row, "frequency", "Mensuel") or "Mensuel"),
             "nextDate": str(_field(row, "next_date", "") or ""),
             "nextOccurrenceDate": next_occurrence_date,
+            "nextScheduledDate": next_scheduled_date,
+            "nextRescheduledDate": rescheduled_dates[0] if rescheduled_dates else "",
+            "forecastOccurrenceCount": len(forecast_occurrences),
+            "rescheduledOccurrenceCount": len(rescheduled_dates),
             "endDate": str(_field(row, "end_date", "") or ""),
             "scenario": str(_field(row, "scenario", "Réaliste") or "Réaliste"),
             "status": str(_field(row, "status", "Actif") or "Actif"),
         }
+
+    @staticmethod
+    def _recurrence_events(points: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+        events_by_recurrence: dict[int, list[dict[str, Any]]] = {}
+        for point in points:
+            point_date = str(point.get("date") or "")
+            for event in point.get("events") or []:
+                source = str(event.get("source") or "")
+                recurring_id = _integer(event.get("recurring_id"))
+                if recurring_id <= 0 or not source.startswith("Récurrence"):
+                    continue
+                normalized = dict(event)
+                normalized["date"] = str(event.get("date") or point_date)
+                events_by_recurrence.setdefault(recurring_id, []).append(normalized)
+        return events_by_recurrence
 
     def _next_recurrence_date(self, row: Any, reference_date: str) -> str:
         try:
@@ -201,7 +242,7 @@ class ForecastReadService:
             actual_net = sum(
                 _number(event.get("amount"))
                 for event in point.get("events") or []
-                if str(event.get("source") or "") != "Récurrence"
+                if not str(event.get("source") or "").startswith("Récurrence")
             )
             balance += actual_net
             series.append({

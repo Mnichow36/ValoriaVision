@@ -695,6 +695,9 @@ function RecurrenceManager({
             <strong>{visibleItems.length} récurrence(s)</strong>
             <span>{accountId === "all" ? "Tous les comptes" : "Compte sélectionné"}</span>
           </div>
+          <p className="recurrence-manager__explanation">
+            Les échéances décalées correspondent aux opérations visibles dans la courbe. La date du calendrier reste indiquée séparément.
+          </p>
           {error && <p className="account-form-error" role="alert">{error}</p>}
           <div className="recurrence-manager__list">
             {visibleItems.map((item) => (
@@ -711,7 +714,18 @@ function RecurrenceManager({
                 <div className="recurrence-manager__meta">
                   <span>{item.category}</span>
                   <span>{item.frequency}</span>
-                  <span>Prochaine échéance : {item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "aucune à venir"}</span>
+                  {item.rescheduledOccurrenceCount > 0 ? (
+                    <>
+                      <span className="recurrence-status recurrence-status--rescheduled">
+                        {item.rescheduledOccurrenceCount} échéance{item.rescheduledOccurrenceCount > 1 ? "s" : ""} décalée{item.rescheduledOccurrenceCount > 1 ? "s" : ""} au {formatDate(item.nextRescheduledDate)}
+                      </span>
+                      {item.nextScheduledDate && item.nextScheduledDate !== item.nextRescheduledDate && (
+                        <span>Calendrier suivant : {formatDate(item.nextScheduledDate)}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span>Prochaine échéance : {item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "aucune à venir"}</span>
+                  )}
                   <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>
                     {item.status}
                   </span>
