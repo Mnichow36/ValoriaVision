@@ -65,6 +65,10 @@ class ForecastReadService:
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
         occurrences_by_recurrence = self._recurrence_events(selected_points)
+        upcoming_recurrences = self._upcoming_recurrences(
+            selected_points,
+            reference_date.isoformat(),
+        )
         recurrences = [
             self._recurrence(
                 row,
@@ -112,7 +116,7 @@ class ForecastReadService:
                 "prudentDifference": _number(_number(selected.get("end_balance")) - _number(prudent.get("end_balance"))),
                 "alert": str(selected.get("alert") or "Prévision disponible"),
             },
-            "upcoming": [self._event(event) for event in (selected.get("upcoming") or [])[:4]],
+            "upcoming": [self._event(event) for event in upcoming_recurrences[:4]],
         }
 
     @staticmethod
@@ -192,6 +196,31 @@ class ForecastReadService:
                 normalized["date"] = str(event.get("date") or point_date)
                 events_by_recurrence.setdefault(recurring_id, []).append(normalized)
         return events_by_recurrence
+
+    @staticmethod
+    def _upcoming_recurrences(
+        points: list[dict[str, Any]],
+        reference_date: str,
+    ) -> list[dict[str, Any]]:
+        upcoming: list[dict[str, Any]] = []
+        for point in points:
+            point_date = str(point.get("date") or "")
+            if point_date < reference_date:
+                continue
+            for event in point.get("events") or []:
+                if not str(event.get("source") or "").startswith("Récurrence"):
+                    continue
+                normalized = dict(event)
+                normalized["date"] = str(event.get("date") or point_date)
+                upcoming.append(normalized)
+        return sorted(
+            upcoming,
+            key=lambda event: (
+                str(event.get("date") or ""),
+                str(event.get("name") or "").casefold(),
+                _number(event.get("amount")),
+            ),
+        )
 
     def _next_recurrence_date(self, row: Any, reference_date: str) -> str:
         try:

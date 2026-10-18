@@ -59,14 +59,34 @@ class StubDatabase:
             "daily_points": [
                 {"date": "2026-10-14", "label": "14/10", "balance": 800, "events": []},
                 {"date": "2026-10-15", "label": "15/10", "balance": end_balance, "events": [
-                    {"source": "Récurrence", "amount": 150, "recurring_id": 42},
+                    {
+                        "source": "Récurrence",
+                        "name": "Salaire",
+                        "category": "Revenus",
+                        "amount": 150,
+                        "account": "Courant",
+                        "scenario": "Réaliste",
+                        "recurring_id": 42,
+                    },
                     {
                         "source": "Récurrence décalée",
+                        "name": "Salaire déplacé",
+                        "category": "Revenus",
                         "amount": 30,
+                        "account": "Courant",
+                        "scenario": "Réaliste",
                         "recurring_id": 42,
                         "original_date": "2026-09-15",
                     },
-                    {"source": "Transaction future", "amount": 50, "recurring_id": None},
+                    {
+                        "source": "Transaction future",
+                        "name": "LIDL",
+                        "category": "Alimentation",
+                        "amount": 50,
+                        "account": "Courant",
+                        "scenario": "Tous",
+                        "recurring_id": None,
+                    },
                 ]},
             ],
             "upcoming": [{
@@ -98,7 +118,15 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["summary"]["endBalance"], 1000.0)
         self.assertEqual(snapshot["summary"]["prudentDifference"], 100.0)
         self.assertEqual(snapshot["series"]["realized"][-1]["balance"], 850.0)
-        self.assertEqual(snapshot["upcoming"][0]["name"], "Salaire")
+        self.assertEqual(
+            [event["source"] for event in snapshot["upcoming"]],
+            ["Récurrence", "Récurrence décalée"],
+        )
+        self.assertEqual(
+            [event["name"] for event in snapshot["upcoming"]],
+            ["Salaire", "Salaire déplacé"],
+        )
+        self.assertEqual(snapshot["upcoming"][1]["originalDate"], "2026-09-15")
         self.assertEqual(len(snapshot["accounts"]), 1)
         self.assertEqual(snapshot["categories"][0]["name"], "Logement")
         self.assertEqual(snapshot["categories"][1]["direction"], "Recette")

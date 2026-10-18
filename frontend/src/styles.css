@@ -608,6 +608,7 @@ button { cursor: pointer; }
 .forecast-badge--success { background: #ecfdf5; border-color: #bbf7d0; color: #15803d; }
 .forecast-badge--warning { background: #fffbeb; border-color: #fcd34d; color: #b45309; }
 .forecast-badge--cyan { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+.forecast-badge--purple { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
 .forecast-side { display: grid; gap: 20px; grid-template-rows: minmax(0, 362px) minmax(0, 361px); }
 .forecast-upcoming, .forecast-reading { min-width: 0; padding: 20px; }
 .forecast-upcoming-list { display: grid; gap: 12px; margin-top: 25px; }

@@ -824,11 +824,21 @@ function ForecastSummaryCard({ badge, label, meta, tone, value }: { badge: strin
 }
 
 function UpcomingEvent({ event }: { event: ForecastEvent }) {
-  const tone = event.amount > 0 ? "success" : event.category.toLocaleLowerCase("fr").includes("épargne") ? "cyan" : "warning";
+  const rescheduled = event.source === "Récurrence décalée";
+  const tone = rescheduled
+    ? "purple"
+    : event.amount > 0
+      ? "success"
+      : event.category.toLocaleLowerCase("fr").includes("épargne")
+        ? "cyan"
+        : "warning";
+  const origin = rescheduled && event.originalDate && event.originalDate !== event.date
+    ? ` · initialement le ${formatDate(event.originalDate)}`
+    : "";
   return (
     <div className="forecast-event">
-      <div><strong>{event.name}</strong><span>{formatDate(event.date)} · {signedMoney(event.amount)}</span></div>
-      <span className={`forecast-badge forecast-badge--${tone}`}>Prévue</span>
+      <div><strong>{event.name}</strong><span>{formatDate(event.date)} · {signedMoney(event.amount)}{origin}</span></div>
+      <span className={`forecast-badge forecast-badge--${tone}`}>{rescheduled ? "Décalée" : "Prévue"}</span>
     </div>
   );
 }
