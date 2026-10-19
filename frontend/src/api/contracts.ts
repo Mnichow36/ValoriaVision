@@ -444,11 +444,25 @@ export interface ScenarioDefinition {
   events: ScenarioEventItem[];
 }
 
+export interface ScenarioPreset {
+  name: "Prudent" | "Réaliste" | "Optimiste";
+  description: string;
+  incomePercent: number;
+  expensePercent: number;
+  color: string;
+}
+
+export interface ScenarioPresetPayload {
+  incomePercent: number;
+  expensePercent: number;
+}
+
 export interface ScenarioSettingsSnapshot {
   scenarioTypes: string[];
   eventTypes: ScenarioEventTypeOption[];
   frequencies: ScenarioFrequencyOption[];
   accounts: ForecastAccount[];
+  presets: ScenarioPreset[];
   scenarios: ScenarioDefinition[];
 }
 

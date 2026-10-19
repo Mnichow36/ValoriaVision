@@ -8,6 +8,7 @@ import {
   duplicateScenario,
   updateScenario,
   updateScenarioEvent,
+  updateScenarioPreset,
 } from "../api/client";
 import type {
   ScenarioActionResult,
@@ -15,6 +16,8 @@ import type {
   ScenarioEventItem,
   ScenarioEventPayload,
   ScenarioPayload,
+  ScenarioPreset,
+  ScenarioPresetPayload,
   ScenarioSettingsSnapshot,
 } from "../api/contracts";
 
@@ -71,8 +74,8 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
 
         <div className="scenario-manager__toolbar">
           <div>
-            <strong>Scénarios standards</strong>
-            <span>Réaliste, prudent et optimiste restent disponibles comme repères protégés.</span>
+            <strong>Scénarios standards contrôlables</strong>
+            <span>Réglez séparément l’impact des recettes et des dépenses prévisionnelles.</span>
           </div>
           <button className="primary-button" onClick={() => setScenarioEditor("new")} type="button">+ Nouveau scénario</button>
         </div>
@@ -80,6 +83,34 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
         {error && <div className="account-editor-error" role="alert">{error}</div>}
 
         <div className="scenario-manager__list">
+          <section className="scenario-preset-section" aria-labelledby="scenario-preset-title">
+            <div className="scenario-preset-section__heading">
+              <div>
+                <strong id="scenario-preset-title">Hypothèses automatiques</strong>
+                <span>Les coefficients s’appliquent aux récurrences futures. Les opérations bancaires réelles ne sont jamais modifiées.</span>
+              </div>
+              <span className="scenario-preset-section__badge">Courbes recalculées immédiatement</span>
+            </div>
+            <div className="scenario-preset-grid">
+              {(catalog.presets ?? []).map((preset) => (
+                <ScenarioPresetCard
+                  busy={busyKey === `preset-${preset.name}`}
+                  key={`${preset.name}-${preset.incomePercent}-${preset.expensePercent}`}
+                  onSave={(payload) => action(
+                    `preset-${preset.name}`,
+                    () => updateScenarioPreset(token, preset.name, payload),
+                  )}
+                  preset={preset}
+                />
+              ))}
+            </div>
+          </section>
+
+          <div className="scenario-manager__custom-heading">
+            <strong>Scénarios personnalisés</strong>
+            <span>Ajoutez des projets et hypothèses datées en complément du scénario réaliste.</span>
+          </div>
+
           {customScenarios.length === 0 && (
             <div className="scenario-manager__empty">
               <strong>Aucun scénario personnalisé</strong>
@@ -192,6 +223,96 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
       </aside>
     </div>
   );
+}
+
+function ScenarioPresetCard({
+  busy,
+  onSave,
+  preset,
+}: {
+  busy: boolean;
+  onSave: (payload: ScenarioPresetPayload) => Promise<void>;
+  preset: ScenarioPreset;
+}) {
+  const [draft, setDraft] = useState<ScenarioPresetPayload>({
+    incomePercent: preset.incomePercent,
+    expensePercent: preset.expensePercent,
+  });
+  const changed = draft.incomePercent !== preset.incomePercent
+    || draft.expensePercent !== preset.expensePercent;
+  const tone = preset.name === "Prudent"
+    ? "prudent"
+    : preset.name === "Optimiste"
+      ? "optimistic"
+      : "realistic";
+
+  function setPercent(key: keyof ScenarioPresetPayload, value: string) {
+    const parsed = Number(value);
+    setDraft((current) => ({
+      ...current,
+      [key]: Number.isFinite(parsed) ? Math.min(300, Math.max(0, parsed)) : 0,
+    }));
+  }
+
+  return (
+    <article className={`scenario-preset-card scenario-preset-card--${tone}`}>
+      <header className="scenario-preset-card__heading">
+        <span className="scenario-preset-card__dot" style={{ background: preset.color }} aria-hidden="true" />
+        <div>
+          <strong>{preset.name}</strong>
+          <span>{preset.description}</span>
+        </div>
+      </header>
+      <div className="scenario-preset-card__controls">
+        <label>
+          <span>Recettes prévues</span>
+          <div>
+            <input
+              aria-label={`Pourcentage des recettes du scénario ${preset.name}`}
+              max="300"
+              min="0"
+              onChange={(event) => setPercent("incomePercent", event.target.value)}
+              step="1"
+              type="number"
+              value={draft.incomePercent}
+            />
+            <b>%</b>
+          </div>
+          <small>{scenarioEffect(draft.incomePercent)}</small>
+        </label>
+        <label>
+          <span>Dépenses prévues</span>
+          <div>
+            <input
+              aria-label={`Pourcentage des dépenses du scénario ${preset.name}`}
+              max="300"
+              min="0"
+              onChange={(event) => setPercent("expensePercent", event.target.value)}
+              step="1"
+              type="number"
+              value={draft.expensePercent}
+            />
+            <b>%</b>
+          </div>
+          <small>{scenarioEffect(draft.expensePercent)}</small>
+        </label>
+      </div>
+      <button
+        className="scenario-preset-card__save"
+        disabled={busy || !changed}
+        onClick={() => void onSave(draft)}
+        type="button"
+      >
+        {busy ? "Application…" : changed ? "Appliquer à la courbe" : "Paramètres appliqués"}
+      </button>
+    </article>
+  );
+}
+
+function scenarioEffect(percent: number): string {
+  const delta = Math.round((percent - 100) * 100) / 100;
+  if (delta === 0) return "Montant inchangé";
+  return delta > 0 ? `+${delta} % sur chaque récurrence` : `${delta} % sur chaque récurrence`;
 }
 
 function ScenarioEditor({

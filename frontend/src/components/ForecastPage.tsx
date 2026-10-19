@@ -836,6 +836,15 @@ function ScenarioSelector({
   scenario: string;
   visibleSeries: Record<string, boolean>;
 }) {
+  const standard = STANDARD_SCENARIOS.map((option) => {
+    const preset = catalog?.presets.find((item) => item.name === option.name);
+    return {
+      ...option,
+      description: preset
+        ? `Recettes ${preset.incomePercent} % · dépenses ${preset.expensePercent} %`
+        : option.description,
+    };
+  });
   const custom = (catalog?.scenarios ?? [])
     .filter((item) => !item.isReference && item.isActive)
     .map((item, index) => ({
@@ -843,7 +852,7 @@ function ScenarioSelector({
       color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
       description: `${item.eventCount} hypothèse${item.eventCount > 1 ? "s" : ""}`,
     }));
-  const options = [...STANDARD_SCENARIOS, ...custom];
+  const options = [...standard, ...custom];
   const active = options.find((option) => option.name === scenario) ?? options[0];
 
   return (

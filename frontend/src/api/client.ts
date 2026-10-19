@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -288,6 +288,17 @@ function recurrenceBody(payload: RecurrencePayload) {
 
 export function getScenarioSettings(token: string, signal?: AbortSignal): Promise<ScenarioSettingsSnapshot> {
   return request<ScenarioSettingsSnapshot>("/api/v1/scenarios", { token, signal });
+}
+
+export function updateScenarioPreset(token: string, scenarioName: string, payload: ScenarioPresetPayload): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenario-presets/${encodeURIComponent(scenarioName)}`, {
+    method: "POST",
+    token,
+    body: {
+      income_percent: payload.incomePercent,
+      expense_percent: payload.expensePercent,
+    },
+  });
 }
 
 export function createScenario(token: string, payload: ScenarioPayload): Promise<ScenarioActionResult> {

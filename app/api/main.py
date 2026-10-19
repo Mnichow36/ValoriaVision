@@ -145,6 +145,11 @@ class ScenarioPayload(BaseModel):
     is_active: bool = True
 
 
+class ScenarioPresetPayload(BaseModel):
+    income_percent: float
+    expense_percent: float
+
+
 class ScenarioEventPayload(BaseModel):
     event_type: str = "cash_out"
     label: str
@@ -228,6 +233,7 @@ def _scenario_snapshot(database: Database) -> dict:
             for account in database.list_accounts()
             if str(account["status"] or "") == "Actif"
         ],
+        "presets": database.forecast_scenario_presets(),
         "scenarios": scenarios,
     }
 
@@ -650,6 +656,30 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return _scenario_snapshot(active_database)
+
+    @app.post("/api/v1/scenario-presets/{scenario_name}")
+    def update_scenario_preset(
+        scenario_name: str,
+        payload: ScenarioPresetPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            preset = active_database.update_forecast_scenario_preset(
+                scenario_name,
+                payload.income_percent,
+                payload.expense_percent,
+            )
+            return {
+                "success": True,
+                "message": f"Paramètres du scénario {scenario_name} appliqués à la courbe.",
+                "preset": preset,
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/v1/scenarios")
     def create_scenario(

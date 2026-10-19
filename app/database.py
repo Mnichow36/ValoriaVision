@@ -26,6 +26,27 @@ from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+FORECAST_SCENARIO_PRESETS = {
+    "Réaliste": {
+        "description": "Montants prévisionnels conservés tels qu’ils ont été saisis.",
+        "income_percent": 100.0,
+        "expense_percent": 100.0,
+        "color": "#2563eb",
+    },
+    "Prudent": {
+        "description": "Recettes minorées et dépenses majorées pour anticiper une situation tendue.",
+        "income_percent": 90.0,
+        "expense_percent": 110.0,
+        "color": "#e11d48",
+    },
+    "Optimiste": {
+        "description": "Recettes majorées et dépenses minorées pour visualiser un contexte favorable.",
+        "income_percent": 110.0,
+        "expense_percent": 95.0,
+        "color": "#7c3aed",
+    },
+}
+
 
 def default_data_dir() -> Path:
     """Return a stable, per-user directory for Valoria data.
@@ -3025,6 +3046,92 @@ class Database:
 
         return sorted(events, key=lambda event: (event["date"], event["amount"]))
 
+    def forecast_scenario_presets(self) -> list[dict]:
+        """Return the editable assumptions used by the three standard scenarios."""
+        presets: list[dict] = []
+        for name, defaults in FORECAST_SCENARIO_PRESETS.items():
+            income_percent = float(defaults["income_percent"])
+            expense_percent = float(defaults["expense_percent"])
+            raw_value = self.get_user_preference(f"forecast.scenario.{name}", "")
+            if raw_value:
+                try:
+                    saved = json.loads(raw_value)
+                    income_percent = self._forecast_percent(saved.get("income_percent"), income_percent)
+                    expense_percent = self._forecast_percent(saved.get("expense_percent"), expense_percent)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    pass
+            presets.append({
+                "name": name,
+                "description": defaults["description"],
+                "incomePercent": income_percent,
+                "expensePercent": expense_percent,
+                "color": defaults["color"],
+            })
+        return presets
+
+    def update_forecast_scenario_preset(
+        self,
+        scenario: str,
+        income_percent: float,
+        expense_percent: float,
+    ) -> dict:
+        """Persist standard-scenario coefficients without changing real transactions."""
+        name = str(scenario or "").strip()
+        if name not in FORECAST_SCENARIO_PRESETS:
+            raise ValueError("Ce scénario standard n’existe pas.")
+        income = self._forecast_percent(income_percent, -1)
+        expense = self._forecast_percent(expense_percent, -1)
+        if income < 0 or expense < 0:
+            raise ValueError("Les coefficients doivent être compris entre 0 et 300 %.")
+        value = json.dumps(
+            {"income_percent": income, "expense_percent": expense},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_preferences(key, value, scope)
+                VALUES (?, ?, 'forecast')
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    scope = excluded.scope,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (f"forecast.scenario.{name}", value),
+            )
+        self.seal_database_to_encrypted_vault()
+        return next(item for item in self.forecast_scenario_presets() if item["name"] == name)
+
+    @staticmethod
+    def _forecast_percent(value, default: float) -> float:
+        try:
+            parsed = round(float(value), 2)
+        except (TypeError, ValueError):
+            return default
+        return parsed if 0 <= parsed <= 300 else default
+
+    def apply_forecast_scenario_preset(self, events: list[dict], scenario: str) -> list[dict]:
+        """Adjust only recurrence forecasts; posted and future bank transactions stay exact."""
+        presets = {item["name"]: item for item in self.forecast_scenario_presets()}
+        preset = presets.get(scenario, presets["Réaliste"])
+        adjusted_events: list[dict] = []
+        for event in events:
+            adjusted = dict(event)
+            amount = float(adjusted.get("amount") or 0)
+            source = str(adjusted.get("source") or "")
+            if source.startswith("Récurrence"):
+                percent = (
+                    float(preset["incomePercent"])
+                    if amount >= 0
+                    else float(preset["expensePercent"])
+                )
+                adjusted["original_amount"] = amount
+                adjusted["amount"] = round(amount * percent / 100, 2)
+                adjusted["scenario_adjustment_percent"] = percent
+            adjusted_events.append(adjusted)
+        return adjusted_events
+
     def cash_forecast(self, start_date: str = "2026-06-23", horizon_days: int = 90, scenario: str = "Réaliste", account_id: int | None = None) -> dict:
         """Daily cash projection for the selected period."""
         if account_id is None:
@@ -3043,7 +3150,8 @@ class Database:
             else:
                 starting_cash = 0.0
                 account_label = "Compte introuvable"
-        events = self.forecast_events(start_date, horizon_days, scenario, account_id=account_id)
+        raw_events = self.forecast_events(start_date, horizon_days, scenario, account_id=account_id)
+        events = self.apply_forecast_scenario_preset(raw_events, scenario)
         start = datetime.strptime(start_date, "%Y-%m-%d").date()
 
         events_by_day: dict[str, list[dict]] = {}

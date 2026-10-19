@@ -1101,6 +1101,34 @@ button { cursor: pointer; }
 .scenario-manager__toolbar span { color: #64748b; font-size: 9px; }
 .scenario-manager__toolbar > button { background: #2563eb; border: 1px solid #2563eb; border-radius: 9px; color: #fff; font-size: 11px; font-weight: 850; min-height: 38px; padding: 8px 13px; }
 .scenario-manager__list { display: grid; gap: 14px; overflow-y: auto; padding: 20px 30px 30px; }
+.scenario-preset-section { background: linear-gradient(145deg, #f8fbff, #fff); border: 1px solid #dbe7f5; border-radius: 14px; display: grid; gap: 14px; padding: 16px; }
+.scenario-preset-section__heading { align-items: flex-start; display: flex; gap: 14px; justify-content: space-between; }
+.scenario-preset-section__heading > div { display: grid; gap: 4px; }
+.scenario-preset-section__heading strong { color: #0f274a; font-size: 13px; }
+.scenario-preset-section__heading span { color: #64748b; font-size: 9px; line-height: 1.45; }
+.scenario-preset-section__badge { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 999px; color: #15803d !important; flex: 0 0 auto; font-weight: 850; padding: 5px 9px; }
+.scenario-preset-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.scenario-preset-card { background: #fff; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; gap: 13px; padding: 13px; }
+.scenario-preset-card--prudent { box-shadow: inset 0 3px 0 #e11d48; }
+.scenario-preset-card--realistic { box-shadow: inset 0 3px 0 #2563eb; }
+.scenario-preset-card--optimistic { box-shadow: inset 0 3px 0 #7c3aed; }
+.scenario-preset-card__heading { align-items: flex-start; display: flex; gap: 8px; }
+.scenario-preset-card__heading > div { display: grid; gap: 3px; }
+.scenario-preset-card__heading strong { font-size: 12px; }
+.scenario-preset-card__heading span { color: #64748b; font-size: 8px; line-height: 1.4; }
+.scenario-preset-card__dot { border-radius: 50%; flex: 0 0 10px; height: 10px; margin-top: 3px; width: 10px; }
+.scenario-preset-card__controls { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scenario-preset-card__controls label { display: grid; gap: 4px; }
+.scenario-preset-card__controls label > span { color: #334155; font-size: 8px; font-weight: 800; }
+.scenario-preset-card__controls label > div { align-items: center; background: #f8fafc; border: 1px solid #d7dfeb; border-radius: 8px; display: flex; min-height: 36px; overflow: hidden; }
+.scenario-preset-card__controls input { background: transparent; border: 0; color: #0f274a; font-size: 14px; font-weight: 900; min-width: 0; outline: 0; padding: 7px 4px 7px 9px; width: 100%; }
+.scenario-preset-card__controls b { color: #64748b; font-size: 10px; padding-right: 8px; }
+.scenario-preset-card__controls small { color: #64748b; font-size: 7px; line-height: 1.35; }
+.scenario-preset-card__save { background: #0f274a; border: 1px solid #0f274a; border-radius: 8px; color: #fff; font-size: 9px; font-weight: 850; min-height: 34px; padding: 6px 9px; }
+.scenario-preset-card__save:disabled { background: #f1f5f9; border-color: #e2e8f0; color: #94a3b8; cursor: default; }
+.scenario-manager__custom-heading { align-items: flex-end; display: flex; gap: 12px; justify-content: space-between; padding: 4px 2px 0; }
+.scenario-manager__custom-heading strong { font-size: 13px; }
+.scenario-manager__custom-heading span { color: #64748b; font-size: 9px; }
 .scenario-manager__empty { align-items: center; border: 1px dashed #cbd5e1; border-radius: 12px; color: #64748b; display: flex; flex-direction: column; gap: 6px; justify-content: center; min-height: 180px; padding: 30px; text-align: center; }
 .scenario-manager__empty strong { color: #334155; font-size: 14px; }
 .scenario-manager__empty span { font-size: 10px; }
@@ -1155,6 +1183,9 @@ button { cursor: pointer; }
   .scenario-picker__menu { min-width: min(360px, calc(100vw - 44px)); right: -8px; }
   .scenario-manager__toolbar { align-items: stretch; flex-direction: column; padding: 14px 20px; }
   .scenario-manager__list { padding: 16px 20px 24px; }
+  .scenario-preset-grid { grid-template-columns: 1fr; }
+  .scenario-preset-section__heading, .scenario-manager__custom-heading { align-items: stretch; flex-direction: column; }
+  .scenario-preset-section__badge { align-self: flex-start; }
   .scenario-event-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
   .scenario-event-row > .scenario-icon-button { grid-column: auto; }
   .scenario-form__grid { grid-template-columns: 1fr; }
