@@ -216,7 +216,7 @@ class AccountsReadService:
             "movementTotal": _number(_field(row, "post_reference_movements", 0)),
             "currentBalance": _number(_field(row, "calculated_balance", initial_balance)),
             "currentDate": str(_field(row, "calculated_date", initial_date) or ""),
-            "transactions": [self._transaction(item) for item in transactions[:6]],
+            "transactions": [self._transaction(item) for item in transactions[:12]],
         }
 
     @staticmethod

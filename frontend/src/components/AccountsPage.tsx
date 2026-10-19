@@ -103,30 +103,23 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
       </section>
 
       {view === "accounts" && (
-        <>
-          {visibleAccounts.length > 0 ? (
-            <section className="account-cards" aria-label="Liste des comptes">
-              {visibleAccounts.map((account) => (
-                <AccountCard account={account} active={account.id === selected?.id} key={account.id} onSelect={() => setSelectedId(account.id)} />
-              ))}
-            </section>
-          ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />}
-
-          {selected && (
-            <section className="accounts-detail-grid">
-              <article className="card account-movements">
-                <div className="panel-heading"><div><h2>Mouvements du compte sélectionné</h2><p>Derniers mouvements enregistrés par le moteur local.</p></div></div>
-                <TransactionsTable account={selected} />
-              </article>
-              <AccountDetail
-                account={selected}
-                onAttachImport={() => onAttachImport(selected.id)}
-                onEdit={() => setEditor({ mode: "edit", account: selected })}
-                onReference={() => setReferenceAccount(selected)}
-              />
-            </section>
-          )}
-        </>
+        visibleAccounts.length > 0 && selected ? (
+          <section className="accounts-workspace" aria-label="Gestion du compte sélectionné">
+            <AccountRail
+              accounts={visibleAccounts}
+              onCreate={() => setEditor({ mode: "create" })}
+              onSelect={setSelectedId}
+              selectedId={selected.id}
+            />
+            <AccountActivity account={selected} />
+            <AccountDetail
+              account={selected}
+              onAttachImport={() => onAttachImport(selected.id)}
+              onEdit={() => setEditor({ mode: "edit", account: selected })}
+              onReference={() => setReferenceAccount(selected)}
+            />
+          </section>
+        ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />
       )}
 
       {view === "balances" && <BalancesView accounts={visibleAccounts} />}
@@ -151,29 +144,108 @@ function Tab({ active, children, onClick }: { active: boolean; children: string;
   return <button aria-selected={active} className={active ? "account-tab account-tab--active" : "account-tab"} onClick={onClick} role="tab" type="button">{children}</button>;
 }
 
+function AccountRail({
+  accounts,
+  onCreate,
+  onSelect,
+  selectedId,
+}: {
+  accounts: AccountOverview[];
+  onCreate: () => void;
+  onSelect: (accountId: number) => void;
+  selectedId: number;
+}) {
+  const total = accounts.reduce((sum, account) => sum + account.currentBalance, 0);
+  return (
+    <aside className="card accounts-rail">
+      <div className="accounts-rail__heading">
+        <div><span className="eyebrow">Mes comptes</span><strong>{accounts.length} compte{accounts.length > 1 ? "s" : ""}</strong></div>
+        <button aria-label="Ajouter un compte" onClick={onCreate} title="Ajouter un compte" type="button">+</button>
+      </div>
+      <div className="accounts-rail__total">
+        <span>Solde cumulé affiché</span>
+        <strong className={total < 0 ? "amount amount--negative" : "amount"}>{formatMoney(total)}</strong>
+      </div>
+      <nav className="accounts-rail__list" aria-label="Sélection du compte">
+        {accounts.map((account) => (
+          <AccountCard
+            account={account}
+            active={account.id === selectedId}
+            key={account.id}
+            onSelect={() => onSelect(account.id)}
+          />
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
 function AccountCard({ account, active, onSelect }: { account: AccountOverview; active: boolean; onSelect: () => void }) {
   return (
-    <button className={active ? "account-card account-card--active" : "account-card"} onClick={onSelect} type="button">
-      <span className="account-card__title">{account.name}</span>
-      <small>{account.bank} · {account.type}</small>
-      <strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong>
-      <span className="account-card__identifier">Identifiant import : {maskIdentifier(account.identifier)}</span>
-      <span className={`status-chip status-chip--${statusTone(account)}`}>{account.status}</span>
+    <button
+      aria-current={active ? "true" : undefined}
+      className={active ? "account-list-card account-list-card--active" : "account-list-card"}
+      onClick={onSelect}
+      type="button"
+    >
+      <BankBadge bank={account.bank} />
+      <span className="account-list-card__copy">
+        <strong>{account.name}</strong>
+        <small>{account.bank || "Banque non renseignée"} · {account.type}</small>
+        <span className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</span>
+      </span>
+      <span className="account-list-card__chevron" aria-hidden="true">›</span>
     </button>
   );
 }
 
-function TransactionsTable({ account }: { account: AccountOverview }) {
-  if (account.transactions.length === 0) return <p className="account-empty-row">Aucun mouvement enregistré pour ce compte.</p>;
+function AccountActivity({ account }: { account: AccountOverview }) {
+  const credits = account.transactions
+    .filter((transaction) => transaction.amount > 0)
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const debits = Math.abs(account.transactions
+    .filter((transaction) => transaction.amount < 0)
+    .reduce((sum, transaction) => sum + transaction.amount, 0));
+
   return (
-    <div className="account-table-wrap">
-      <table className="account-table">
-        <thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Montant</th></tr></thead>
+    <article className="card account-activity">
+      <header className="account-activity__heading">
+        <div>
+          <span className="eyebrow">Opérations du compte</span>
+          <h2>{account.name}</h2>
+          <p>{account.bank} · {account.type} · solde calculé au {formatDate(account.currentDate, true)}</p>
+        </div>
+        <span className={`status-chip status-chip--${statusTone(account)}`}>{account.status}</span>
+      </header>
+      <div className="account-activity__summary" aria-label="Résumé des opérations affichées">
+        <div><span>Solde actuel</span><strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong></div>
+        <div><span>Entrées affichées</span><strong className="amount amount--positive">+ {formatMoney(credits)}</strong></div>
+        <div><span>Sorties affichées</span><strong className="amount amount--negative">- {formatMoney(debits)}</strong></div>
+      </div>
+      <TransactionsTable account={account} />
+    </article>
+  );
+}
+
+function TransactionsTable({ account }: { account: AccountOverview }) {
+  if (account.transactions.length === 0) {
+    return (
+      <div className="account-operations-empty">
+        <span aria-hidden="true">↕</span>
+        <strong>Aucune opération enregistrée</strong>
+        <p>Les mouvements apparaîtront ici après un import ou une saisie.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="account-table-wrap account-table-wrap--operations">
+      <table className="account-table account-table--operations">
+        <thead><tr><th>Date</th><th>Opération</th><th>Catégorie</th><th>Montant</th></tr></thead>
         <tbody>
-          {account.transactions.slice(0, 4).map((transaction) => (
+          {account.transactions.map((transaction) => (
             <tr key={transaction.id}>
               <td>{formatDate(transaction.date, false)}</td>
-              <td>{transaction.label}</td>
+              <td><strong>{transaction.label}</strong><small>{transaction.status || "Enregistrée"}</small></td>
               <td><span className={`category-chip ${transaction.category === "À catégoriser" ? "category-chip--warning" : ""}`}>{transaction.category}</span></td>
               <td className={transaction.amount < 0 ? "amount amount--negative" : "amount amount--positive"}>{signedMoney(transaction.amount)}</td>
             </tr>
@@ -191,24 +263,77 @@ function AccountDetail({ account, onAttachImport, onEdit, onReference }: {
   onReference: () => void;
 }) {
   const fields = [
-    ["Compte", account.name],
+    ["Type de compte", account.type],
+    ["Identifiant import", maskIdentifier(account.identifier)],
+    ["Devise", account.currency],
     ["Solde de référence", formatMoney(account.initialBalance)],
     ["Date de référence", formatDate(account.initialDate, true)],
-    ["Solde calculé", formatMoney(account.currentBalance)],
+    ["Mouvements cumulés", signedMoney(account.movementTotal)],
+    ["Calcul arrêté au", formatDate(account.currentDate, true)],
   ];
   return (
-    <aside className="card account-detail">
-      <div className="panel-heading">
-        <div><h2>Volet compte</h2><p>Détail issu du moteur métier.</p></div>
-        <button className="account-edit-link" onClick={onEdit} type="button">Modifier le compte</button>
+    <aside className="card account-inspector">
+      <div className="account-inspector__bank">
+        <BankBadge bank={account.bank} large />
+        <div>
+          <span className="eyebrow">Informations du compte</span>
+          <h2>{account.name}</h2>
+          <p>{account.bank || "Banque non renseignée"}</p>
+        </div>
+        <button className="account-edit-link" onClick={onEdit} type="button">Modifier</button>
+      </div>
+      <div className="account-inspector__balance">
+        <span>Solde calculé</span>
+        <strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong>
+        <small>Compte {account.status.toLocaleLowerCase("fr-FR")}</small>
       </div>
       <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <div className="account-detail__actions">
-        <button onClick={onReference} type="button">Modifier le solde</button>
+        <button onClick={onReference} type="button">Modifier le solde de référence</button>
         <button className="primary-button" onClick={onAttachImport} type="button">Rattacher un import</button>
       </div>
     </aside>
   );
+}
+
+function BankBadge({ bank, large = false }: { bank: string; large?: boolean }) {
+  const identity = bankIdentity(bank);
+  return (
+    <span
+      aria-label={bank || "Banque"}
+      className={`bank-badge bank-badge--${identity.tone} ${large ? "bank-badge--large" : ""}`}
+      title={bank || "Banque"}
+    >
+      <b>{identity.label}</b>
+      <i aria-hidden="true" />
+    </span>
+  );
+}
+
+function bankIdentity(bank: string): { label: string; tone: string } {
+  const normalized = bank.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr-FR");
+  const knownBanks = [
+    { match: ["bnp", "hello bank"], label: "BNP", tone: "emerald" },
+    { match: ["boursorama", "bourso"], label: "B", tone: "bourso" },
+    { match: ["societe generale", "sg"], label: "SG", tone: "red" },
+    { match: ["credit agricole"], label: "CA", tone: "teal" },
+    { match: ["caisse d'epargne"], label: "CE", tone: "red" },
+    { match: ["banque populaire"], label: "BP", tone: "violet" },
+    { match: ["credit mutuel"], label: "CM", tone: "blue" },
+    { match: ["cic"], label: "CIC", tone: "blue" },
+    { match: ["lcl"], label: "LCL", tone: "blue" },
+    { match: ["revolut"], label: "R", tone: "ink" },
+    { match: ["n26"], label: "N26", tone: "teal" },
+  ];
+  const known = knownBanks.find((item) => item.match.some((value) => normalized.includes(value)));
+  if (known) return { label: known.label, tone: known.tone };
+  const words = bank.trim().split(/\s+/).filter(Boolean);
+  const label = words.length > 1
+    ? words.slice(0, 2).map((word) => word[0]).join("").toUpperCase()
+    : (words[0] || "B").slice(0, 3).toUpperCase();
+  const tones = ["blue", "violet", "teal", "amber", "ink"];
+  const checksum = Array.from(normalized).reduce((sum, letter) => sum + letter.charCodeAt(0), 0);
+  return { label, tone: tones[checksum % tones.length] };
 }
 
 function AccountEditor({ account, onClose, onCompleted, token }: {
