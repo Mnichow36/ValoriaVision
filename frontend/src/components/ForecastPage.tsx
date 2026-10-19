@@ -1,8 +1,9 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { createRecurrence, deleteRecurrence, getForecast, getReschedulableOccurrences, rescheduleOccurrences, updateRecurrence } from "../api/client";
-import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, RecurrencePayload, ReschedulableOccurrence, ReschedulableOccurrencesResult } from "../api/contracts";
+import { createRecurrence, deleteRecurrence, getForecast, getReschedulableOccurrences, getScenarioSettings, rescheduleOccurrences, updateRecurrence } from "../api/client";
+import type { ForecastAccount, ForecastCategory, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, RecurrencePayload, ReschedulableOccurrence, ReschedulableOccurrencesResult, ScenarioActionResult, ScenarioSettingsSnapshot } from "../api/contracts";
 import { InteractiveLineChart } from "./InteractiveCharts";
+import { ScenarioManager } from "./ScenarioManager";
 
 interface ForecastPageProps {
   accountId: string;
@@ -36,6 +37,14 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   const [editorOpen, setEditorOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [scenarioManagerOpen, setScenarioManagerOpen] = useState(false);
+  const [scenarioCatalog, setScenarioCatalog] = useState<ScenarioSettingsSnapshot>();
+  const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
+    __realized: true,
+    "Réaliste": true,
+    "Prudent": true,
+    "Optimiste": false,
+  });
   const [editingRecurrence, setEditingRecurrence] = useState<RecurrenceItem>();
   const [selectedPoint, setSelectedPoint] = useState<ForecastPoint>();
   const lastEditorRequestKey = useRef(0);
@@ -58,6 +67,18 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   }, [accountId, horizonDays, onAccountsChange, refreshKey, scenario, token]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    getScenarioSettings(token, controller.signal)
+      .then(setScenarioCatalog)
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setNotice(cause instanceof Error ? cause.message : "Les scénarios ne peuvent pas être chargés.");
+        }
+      });
+    return () => controller.abort();
+  }, [refreshKey, token]);
+
+  useEffect(() => {
     if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
       lastEditorRequestKey.current = editorRequestKey;
       setEditingRecurrence(undefined);
@@ -72,6 +93,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
     setEditorOpen(false);
     setManagerOpen(false);
     setRescheduleOpen(false);
+    setScenarioManagerOpen(false);
     setEditingRecurrence(undefined);
     setSelectedPoint(undefined);
     setNotice(result.message);
@@ -103,13 +125,28 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
             <h2>Projection journalière</h2>
             <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · solde réel et échéances prévues.</p>
           </div>
-          <div className="forecast-scenarios" role="tablist" aria-label="Scénario de projection">
-            <ScenarioButton active={scenario === "Réaliste"} onClick={() => onScenarioChange("Réaliste")}>Réaliste</ScenarioButton>
-            <ScenarioButton active={scenario === "Optimiste"} onClick={() => onScenarioChange("Optimiste")}>Optimiste</ScenarioButton>
-          </div>
+          <ScenarioSelector
+            catalog={scenarioCatalog}
+            onManage={() => {
+              setEditorOpen(false);
+              setManagerOpen(false);
+              setRescheduleOpen(false);
+              setSelectedPoint(undefined);
+              setScenarioManagerOpen(true);
+            }}
+            onScenarioChange={onScenarioChange}
+            onVisibilityChange={(name) => {
+              setVisibleSeries((current) => ({
+                ...current,
+                [name]: !(current[name] ?? name === scenario),
+              }));
+            }}
+            scenario={scenario}
+            visibleSeries={visibleSeries}
+          />
         </div>
 
-        <ForecastChart onPointSelect={setSelectedPoint} snapshot={snapshot} />
+        <ForecastChart onPointSelect={setSelectedPoint} snapshot={snapshot} visibleSeries={visibleSeries} />
 
         <div className="forecast-summary-cards">
           <ForecastSummaryCard
@@ -200,6 +237,18 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
           accountId={accountId}
           onClose={() => setRescheduleOpen(false)}
           onCompleted={completed}
+          token={token}
+        />
+      )}
+      {scenarioManagerOpen && scenarioCatalog && (
+        <ScenarioManager
+          catalog={scenarioCatalog}
+          onChanged={(result: ScenarioActionResult) => {
+            setNotice(result.message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+          onClose={() => setScenarioManagerOpen(false)}
           token={token}
         />
       )}
@@ -764,48 +813,194 @@ function today(): string {
   return local.toISOString().slice(0, 10);
 }
 
-function ScenarioButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
-  return <button aria-selected={active} className={active ? "forecast-scenario forecast-scenario--active" : "forecast-scenario"} onClick={onClick} role="tab" type="button">{children}</button>;
+const STANDARD_SCENARIOS = [
+  { name: "Réaliste", color: "#2563eb", description: "Hypothèses centrales" },
+  { name: "Prudent", color: "#e11d48", description: "Vision de vigilance" },
+  { name: "Optimiste", color: "#7c3aed", description: "Hypothèses favorables" },
+];
+
+const CUSTOM_SCENARIO_COLORS = ["#f59e0b", "#0891b2", "#db2777", "#65a30d", "#9333ea"];
+
+function ScenarioSelector({
+  catalog,
+  onManage,
+  onScenarioChange,
+  onVisibilityChange,
+  scenario,
+  visibleSeries,
+}: {
+  catalog?: ScenarioSettingsSnapshot;
+  onManage: () => void;
+  onScenarioChange: (scenario: string) => void;
+  onVisibilityChange: (scenario: string) => void;
+  scenario: string;
+  visibleSeries: Record<string, boolean>;
+}) {
+  const custom = (catalog?.scenarios ?? [])
+    .filter((item) => !item.isReference && item.isActive)
+    .map((item, index) => ({
+      name: item.name,
+      color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
+      description: `${item.eventCount} hypothèse${item.eventCount > 1 ? "s" : ""}`,
+    }));
+  const options = [...STANDARD_SCENARIOS, ...custom];
+  const active = options.find((option) => option.name === scenario) ?? options[0];
+
+  return (
+    <details className="scenario-picker">
+      <summary>
+        <i style={{ background: active.color }} />
+        <span><small>Scénario principal</small><strong>{active.name}</strong></span>
+        <b aria-hidden="true">⌄</b>
+      </summary>
+      <div className="scenario-picker__menu">
+        <div className="scenario-picker__title">
+          <span>Courbes comparées</span>
+          <small>Choisir le scénario principal</small>
+        </div>
+        <div className="scenario-picker__row scenario-picker__row--realized">
+          <button
+            aria-label={visibleSeries.__realized ? "Masquer le réalisé" : "Afficher le réalisé"}
+            className={visibleSeries.__realized ? "scenario-visibility scenario-visibility--on" : "scenario-visibility"}
+            onClick={() => onVisibilityChange("__realized")}
+            type="button"
+          >
+            <EyeIcon visible={Boolean(visibleSeries.__realized)} />
+          </button>
+          <i style={{ background: "#06a9c2" }} />
+          <span><strong>Réalisé</strong><small>Solde issu des opérations bancaires</small></span>
+        </div>
+        {options.map((option) => {
+          const selected = option.name === scenario;
+          const visible = selected || Boolean(visibleSeries[option.name]);
+          return (
+            <div className={selected ? "scenario-picker__row scenario-picker__row--selected" : "scenario-picker__row"} key={option.name}>
+              <button
+                aria-label={visible ? `Masquer ${option.name}` : `Afficher ${option.name}`}
+                className={visible ? "scenario-visibility scenario-visibility--on" : "scenario-visibility"}
+                disabled={selected}
+                onClick={() => onVisibilityChange(option.name)}
+                type="button"
+              >
+                <EyeIcon visible={visible} />
+              </button>
+              <i style={{ background: option.color }} />
+              <button className="scenario-picker__select" onClick={() => onScenarioChange(option.name)} type="button">
+                <span><strong>{option.name}</strong><small>{option.description}</small></span>
+                {selected && <b>Principal</b>}
+              </button>
+            </div>
+          );
+        })}
+        <button className="scenario-picker__manage" onClick={onManage} type="button">
+          <span aria-hidden="true">＋</span>
+          Gérer et paramétrer les scénarios
+        </button>
+      </div>
+    </details>
+  );
 }
 
-function ForecastChart({ onPointSelect, snapshot }: { onPointSelect: (point: ForecastPoint) => void; snapshot: ForecastSnapshot }) {
+function EyeIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+      {!visible && <path d="M4 4 20 20" />}
+    </svg>
+  );
+}
+
+function ForecastChart({
+  onPointSelect,
+  snapshot,
+  visibleSeries,
+}: {
+  onPointSelect: (point: ForecastPoint) => void;
+  snapshot: ForecastSnapshot;
+  visibleSeries: Record<string, boolean>;
+}) {
+  const definitions = [
+    {
+      id: "scenario-realistic",
+      name: "Réaliste",
+      color: STANDARD_SCENARIOS[0].color,
+      points: snapshot.filters.scenario === "Réaliste" ? snapshot.series.selected : snapshot.series.realistic,
+    },
+    {
+      id: "scenario-prudent",
+      name: "Prudent",
+      color: STANDARD_SCENARIOS[1].color,
+      points: snapshot.filters.scenario === "Prudent" ? snapshot.series.selected : snapshot.series.prudent,
+    },
+    {
+      id: "scenario-optimistic",
+      name: "Optimiste",
+      color: STANDARD_SCENARIOS[2].color,
+      points: snapshot.filters.scenario === "Optimiste" ? snapshot.series.selected : snapshot.series.optimistic,
+    },
+    ...Object.entries(snapshot.series.custom).map(([name, points], index) => ({
+      id: `scenario-custom-${index}`,
+      name,
+      color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
+      points: snapshot.filters.scenario === name ? snapshot.series.selected : points,
+    })),
+  ];
+  const selected = definitions.find((definition) => definition.name === snapshot.filters.scenario) ?? {
+    id: "scenario-selected",
+    name: snapshot.filters.scenario,
+    color: "#2563eb",
+    points: snapshot.series.selected,
+  };
+  const selectedPoints = selected.points.map((point) => ({
+    date: point.date,
+    value: point.balance,
+    details: (point.events ?? []).map((event) => ({
+      label: event.name,
+      meta: `${event.source} · ${event.account}`,
+      value: event.amount,
+      color: event.source.startsWith("Récurrence") || event.source === "Scénario"
+        ? "#7c3aed"
+        : event.amount >= 0 ? "#16a34a" : "#dc2626",
+    })),
+  }));
+  const comparisons = definitions
+    .filter((definition) => definition.name !== selected.name && visibleSeries[definition.name])
+    .map((definition) => ({
+      id: definition.id,
+      label: definition.name,
+      color: definition.color,
+      dashed: true,
+      points: definition.points.map((point) => ({ date: point.date, value: point.balance })),
+    }));
+
   return (
     <InteractiveLineChart
       ariaLabel={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`}
+      flowBars={snapshot.series.selected.map((point) => ({
+        date: point.date,
+        inflow: point.inflow ?? 0,
+        outflow: point.outflow ?? 0,
+      }))}
       onPointSelect={(index) => {
         const point = snapshot.series.selected[index];
         if (point) onPointSelect(point);
       }}
       series={[
         {
-          id: "selected",
-          label: `Solde prévu · ${snapshot.filters.scenario}`,
-          color: "#2563eb",
+          id: selected.id,
+          label: `${selected.name} · principal`,
+          color: selected.color,
           area: true,
-          points: snapshot.series.selected.map((point) => ({
-            date: point.date,
-            value: point.balance,
-            details: (point.events ?? []).map((event) => ({
-              label: event.name,
-              meta: `${event.source} · ${event.account}`,
-              value: event.amount,
-              color: event.source.startsWith("Récurrence") ? "#7c3aed" : event.amount >= 0 ? "#16a34a" : "#dc2626",
-            })),
-          })),
+          points: selectedPoints,
         },
-        {
+        ...(visibleSeries.__realized ? [{
           id: "realized",
           label: "Réalisé",
           color: "#06a9c2",
           points: snapshot.series.realized.map((point) => ({ date: point.date, value: point.balance })),
-        },
-        {
-          id: "prudent",
-          label: "Scénario prudent",
-          color: "#e11d48",
-          dashed: true,
-          points: snapshot.series.prudent.map((point) => ({ date: point.date, value: point.balance })),
-        },
+        }] : []),
+        ...comparisons,
       ]}
       valueFormatter={formatMoney}
     />

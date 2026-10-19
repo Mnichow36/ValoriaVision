@@ -19,6 +19,8 @@ from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
 from app.services.recurrence_write_service import RecurrenceWriteService
 from app.services.reconciliation_read_service import ReconciliationReadService
+from app.services.scenario_event_service import ScenarioEventService
+from app.services.scenario_service import ScenarioService
 from app.services.settings_read_service import SettingsReadService
 from app.services.transactions_read_service import TransactionsReadService
 
@@ -130,6 +132,104 @@ class RecurrencePayload(BaseModel):
 class OccurrenceReschedulePayload(BaseModel):
     occurrence_ids: list[int]
     target_date: str
+
+
+class ScenarioPayload(BaseModel):
+    name: str
+    description: str = ""
+    scenario_type: str = "Projet libre"
+    start_date: str
+    end_date: str | None = None
+    horizon_months: int = 12
+    currency_code: str = "EUR"
+    is_active: bool = True
+
+
+class ScenarioEventPayload(BaseModel):
+    event_type: str = "cash_out"
+    label: str
+    description: str = ""
+    event_date: str
+    end_date: str | None = None
+    amount: float
+    currency_code: str = "EUR"
+    frequency: str = "once"
+    duration_months: int | None = None
+    account_id: int | None = None
+    is_active: bool = True
+
+
+def _scenario_snapshot(database: Database) -> dict:
+    scenario_service = ScenarioService(database)
+    event_service = ScenarioEventService(database)
+    scenarios = []
+    for row in scenario_service.list_scenarios():
+        events = []
+        for event in event_service.list_events(int(row["id"])):
+            event_type = str(event["event_type"] or "custom")
+            frequency = str(event["frequency"] or "once")
+            events.append({
+                "id": int(event["id"]),
+                "scenarioId": int(event["scenario_id"]),
+                "eventType": event_type,
+                "eventTypeLabel": event_service.EVENT_TYPES.get(event_type, event_type),
+                "label": str(event["label"] or ""),
+                "description": str(event["description"] or ""),
+                "eventDate": str(event["event_date"] or ""),
+                "endDate": str(event["end_date"] or ""),
+                "amount": float(event["amount"] or 0),
+                "currencyCode": str(event["currency_code"] or "EUR"),
+                "frequency": frequency,
+                "frequencyLabel": event_service.FREQUENCIES.get(frequency, frequency),
+                "durationMonths": int(event["duration_months"] or 0),
+                "accountId": int(event["account_id"]) if event["account_id"] is not None else None,
+                "accountName": str(event["account_name"] or "Tous les comptes"),
+                "isActive": bool(event["is_active"]),
+                "nature": event_service.event_nature(event_type),
+                "sense": event_service.event_sense_label(event_type),
+            })
+        scenarios.append({
+            "id": int(row["id"]),
+            "name": str(row["name"] or ""),
+            "description": str(row["description"] or ""),
+            "scenarioType": str(row["scenario_type"] or "Projet libre"),
+            "startDate": str(row["start_date"] or ""),
+            "endDate": str(row["end_date"] or ""),
+            "horizonMonths": int(row["horizon_months"] or 12),
+            "currencyCode": str(row["currency_code"] or "EUR"),
+            "isReference": bool(row["is_reference"]),
+            "isActive": bool(row["is_active"]),
+            "eventCount": int(row["event_count"] or 0),
+            "events": events,
+        })
+
+    return {
+        "scenarioTypes": list(scenario_service.TYPES),
+        "eventTypes": [
+            {
+                "id": event_type,
+                "label": label,
+                "nature": event_service.event_nature(event_type),
+                "sense": event_service.event_sense_label(event_type),
+            }
+            for event_type, label in event_service.EVENT_TYPES.items()
+        ],
+        "frequencies": [
+            {"id": frequency, "label": label}
+            for frequency, label in event_service.FREQUENCIES.items()
+        ],
+        "accounts": [
+            {
+                "id": int(account["id"]),
+                "name": str(account["name"] or "Compte"),
+                "bank": str(account["bank"] or ""),
+                "type": str(account["account_type"] or ""),
+            }
+            for account in database.list_accounts()
+            if str(account["status"] or "") == "Actif"
+        ],
+        "scenarios": scenarios,
+    }
 
 
 def create_app(database: Database | None = None) -> FastAPI:
@@ -540,6 +640,121 @@ def create_app(database: Database | None = None) -> FastAPI:
             return RecurrenceWriteService(active_database).delete(item_id)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/v1/scenarios")
+    def scenarios(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _scenario_snapshot(active_database)
+
+    @app.post("/api/v1/scenarios")
+    def create_scenario(
+        payload: ScenarioPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            scenario_id = ScenarioService(active_database).create_scenario(payload.model_dump())
+            return {"success": True, "message": "Scénario créé.", "scenarioId": scenario_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenarios/{scenario_id}")
+    def update_scenario(
+        scenario_id: int,
+        payload: ScenarioPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            ScenarioService(active_database).update_scenario(scenario_id, payload.model_dump())
+            return {"success": True, "message": "Scénario mis à jour.", "scenarioId": scenario_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenarios/{scenario_id}/duplicate")
+    def duplicate_scenario(
+        scenario_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            duplicate_id = ScenarioService(active_database).duplicate_scenario(scenario_id)
+            return {"success": True, "message": "Scénario dupliqué.", "scenarioId": duplicate_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenarios/{scenario_id}/delete")
+    def delete_scenario(
+        scenario_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            ScenarioService(active_database).delete_scenario(scenario_id)
+            return {"success": True, "message": "Scénario supprimé.", "scenarioId": scenario_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenarios/{scenario_id}/events")
+    def create_scenario_event(
+        scenario_id: int,
+        payload: ScenarioEventPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            event_id = ScenarioEventService(active_database).add_event(scenario_id, payload.model_dump())
+            return {"success": True, "message": "Hypothèse ajoutée.", "eventId": event_id, "scenarioId": scenario_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenario-events/{event_id}")
+    def update_scenario_event(
+        event_id: int,
+        payload: ScenarioEventPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            ScenarioEventService(active_database).update_event(event_id, payload.model_dump())
+            return {"success": True, "message": "Hypothèse mise à jour.", "eventId": event_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/scenario-events/{event_id}/delete")
+    def delete_scenario_event(
+        event_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        ScenarioEventService(active_database).delete_event(event_id)
+        return {"success": True, "message": "Hypothèse supprimée.", "eventId": event_id}
 
     @app.get("/api/v1/budgets")
     def budgets(

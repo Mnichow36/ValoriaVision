@@ -22,6 +22,12 @@ export interface InteractiveLineSeries {
   area?: boolean;
 }
 
+export interface InteractiveFlowPoint {
+  date: string;
+  inflow: number;
+  outflow: number;
+}
+
 export interface InteractiveDonutSlice {
   label: string;
   value: number;
@@ -37,6 +43,7 @@ export interface InteractiveBarRow {
 interface InteractiveLineChartProps {
   ariaLabel: string;
   series: InteractiveLineSeries[];
+  flowBars?: InteractiveFlowPoint[];
   valueFormatter?: (value: number) => string;
   dateFormatter?: (value: string) => string;
   onPointSelect?: (index: number) => void;
@@ -69,6 +76,7 @@ const percentNumber = new Intl.NumberFormat("fr-FR", {
 export function InteractiveLineChart({
   ariaLabel,
   series,
+  flowBars,
   valueFormatter = (value) => compactNumber.format(value),
   dateFormatter = formatDate,
   onPointSelect,
@@ -77,7 +85,10 @@ export function InteractiveLineChart({
   const height = 330;
   const plot = { left: 76, right: 24, top: 24, bottom: 50 };
   const chartWidth = width - plot.left - plot.right;
-  const chartHeight = height - plot.top - plot.bottom;
+  const flowBandHeight = flowBars?.length ? 68 : 0;
+  const lineBottom = height - plot.bottom - flowBandHeight;
+  const flowBaseline = height - plot.bottom;
+  const chartHeight = lineBottom - plot.top;
   const domainLength = Math.max(0, ...series.map((item) => item.points.length));
   const values = series.flatMap((item) => item.points.map((point) => point.value));
   const rawMinimum = values.length ? Math.min(...values) : 0;
@@ -91,7 +102,15 @@ export function InteractiveLineChart({
   const yTicks = Array.from({ length: 5 }, (_, index) => maximum - index * range / 4);
   const tickIndexes = uniqueIndexes(domainLength, 5);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const gradientId = `chartArea${useId().replace(/:/g, "")}`;
+  const chartId = useId().replace(/:/g, "");
+  const gradientId = `chartArea${chartId}`;
+  const inflowPatternId = `chartInflow${chartId}`;
+  const outflowPatternId = `chartOutflow${chartId}`;
+  const maximumFlow = Math.max(1, ...(flowBars ?? []).flatMap((point) => [point.inflow, point.outflow]));
+  const xStep = domainLength > 1 ? chartWidth / (domainLength - 1) : chartWidth;
+  const pairWidth = Math.max(5, Math.min(28, xStep * .72));
+  const flowBarWidth = Math.max(1.5, (pairWidth - 2) / 2);
+  const flowHeight = (value: number) => value <= 0 ? 0 : Math.max(2, value / maximumFlow * (flowBandHeight - 16));
   const coordinates = useMemo(
     () => series.map((item) => item.points.map((point, index) => ({ x: x(index), y: y(point.value) }))),
     [series, domainLength, minimum, maximum],
@@ -121,6 +140,7 @@ export function InteractiveLineChart({
   const activeDetails = activeIndex === null
     ? []
     : series[0]?.points[activeIndex]?.details ?? [];
+  const activeFlow = activeIndex === null ? undefined : flowBars?.[activeIndex];
 
   if (!domainLength || !values.length) {
     return <div className="interactive-chart-empty">Données insuffisantes pour afficher le graphique.</div>;
@@ -145,6 +165,14 @@ export function InteractiveLineChart({
             <stop offset="0%" stopColor={series[0]?.color ?? "#2563eb"} stopOpacity=".24" />
             <stop offset="100%" stopColor={series[0]?.color ?? "#2563eb"} stopOpacity=".02" />
           </linearGradient>
+          <pattern height="7" id={inflowPatternId} patternUnits="userSpaceOnUse" width="7">
+            <rect fill="#dcfce7" height="7" width="7" />
+            <path d="M-1 6 L6 -1 M2 9 L9 2" fill="none" stroke="#16a34a" strokeWidth="2" />
+          </pattern>
+          <pattern height="7" id={outflowPatternId} patternUnits="userSpaceOnUse" width="7">
+            <rect fill="#fee2e2" height="7" width="7" />
+            <path d="M-1 6 L6 -1 M2 9 L9 2" fill="none" stroke="#dc2626" strokeWidth="2" />
+          </pattern>
         </defs>
         {yTicks.map((tick, index) => {
           const tickY = y(tick);
@@ -165,10 +193,46 @@ export function InteractiveLineChart({
             </g>
           );
         })}
+        {flowBars?.length ? (
+          <>
+            <line className="interactive-line-chart__flow-separator" x1={plot.left} x2={width - plot.right} y1={lineBottom + 6} y2={lineBottom + 6} />
+            {flowBars.map((flow, index) => {
+              const inflowHeight = flowHeight(flow.inflow);
+              const outflowHeight = flowHeight(flow.outflow);
+              return (
+                <g key={`flow-${flow.date}-${index}`}>
+                  <title>{`${dateFormatter(flow.date)} · Recettes ${valueFormatter(flow.inflow)} · Dépenses ${valueFormatter(flow.outflow)}`}</title>
+                  {flow.inflow > 0 && (
+                    <rect
+                      className="interactive-line-chart__flow-bar interactive-line-chart__flow-bar--in"
+                      fill={`url(#${inflowPatternId})`}
+                      height={inflowHeight}
+                      rx="1.5"
+                      width={flowBarWidth}
+                      x={x(index) - flowBarWidth - 1}
+                      y={flowBaseline - inflowHeight}
+                    />
+                  )}
+                  {flow.outflow > 0 && (
+                    <rect
+                      className="interactive-line-chart__flow-bar interactive-line-chart__flow-bar--out"
+                      fill={`url(#${outflowPatternId})`}
+                      height={outflowHeight}
+                      rx="1.5"
+                      width={flowBarWidth}
+                      x={x(index) + 1}
+                      y={flowBaseline - outflowHeight}
+                    />
+                  )}
+                </g>
+              );
+            })}
+          </>
+        ) : null}
         {coordinates[0]?.length > 1 && (
           <path
             className="interactive-line-chart__area"
-            d={`${smoothPath(coordinates[0])} L ${x(coordinates[0].length - 1)} ${height - plot.bottom} L ${x(0)} ${height - plot.bottom} Z`}
+            d={`${smoothPath(coordinates[0])} L ${x(coordinates[0].length - 1)} ${lineBottom} L ${x(0)} ${lineBottom} Z`}
             fill={`url(#${gradientId})`}
           />
         )}
@@ -207,7 +271,7 @@ export function InteractiveLineChart({
         })}
         {activeIndex !== null && (
           <>
-            <line className="interactive-line-chart__crosshair" x1={x(activeIndex)} x2={x(activeIndex)} y1={plot.top} y2={height - plot.bottom} />
+            <line className="interactive-line-chart__crosshair" x1={x(activeIndex)} x2={x(activeIndex)} y1={plot.top} y2={flowBaseline} />
             {series.map((item, seriesIndex) => {
               const point = item.points[activeIndex];
               const coordinate = coordinates[seriesIndex]?.[activeIndex];
@@ -229,6 +293,12 @@ export function InteractiveLineChart({
               <span key={item.id}><i style={{ background: item.color }} />{item.label}<b>{valueFormatter(point.value)}</b></span>
             ) : null;
           })}
+          {activeFlow && (activeFlow.inflow > 0 || activeFlow.outflow > 0) && (
+            <div className="interactive-chart-tooltip__flows">
+              <span><i className="interactive-chart-tooltip__pattern interactive-chart-tooltip__pattern--in" />Recettes<b>+ {valueFormatter(activeFlow.inflow)}</b></span>
+              <span><i className="interactive-chart-tooltip__pattern interactive-chart-tooltip__pattern--out" />Dépenses<b>- {valueFormatter(activeFlow.outflow)}</b></span>
+            </div>
+          )}
           {activeDetails.length > 0 && (
             <div className="interactive-chart-tooltip__details">
               <small>Mouvements du jour</small>
@@ -247,6 +317,12 @@ export function InteractiveLineChart({
       )}
       <div className="interactive-chart-legend">
         {series.map((item) => <span key={item.id}><i style={{ background: item.color }} />{item.label}</span>)}
+        {flowBars?.length ? (
+          <>
+            <span><i className="interactive-chart-legend__pattern interactive-chart-legend__pattern--in" />Recettes prévues</span>
+            <span><i className="interactive-chart-legend__pattern interactive-chart-legend__pattern--out" />Dépenses prévues</span>
+          </>
+        ) : null}
       </div>
     </div>
   );

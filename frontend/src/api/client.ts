@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -283,6 +283,92 @@ function recurrenceBody(payload: RecurrencePayload) {
     next_date: payload.nextDate,
     end_date: payload.endDate || null,
     scenario: payload.scenario,
+  };
+}
+
+export function getScenarioSettings(token: string, signal?: AbortSignal): Promise<ScenarioSettingsSnapshot> {
+  return request<ScenarioSettingsSnapshot>("/api/v1/scenarios", { token, signal });
+}
+
+export function createScenario(token: string, payload: ScenarioPayload): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>("/api/v1/scenarios", {
+    method: "POST",
+    token,
+    body: scenarioBody(payload),
+  });
+}
+
+export function updateScenario(token: string, scenarioId: number, payload: ScenarioPayload): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenarios/${scenarioId}`, {
+    method: "POST",
+    token,
+    body: scenarioBody(payload),
+  });
+}
+
+export function duplicateScenario(token: string, scenarioId: number): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenarios/${scenarioId}/duplicate`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function deleteScenario(token: string, scenarioId: number): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenarios/${scenarioId}/delete`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function createScenarioEvent(token: string, scenarioId: number, payload: ScenarioEventPayload): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenarios/${scenarioId}/events`, {
+    method: "POST",
+    token,
+    body: scenarioEventBody(payload),
+  });
+}
+
+export function updateScenarioEvent(token: string, eventId: number, payload: ScenarioEventPayload): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenario-events/${eventId}`, {
+    method: "POST",
+    token,
+    body: scenarioEventBody(payload),
+  });
+}
+
+export function deleteScenarioEvent(token: string, eventId: number): Promise<ScenarioActionResult> {
+  return request<ScenarioActionResult>(`/api/v1/scenario-events/${eventId}/delete`, {
+    method: "POST",
+    token,
+  });
+}
+
+function scenarioBody(payload: ScenarioPayload) {
+  return {
+    name: payload.name,
+    description: payload.description,
+    scenario_type: payload.scenarioType,
+    start_date: payload.startDate,
+    end_date: payload.endDate || null,
+    horizon_months: payload.horizonMonths,
+    currency_code: payload.currencyCode,
+    is_active: payload.isActive,
+  };
+}
+
+function scenarioEventBody(payload: ScenarioEventPayload) {
+  return {
+    event_type: payload.eventType,
+    label: payload.label,
+    description: payload.description,
+    event_date: payload.eventDate,
+    end_date: payload.endDate || null,
+    amount: payload.amount,
+    currency_code: payload.currencyCode,
+    frequency: payload.frequency,
+    duration_months: payload.durationMonths || null,
+    account_id: payload.accountId,
+    is_active: payload.isActive,
   };
 }
 

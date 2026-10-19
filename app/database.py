@@ -2897,7 +2897,7 @@ class Database:
 
         for occurrence in moved_occurrences:
             occurrence_scenario = str(occurrence["scenario"] or "Réaliste")
-            if scenario in {"Réaliste", "Prudent"} and occurrence_scenario == "Optimiste":
+            if scenario != "Optimiste" and occurrence_scenario == "Optimiste":
                 continue
             amount = float(occurrence["expected_amount"] or 0)
             if occurrence["status"] == "partially_matched" and occurrence["remaining_amount"] is not None:
@@ -2919,7 +2919,7 @@ class Database:
         for item in self.list_recurring_items(active_only=True):
             if account_id is not None and item["account_id"] != account_id:
                 continue
-            if scenario in {"Réaliste", "Prudent"} and item["scenario"] == "Optimiste":
+            if scenario != "Optimiste" and item["scenario"] == "Optimiste":
                 continue
             next_date = datetime.strptime(item["next_date"], "%Y-%m-%d").date()
             end_date = datetime.strptime(item["end_date"], "%Y-%m-%d").date() if item["end_date"] else end

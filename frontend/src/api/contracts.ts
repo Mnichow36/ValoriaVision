@@ -341,6 +341,9 @@ export interface ForecastPoint {
   date: string;
   label: string;
   balance: number;
+  inflow?: number;
+  outflow?: number;
+  net?: number;
   events: ForecastEvent[];
 }
 
@@ -374,8 +377,10 @@ export interface ForecastSnapshot {
   series: {
     selected: ForecastPoint[];
     realized: ForecastPoint[];
+    realistic: ForecastPoint[];
     prudent: ForecastPoint[];
     optimistic: ForecastPoint[];
+    custom: Record<string, ForecastPoint[]>;
   };
   summary: {
     startingCash: number;
@@ -389,6 +394,94 @@ export interface ForecastSnapshot {
     alert: string;
   };
   upcoming: ForecastEvent[];
+}
+
+export interface ScenarioEventTypeOption {
+  id: string;
+  label: string;
+  nature: string;
+  sense: string;
+}
+
+export interface ScenarioFrequencyOption {
+  id: string;
+  label: string;
+}
+
+export interface ScenarioEventItem {
+  id: number;
+  scenarioId: number;
+  eventType: string;
+  eventTypeLabel: string;
+  label: string;
+  description: string;
+  eventDate: string;
+  endDate: string;
+  amount: number;
+  currencyCode: string;
+  frequency: string;
+  frequencyLabel: string;
+  durationMonths: number;
+  accountId: number | null;
+  accountName: string;
+  isActive: boolean;
+  nature: string;
+  sense: string;
+}
+
+export interface ScenarioDefinition {
+  id: number;
+  name: string;
+  description: string;
+  scenarioType: string;
+  startDate: string;
+  endDate: string;
+  horizonMonths: number;
+  currencyCode: string;
+  isReference: boolean;
+  isActive: boolean;
+  eventCount: number;
+  events: ScenarioEventItem[];
+}
+
+export interface ScenarioSettingsSnapshot {
+  scenarioTypes: string[];
+  eventTypes: ScenarioEventTypeOption[];
+  frequencies: ScenarioFrequencyOption[];
+  accounts: ForecastAccount[];
+  scenarios: ScenarioDefinition[];
+}
+
+export interface ScenarioPayload {
+  name: string;
+  description: string;
+  scenarioType: string;
+  startDate: string;
+  endDate: string;
+  horizonMonths: number;
+  currencyCode: string;
+  isActive: boolean;
+}
+
+export interface ScenarioEventPayload {
+  eventType: string;
+  label: string;
+  description: string;
+  eventDate: string;
+  endDate: string;
+  amount: number;
+  currencyCode: string;
+  frequency: string;
+  durationMonths: number;
+  accountId: number | null;
+  isActive: boolean;
+}
+
+export interface ScenarioActionResult {
+  success: boolean;
+  message: string;
+  scenarioId?: number;
+  eventId?: number;
 }
 
 export interface BudgetTransaction {

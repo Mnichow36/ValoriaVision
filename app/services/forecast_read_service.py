@@ -48,7 +48,9 @@ class ForecastReadService:
         scenario: str = "Réaliste",
     ) -> dict[str, Any]:
         horizon = horizon_days if horizon_days in self.ALLOWED_HORIZONS else 15
-        selected_scenario = scenario if scenario in self.ALLOWED_SCENARIOS else "Réaliste"
+        custom_scenarios = self._custom_scenario_names()
+        available_scenarios = self.ALLOWED_SCENARIOS | set(custom_scenarios)
+        selected_scenario = scenario if scenario in available_scenarios else "Réaliste"
         current_time = self.now_provider()
         reference_date = (
             current_time.astimezone().date()
@@ -58,9 +60,18 @@ class ForecastReadService:
         forecast_start = reference_date - timedelta(days=5)
         start_date = forecast_start.isoformat()
         end_date = (forecast_start + timedelta(days=horizon)).isoformat()
-        selected = self.database.cash_forecast(start_date, horizon, selected_scenario, account_id=account_id)
-        prudent = self.database.cash_forecast(start_date, horizon, "Prudent", account_id=account_id)
-        optimistic = self.database.cash_forecast(start_date, horizon, "Optimiste", account_id=account_id)
+        built_in_forecasts = {
+            name: self.database.cash_forecast(start_date, horizon, name, account_id=account_id)
+            for name in self.ALLOWED_SCENARIOS
+        }
+        selected = (
+            built_in_forecasts[selected_scenario]
+            if selected_scenario in built_in_forecasts
+            else self.database.cash_forecast(start_date, horizon, selected_scenario, account_id=account_id)
+        )
+        prudent = built_in_forecasts["Prudent"]
+        optimistic = built_in_forecasts["Optimiste"]
+        realistic = built_in_forecasts["Réaliste"]
         selected_points = selected.get("daily_points") or []
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
@@ -102,8 +113,19 @@ class ForecastReadService:
             "series": {
                 "selected": self._series(selected_points),
                 "realized": self._realized_series(_number(selected.get("starting_cash")), selected_points),
+                "realistic": self._series(realistic.get("daily_points") or []),
                 "prudent": self._series(prudent.get("daily_points") or []),
                 "optimistic": self._series(optimistic.get("daily_points") or []),
+                "custom": {
+                    name: self._series(
+                        (
+                            selected
+                            if name == selected_scenario
+                            else self.database.cash_forecast(start_date, horizon, name, account_id=account_id)
+                        ).get("daily_points") or []
+                    )
+                    for name in custom_scenarios
+                },
             },
             "summary": {
                 "startingCash": _number(selected.get("starting_cash")),
@@ -248,20 +270,54 @@ class ForecastReadService:
             return ""
         return candidate.isoformat()
 
+    def _custom_scenario_names(self) -> list[str]:
+        """Return active custom scenarios without requiring them in lightweight test doubles."""
+        try:
+            with self.database.connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT name
+                    FROM scenarios
+                    WHERE deleted_at IS NULL
+                      AND is_active = 1
+                      AND is_reference = 0
+                    ORDER BY updated_at DESC, name
+                    """
+                )
+                return [
+                    str(row["name"]).strip()
+                    for row in rows
+                    if str(row["name"] or "").strip()
+                ]
+        except (AttributeError, KeyError, TypeError):
+            return []
+
     @staticmethod
     def _series(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            {
+        series: list[dict[str, Any]] = []
+        for point in points:
+            raw_events = point.get("events") or []
+            events = [ForecastReadService._event(event) for event in raw_events]
+            inflow = _number(
+                point.get("in")
+                if point.get("in") is not None
+                else sum(_number(event.get("amount")) for event in raw_events if _number(event.get("amount")) > 0)
+            )
+            outflow = _number(
+                point.get("out")
+                if point.get("out") is not None
+                else abs(sum(_number(event.get("amount")) for event in raw_events if _number(event.get("amount")) < 0))
+            )
+            series.append({
                 "date": str(point.get("date") or ""),
                 "label": str(point.get("label") or ""),
                 "balance": _number(point.get("balance")),
-                "events": [
-                    ForecastReadService._event(event)
-                    for event in point.get("events") or []
-                ],
-            }
-            for point in points
-        ]
+                "inflow": inflow,
+                "outflow": outflow,
+                "net": _number(point.get("net")) if point.get("net") is not None else _number(inflow - outflow),
+                "events": events,
+            })
+        return series
 
     @staticmethod
     def _realized_series(starting_cash: float, points: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -274,10 +330,15 @@ class ForecastReadService:
                 if not str(event.get("source") or "").startswith("Récurrence")
             )
             balance += actual_net
+            realized_in = sum(_number(event.get("amount")) for event in point.get("events") or [] if not str(event.get("source") or "").startswith("Récurrence") and _number(event.get("amount")) > 0)
+            realized_out = abs(sum(_number(event.get("amount")) for event in point.get("events") or [] if not str(event.get("source") or "").startswith("Récurrence") and _number(event.get("amount")) < 0))
             series.append({
                 "date": str(point.get("date") or ""),
                 "label": str(point.get("label") or ""),
                 "balance": _number(balance),
+                "inflow": _number(realized_in),
+                "outflow": _number(realized_out),
+                "net": _number(realized_in - realized_out),
                 "events": [],
             })
         return series
