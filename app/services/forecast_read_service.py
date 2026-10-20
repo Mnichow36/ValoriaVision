@@ -138,7 +138,7 @@ class ForecastReadService:
                 "prudentDifference": _number(_number(selected.get("end_balance")) - _number(prudent.get("end_balance"))),
                 "alert": str(selected.get("alert") or "Prévision disponible"),
             },
-            "upcoming": [self._event(event) for event in upcoming_recurrences[:4]],
+            "upcoming": [self._event(event) for event in upcoming_recurrences],
         }
 
     @staticmethod

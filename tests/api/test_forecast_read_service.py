@@ -152,6 +152,35 @@ class ForecastReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["series"]["selected"][-1]["events"][2]["recurringId"], None)
         self.assertEqual(snapshot["upcoming"][0]["recurringId"], 42)
 
+    def test_returns_every_recurrence_in_the_selected_horizon(self):
+        database = StubDatabase()
+        base_forecast = database.cash_forecast
+
+        def cash_forecast(start_date, horizon_days, scenario, account_id=None):
+            result = base_forecast(start_date, horizon_days, scenario, account_id=account_id)
+            if scenario == "Réaliste":
+                for index in range(5):
+                    result["daily_points"][-1]["events"].append({
+                        "date": "2026-10-15",
+                        "name": f"Échéance {index}",
+                        "category": "Logement",
+                        "amount": -10 - index,
+                        "source": "Récurrence",
+                        "account": "Courant",
+                        "scenario": "Réaliste",
+                        "recurring_id": 42,
+                    })
+            return result
+
+        database.cash_forecast = cash_forecast
+        snapshot = ForecastReadService(
+            database,
+            now_provider=lambda: datetime(2026, 10, 14, 14, 0, tzinfo=timezone.utc),
+        ).snapshot(horizon_days=15, scenario="Réaliste")
+
+        self.assertEqual(len(snapshot["upcoming"]), 7)
+        self.assertEqual(snapshot["upcoming"][-1]["name"], "Salaire déplacé")
+
     def test_falls_back_to_supported_filter_values(self):
         snapshot = ForecastReadService(
             StubDatabase(),

@@ -154,13 +154,20 @@ export function App() {
     );
   }
 
-  const module = activeModule === "transactions" && transactionsView !== "journal"
-    ? {
-        title: transactionsView === "history" ? "Lots d’import" : "Imports bancaires",
-        description: transactionsView === "history"
-          ? "Consulter les derniers relevés traités localement."
-          : "Importer un fichier local, prévisualiser puis valider.",
-      }
+  const module = activeModule === "transactions"
+    ? transactionsView === "recurrences"
+      ? {
+          title: "Récurrences",
+          description: "Identifier, planifier et gérer les opérations récurrentes qui alimentent le prévisionnel.",
+        }
+      : transactionsView !== "journal"
+        ? {
+            title: transactionsView === "history" ? "Lots d’import" : "Imports bancaires",
+            description: transactionsView === "history"
+              ? "Consulter les derniers relevés traités localement."
+              : "Importer un fichier local, prévisualiser puis valider.",
+          }
+        : modules.transactions
     : modules[activeModule];
 
   return (
@@ -212,7 +219,10 @@ export function App() {
           {activeModule === "transactions" && (
             <TransactionsPage
               importRequestKey={transactionImportRequestKey}
-              onDataChanged={() => void refreshDashboard()}
+              onDataChanged={() => {
+                void refreshDashboard();
+                setReconciliationRefreshKey((key) => key + 1);
+              }}
               onNavigateSettings={() => setActiveModule("settings")}
               onViewChange={setTransactionsView}
               preferredImportAccountId={preferredImportAccountId}
@@ -342,8 +352,17 @@ function HeaderActions({
         </div>
       );
     }
+    if (transactionView === "recurrences") {
+      return (
+        <div className="header-actions">
+          <button className="secondary-button" onClick={() => onTransactionViewChange("journal")} type="button">Opérations</button>
+          <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
+        </div>
+      );
+    }
     return (
       <div className="header-actions">
+        <button className="secondary-button" onClick={() => onTransactionViewChange("recurrences")} type="button">Récurrences</button>
         <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>
         <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
       </div>

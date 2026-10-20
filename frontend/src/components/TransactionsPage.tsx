@@ -1,8 +1,9 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { bulkUpdateTransactions, createTransactionCategorizationRule, getTransactions, updateTransaction } from "../api/client";
-import type { TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
+import { bulkUpdateTransactions, createTransactionCategorizationRule, deleteRecurrence, getForecast, getTransactions, updateTransaction } from "../api/client";
+import type { ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
+import { RecurrenceEditor } from "./RecurrenceEditor";
 
 interface TransactionsPageProps {
   importRequestKey: number;
@@ -14,7 +15,7 @@ interface TransactionsPageProps {
   view: TransactionsView;
 }
 
-export type TransactionsView = "journal" | "import" | "history";
+export type TransactionsView = "journal" | "recurrences" | "import" | "history";
 
 const currencyFormatter = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -142,7 +143,7 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
     return <div className="loading-state"><span aria-hidden="true" />Chargement du journal depuis le moteur Python…</div>;
   }
 
-  if (view !== "journal") {
+  if (view === "import" || view === "history") {
     return (
       <BankImportPage
         importRequestKey={importRequestKey}
@@ -160,8 +161,19 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
     );
   }
 
+  if (view === "recurrences") {
+    return (
+      <TransactionsRecurrences
+        onDataChanged={onDataChanged}
+        onViewChange={onViewChange}
+        token={token}
+      />
+    );
+  }
+
   return (
     <div className="transactions-page">
+      <TransactionsTabs active="journal" onViewChange={onViewChange} />
       {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
@@ -252,6 +264,268 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
           snapshot={snapshot}
           token={token}
           transaction={editing}
+        />
+      )}
+    </div>
+  );
+}
+
+function TransactionsTabs({ active, onViewChange }: { active: "journal" | "recurrences"; onViewChange: (view: TransactionsView) => void }) {
+  return (
+    <nav aria-label="Vues des transactions" className="transactions-tabs">
+      <button className={active === "journal" ? "transactions-tab transactions-tab--active" : "transactions-tab"} onClick={() => onViewChange("journal")} type="button">
+        <span aria-hidden="true">↔</span>
+        Opérations
+      </button>
+      <button className={active === "recurrences" ? "transactions-tab transactions-tab--active" : "transactions-tab"} onClick={() => onViewChange("recurrences")} type="button">
+        <span aria-hidden="true">↻</span>
+        Récurrences
+      </button>
+    </nav>
+  );
+}
+
+function TransactionsRecurrences({
+  onDataChanged,
+  onViewChange,
+  token,
+}: {
+  onDataChanged: () => void;
+  onViewChange: (view: TransactionsView) => void;
+  token: string;
+}) {
+  const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
+  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [accountId, setAccountId] = useState("all");
+  const [horizonDays, setHorizonDays] = useState(15);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [editing, setEditing] = useState<RecurrenceItem>();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<number>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(undefined);
+    getForecast(token, { accountId, horizonDays, scenario: "Réaliste" }, controller.signal)
+      .then(setSnapshot)
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "Les récurrences ne peuvent pas être chargées.");
+        }
+      });
+    return () => controller.abort();
+  }, [accountId, horizonDays, refreshKey, token]);
+
+  const query = search.trim().toLocaleLowerCase("fr");
+  const visibleRules = useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.recurrences.filter((item) => {
+      const matchesAccount = accountId === "all" || item.accountId === Number(accountId);
+      const matchesStatus = status === "all" || (status === "active" ? item.status === "Actif" : item.status !== "Actif");
+      const matchesSearch = !query || [
+        item.name,
+        item.accountName,
+        item.bank,
+        item.category,
+        item.frequency,
+        item.scenario,
+      ].some((value) => value.toLocaleLowerCase("fr").includes(query));
+      return matchesAccount && matchesStatus && matchesSearch;
+    });
+  }, [accountId, query, snapshot, status]);
+
+  const occurrences = useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.series.selected
+      .flatMap((point) => point.events)
+      .filter((event) => event.source.startsWith("Récurrence"))
+      .filter((event) => !query || [
+        event.name,
+        event.account,
+        event.category,
+        event.source,
+        event.scenario,
+      ].some((value) => value.toLocaleLowerCase("fr").includes(query)))
+      .sort((left, right) => left.date.localeCompare(right.date) || left.name.localeCompare(right.name, "fr"));
+  }, [query, snapshot]);
+
+  const recurringById = useMemo(
+    () => new Map((snapshot?.recurrences ?? []).map((item) => [item.id, item])),
+    [snapshot],
+  );
+  const totalIn = occurrences.reduce((sum, event) => sum + Math.max(event.amount, 0), 0);
+  const totalOut = occurrences.reduce((sum, event) => sum + Math.abs(Math.min(event.amount, 0)), 0);
+
+  function completed(result: RecurrenceActionResult) {
+    setDeletingId(undefined);
+    setEditorOpen(false);
+    setEditing(undefined);
+    setNotice(result.message);
+    setRefreshKey((key) => key + 1);
+    onDataChanged();
+  }
+
+  async function remove(item: RecurrenceItem) {
+    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
+    setDeletingId(item.id);
+    setError(undefined);
+    try {
+      completed(await deleteRecurrence(token, item.id));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
+      setDeletingId(undefined);
+    }
+  }
+
+  if (error && !snapshot) {
+    return (
+      <div className="transactions-page">
+        <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
+        <section className="error-state">
+          <strong>Les récurrences ne peuvent pas être affichées.</strong>
+          <p>{error}</p>
+          <button className="secondary-button" onClick={() => setRefreshKey((key) => key + 1)} type="button">Réessayer</button>
+        </section>
+      </div>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="transactions-page">
+        <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
+        <div className="loading-state"><span aria-hidden="true" />Calcul des échéances dans l’horizon…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="transactions-page recurrence-workspace">
+      <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
+      {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
+      {error && <p className="account-form-error" role="alert">{error}</p>}
+
+      <article className="card recurrence-catalog">
+        <div className="recurrence-catalog__heading">
+          <div>
+            <span className="eyebrow">Transactions · Récurrences</span>
+            <h2>Échéances et règles récurrentes</h2>
+            <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · une seule source de données avec la courbe de trésorerie.</p>
+          </div>
+          <button onClick={() => {
+            setEditing(undefined);
+            setEditorOpen(true);
+          }} type="button">Nouvelle récurrence</button>
+        </div>
+
+        <div className="recurrence-catalog__filters">
+          <input aria-label="Rechercher une récurrence" onChange={(event) => setSearch(event.target.value)} placeholder="Recherche libellé, compte, catégorie…" type="search" value={search} />
+          <select aria-label="Compte des récurrences" onChange={(event) => setAccountId(event.target.value)} value={accountId}>
+            <option value="all">Tous les comptes</option>
+            {snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}
+          </select>
+          <select aria-label="Horizon des récurrences" onChange={(event) => setHorizonDays(Number(event.target.value))} value={horizonDays}>
+            <option value={15}>J−5 à J+10</option>
+            <option value={30}>J−5 à J+25</option>
+            <option value={60}>J−5 à J+55</option>
+            <option value={90}>J−5 à J+85</option>
+          </select>
+          <select aria-label="Statut des règles récurrentes" onChange={(event) => setStatus(event.target.value)} value={status}>
+            <option value="all">Tous les statuts</option>
+            <option value="active">Actives</option>
+            <option value="inactive">Inactives</option>
+          </select>
+        </div>
+
+        <section aria-label="Synthèse des récurrences" className="recurrence-catalog__summary">
+          <div><span>Règles affichées</span><strong>{visibleRules.length}</strong></div>
+          <div><span>Échéances dans l’horizon</span><strong>{occurrences.length}</strong></div>
+          <div><span>Recettes prévues</span><strong className="positive">{signedMoney(totalIn)}</strong></div>
+          <div><span>Dépenses prévues</span><strong className="negative">{signedMoney(-totalOut)}</strong></div>
+        </section>
+
+        <section className="recurrence-occurrences">
+          <div className="recurrence-section-heading">
+            <div><h3>Échéances dans l’horizon</h3><p>Toutes les opérations récurrentes qui impactent la courbe affichée.</p></div>
+            <span>{occurrences.length} opération{occurrences.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="recurrence-table-wrap">
+            <table className="recurrence-table">
+              <thead><tr><th>Date</th><th>Opération</th><th>Compte</th><th>Catégorie / cadence</th><th>Statut</th><th>Montant</th></tr></thead>
+              <tbody>
+                {occurrences.map((event, index) => {
+                  const rule = event.recurringId === null ? undefined : recurringById.get(event.recurringId);
+                  return (
+                    <tr key={`${event.date}-${event.recurringId ?? event.name}-${index}`}>
+                      <td><strong>{formatDate(event.date)}</strong>{event.originalDate && event.originalDate !== event.date && <small>Initialement {formatDate(event.originalDate)}</small>}</td>
+                      <td><strong>{event.name}</strong><small>{event.scenario && event.scenario !== "Tous" ? `Scénario ${event.scenario}` : "Tous scénarios"}</small></td>
+                      <td>{event.account}</td>
+                      <td><span>{event.category}</span>{rule && <small>{rule.frequency}</small>}</td>
+                      <td><span className={event.source === "Récurrence décalée" ? "recurrence-status recurrence-status--rescheduled" : "recurrence-status recurrence-status--active"}>{event.source === "Récurrence décalée" ? "Décalée" : "Prévue"}</span></td>
+                      <td className={event.amount >= 0 ? "positive recurrence-table__amount" : "negative recurrence-table__amount"}>{signedMoney(event.amount)}</td>
+                    </tr>
+                  );
+                })}
+                {occurrences.length === 0 && <tr><td className="transactions-empty" colSpan={6}>Aucune échéance récurrente dans cet horizon.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="recurrence-rules">
+          <div className="recurrence-section-heading">
+            <div><h3>Règles récurrentes</h3><p>Modifiez le calendrier, le montant, le compte ou supprimez une règle.</p></div>
+            <span>{visibleRules.length} règle{visibleRules.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="recurrence-rules__grid">
+            {visibleRules.map((item) => (
+              <article className="recurrence-rule-card" key={item.id}>
+                <div className="recurrence-rule-card__top">
+                  <div><strong>{item.name}</strong><span>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</span></div>
+                  <b className={item.direction === "Crédit" ? "positive" : "negative"}>{signedMoney(item.direction === "Crédit" ? item.amount : -item.amount)}</b>
+                </div>
+                <div className="recurrence-rule-card__meta">
+                  <span>{item.category}</span>
+                  <span>{item.frequency}</span>
+                  <span>{item.scenario}</span>
+                  <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>{item.status}</span>
+                </div>
+                <div className="recurrence-rule-card__dates">
+                  <div><span>Prochaine échéance</span><strong>{item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "Aucune"}</strong></div>
+                  <div><span>Dans l’horizon</span><strong>{item.forecastOccurrenceCount}</strong></div>
+                </div>
+                {item.rescheduledOccurrenceCount > 0 && <p>{item.rescheduledOccurrenceCount} échéance{item.rescheduledOccurrenceCount > 1 ? "s" : ""} décalée{item.rescheduledOccurrenceCount > 1 ? "s" : ""} · prochaine le {formatDate(item.nextRescheduledDate)}</p>}
+                <div className="recurrence-rule-card__actions">
+                  <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => {
+                    setEditing(item);
+                    setEditorOpen(true);
+                  }} type="button">Modifier</button>
+                  <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(item)} type="button">{deletingId === item.id ? "Suppression…" : "Supprimer"}</button>
+                </div>
+              </article>
+            ))}
+            {visibleRules.length === 0 && <div className="forecast-day-details__empty"><strong>Aucune règle trouvée</strong><p>Modifiez les filtres ou créez une nouvelle récurrence.</p></div>}
+          </div>
+        </section>
+      </article>
+
+      {editorOpen && (
+        <RecurrenceEditor
+          accounts={snapshot.accounts}
+          categories={snapshot.categories}
+          defaultAccountId={accountId}
+          defaultScenario="Réaliste"
+          key={editing?.id ?? "new"}
+          onClose={() => {
+            setEditorOpen(false);
+            setEditing(undefined);
+          }}
+          onCompleted={completed}
+          recurrence={editing}
+          token={token}
         />
       )}
     </div>
