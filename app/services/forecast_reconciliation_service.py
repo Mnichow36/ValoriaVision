@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from uuid import uuid4
 
+from app.services.counterparty_parser import extract_counterparty
+
 
 STATUS_LABELS = {
     "planned": "Prévue",
@@ -199,11 +201,22 @@ class ForecastReconciliationService:
         with self.db.connect() as conn:
             existing = conn.execute(
                 """
-                SELECT id, status, actual_transaction_id
+                SELECT id, status, actual_transaction_id, expected_date
                 FROM forecast_occurrences
-                WHERE source_type = ? AND source_id = ? AND expected_date = ? AND deleted_at IS NULL
+                WHERE source_type = ?
+                  AND source_id = ?
+                  AND deleted_at IS NULL
+                  AND (
+                        original_expected_date = ?
+                     OR (original_expected_date IS NULL AND expected_date = ?)
+                  )
                 """,
-                (payload["source_type"], payload["source_id"], payload["expected_date"]),
+                (
+                    payload["source_type"],
+                    payload["source_id"],
+                    payload["expected_date"],
+                    payload["expected_date"],
+                ),
             ).fetchone()
             if existing:
                 if existing["status"] in {"auto_matched", "confirmed", "to_review", "ignored", "cancelled"}:
@@ -229,11 +242,15 @@ class ForecastReconciliationService:
             conn.execute(
                 """
                 INSERT INTO forecast_occurrences(
-                    uuid, source_type, source_id, account_id, expected_date, expected_amount,
-                    expected_label, expected_category, direction, status, created_at, updated_at
+                    uuid, source_type, source_id, account_id, expected_date, original_expected_date,
+                    expected_amount, expected_label, expected_category, direction, status,
+                    created_at, updated_at
                 )
-                VALUES (:uuid, :source_type, :source_id, :account_id, :expected_date, :expected_amount,
-                        :expected_label, :expected_category, :direction, 'planned', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (
+                    :uuid, :source_type, :source_id, :account_id, :expected_date, :expected_date,
+                    :expected_amount, :expected_label, :expected_category, :direction, 'planned',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
                 """,
                 payload,
             )
@@ -822,7 +839,16 @@ class ForecastReconciliationService:
 
         expected_label = _norm(occurrence["expected_label"])
         tx_label = _norm(transaction["label"])
-        if expected_label and tx_label:
+        transaction_counterparty = _norm(
+            transaction["beneficiary"]
+            if "beneficiary" in transaction.keys() and transaction["beneficiary"]
+            else extract_counterparty(transaction["label"])
+        )
+        expected_counterparty = _norm(extract_counterparty(occurrence["expected_label"]))
+        if transaction_counterparty and expected_counterparty and transaction_counterparty == expected_counterparty:
+            score += 5
+            reasons.append("tiers identifié identique +5")
+        elif expected_label and tx_label:
             ratio = SequenceMatcher(None, expected_label, tx_label).ratio()
             token_hit = any(token and token in tx_label for token in expected_label.split() if len(token) >= 4)
             if token_hit or ratio * 100 >= int(rules["label_similarity_min"]):
@@ -1045,6 +1071,164 @@ class ForecastReconciliationService:
 
     def list_occurrences(self, status: str | None = "active", start_date=None, end_date=None, account_id=None, limit: int | None = None) -> list:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, status, limit)["occurrences"]
+
+    def list_reschedulable_occurrences(
+        self,
+        account_id: int | None = None,
+        reference_date: str | date | None = None,
+    ) -> list:
+        """Return unrealized recurring occurrences due no later than the forecast reference date."""
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        with self.db.connect() as conn:
+            rows = list(
+                conn.execute(
+                    """
+                    SELECT o.*, a.name AS account_name, a.bank AS bank,
+                           r.frequency AS recurring_frequency,
+                           (
+                               SELECT COUNT(*)
+                               FROM forecast_reconciliation_links l
+                               WHERE l.occurrence_id = o.id
+                                 AND l.deleted_at IS NULL
+                           ) AS active_links
+                    FROM forecast_occurrences o
+                    LEFT JOIN accounts a ON a.id = o.account_id
+                    LEFT JOIN recurring_items r
+                      ON o.source_type = 'recurring' AND r.id = o.source_id
+                    WHERE o.deleted_at IS NULL
+                      AND o.source_type = 'recurring'
+                      AND o.source_id IS NOT NULL
+                      AND o.actual_transaction_id IS NULL
+                      AND o.status IN ('planned', 'overdue', 'to_review')
+                      AND o.expected_date <= ?
+                      AND (? IS NULL OR o.account_id = ?)
+                    ORDER BY o.expected_date, o.id
+                    """,
+                    (reference.isoformat(), account_id, account_id),
+                )
+            )
+        return [row for row in rows if int(row["active_links"] or 0) == 0]
+
+    def reschedule_occurrences(
+        self,
+        occurrence_ids: list[int],
+        target_date: str | date,
+        reference_date: str | date | None = None,
+    ) -> tuple[int, str]:
+        """Atomically move selected unrealized occurrences to one future date."""
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        try:
+            target = _parse_date(target_date)
+        except (TypeError, ValueError):
+            return 0, "La nouvelle date est invalide."
+
+        try:
+            normalized_ids = sorted({int(value) for value in occurrence_ids if int(value) > 0})
+        except (TypeError, ValueError):
+            return 0, "La sélection contient une occurrence invalide."
+        if not normalized_ids:
+            return 0, "Sélectionne au moins une échéance à décaler."
+        if target <= reference:
+            return 0, "La nouvelle date doit être strictement postérieure à aujourd’hui."
+
+        placeholders = ",".join("?" for _ in normalized_ids)
+        with self.db.connect() as conn:
+            rows = list(
+                conn.execute(
+                    f"""
+                    SELECT o.*,
+                           (
+                               SELECT COUNT(*)
+                               FROM forecast_reconciliation_links l
+                               WHERE l.occurrence_id = o.id
+                                 AND l.deleted_at IS NULL
+                           ) AS active_links
+                    FROM forecast_occurrences o
+                    WHERE o.id IN ({placeholders})
+                      AND o.deleted_at IS NULL
+                    ORDER BY o.id
+                    """,
+                    normalized_ids,
+                )
+            )
+            if len(rows) != len(normalized_ids):
+                return 0, "Une échéance sélectionnée n’existe plus. Actualise la liste."
+
+            for row in rows:
+                label = str(row["expected_label"] or "Échéance")
+                if row["source_type"] != "recurring" or row["source_id"] is None:
+                    return 0, f"« {label} » n’est pas une opération récurrente."
+                if _parse_date(row["expected_date"]) > reference:
+                    return 0, f"« {label} » est déjà postérieure à aujourd’hui."
+                if row["actual_transaction_id"] is not None or int(row["active_links"] or 0) > 0:
+                    return 0, f"« {label} » est déjà réalisée ou rapprochée."
+                if row["status"] not in {"planned", "overdue", "to_review"}:
+                    return 0, f"Le statut de « {label} » ne permet pas son décalage."
+
+            for row in rows:
+                occurrence_id = int(row["id"])
+                previous_date = str(row["expected_date"])
+                original_date = str(row["original_expected_date"] or previous_date)
+                conn.execute(
+                    """
+                    UPDATE forecast_reconciliation_proposals
+                    SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+                    WHERE occurrence_id = ?
+                      AND deleted_at IS NULL
+                      AND status = 'to_review'
+                    """,
+                    (occurrence_id,),
+                )
+                conn.execute(
+                    """
+                    UPDATE forecast_occurrences
+                    SET original_expected_date = ?,
+                        expected_date = ?,
+                        rescheduled_at = CURRENT_TIMESTAMP,
+                        status = 'planned',
+                        actual_transaction_id = NULL,
+                        actual_date = NULL,
+                        actual_amount = NULL,
+                        amount_delta = NULL,
+                        match_confidence = NULL,
+                        match_reason = NULL,
+                        match_type = NULL,
+                        matched_amount = 0,
+                        remaining_amount = ABS(expected_amount),
+                        overage_amount = 0,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (original_date, target.isoformat(), occurrence_id),
+                )
+                self.db.audit_event(
+                    conn,
+                    "occurrence_rescheduled",
+                    "forecast_occurrence",
+                    str(occurrence_id),
+                    "Échéance récurrente décalée.",
+                    {
+                        "previous_date": previous_date,
+                        "original_date": original_date,
+                        "target_date": target.isoformat(),
+                        "batch_size": len(rows),
+                    },
+                )
+
+            from app.services.reconciliation import reevaluate_for_occurrences
+
+            reevaluate_for_occurrences(
+                conn,
+                normalized_ids,
+                self.db.reconciliation_rules(conn),
+                reason="Échéance récurrente décalée",
+            )
+
+        count = len(normalized_ids)
+        return count, (
+            f"{count} échéance{'s' if count > 1 else ''} décalée"
+            f"{'s' if count > 1 else ''} au {target.strftime('%d/%m/%Y')}."
+        )
 
     def summary(self, start_date=None, end_date=None, account_id=None) -> dict:
         return self.build_reconciliation_dataset(start_date, end_date, account_id, "all", 999999)["summary"]

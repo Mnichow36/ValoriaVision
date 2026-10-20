@@ -18,6 +18,7 @@ class ImportedTransaction:
     amount: float
     category: str | None = None
     detail: str | None = None
+    beneficiary: str | None = None
     currency: str | None = "EUR"
     source_line: int | None = None
     source_profile: str | None = None

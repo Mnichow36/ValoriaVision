@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from app.services.counterparty_parser import extract_counterparty
 from app.services.reconciliation.models import ForecastInput, TransactionInput
 from app.services.reconciliation.persistence_service import (
     PersistedQualification,
@@ -24,7 +25,7 @@ def _direction(value: str | None, amount: float) -> str:
 def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> TransactionInput:
     row = conn.execute(
         """
-        SELECT id, account_id, tx_date, amount, label, tx_type, category,
+        SELECT id, account_id, tx_date, amount, label, beneficiary, tx_type, category,
                source_identifier
         FROM transactions
         WHERE id = ?
@@ -42,6 +43,7 @@ def _load_transaction(conn: sqlite3.Connection, transaction_id: int) -> Transact
         label=row["label"] or "",
         direction=_direction(row["tx_type"], amount),
         category=row["category"],
+        counterparty=(row["beneficiary"] or extract_counterparty(row["label"])).strip() or None,
         external_reference=row["source_identifier"],
     )
 
@@ -91,6 +93,7 @@ def _load_open_forecasts(
             expected_label=row["expected_label"] or "",
             direction=_direction(row["direction"], float(row["expected_amount"])),
             category=row["expected_category"],
+            counterparty=extract_counterparty(row["expected_label"]).strip() or None,
         )
         for row in rows
     )

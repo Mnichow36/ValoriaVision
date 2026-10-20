@@ -108,8 +108,8 @@ class R8ReconciliationSchemaTests(unittest.TestCase):
             )
         return occurrence_id
 
-    def test_schema_version_is_15(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 15)
+    def test_schema_version_is_16(self) -> None:
+        self.assertEqual(SCHEMA_VERSION, 16)
 
     def test_r8_schema_creates_expected_tables_and_unclassified_state(self) -> None:
         account_id = self.create_account()

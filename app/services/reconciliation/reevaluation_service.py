@@ -52,7 +52,7 @@ def _input_fingerprint(
 ) -> str:
     transaction = conn.execute(
         """
-        SELECT account_id, tx_date, amount, label, tx_type, category
+        SELECT account_id, tx_date, amount, label, beneficiary, tx_type, category
         FROM transactions WHERE id = ?
         """,
         (transaction_id,),

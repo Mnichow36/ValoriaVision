@@ -1,0 +1,5 @@
+# Dépendances isolées du prototype React/API.
+# Elles seront fusionnées dans requirements-lock.txt uniquement après validation du POC.
+fastapi==0.143.0
+uvicorn==0.54.0
+openpyxl==3.1.5

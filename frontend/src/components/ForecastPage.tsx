@@ -1,0 +1,931 @@
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+import { deleteRecurrence, getForecast, getReschedulableOccurrences, getScenarioSettings, rescheduleOccurrences } from "../api/client";
+import type { ForecastAccount, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, ReschedulableOccurrence, ReschedulableOccurrencesResult, ScenarioActionResult, ScenarioSettingsSnapshot } from "../api/contracts";
+import { InteractiveLineChart } from "./InteractiveCharts";
+import { ScenarioManager } from "./ScenarioManager";
+import { RecurrenceEditor } from "./RecurrenceEditor";
+
+interface ForecastPageProps {
+  accountId: string;
+  editorRequestKey: number;
+  horizonDays: number;
+  onAccountsChange: (accounts: ForecastAccount[]) => void;
+  onDataChanged: () => void;
+  onScenarioChange: (scenario: string) => void;
+  scenario: string;
+  token: string;
+}
+
+const currencyFormatter = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+  currencyDisplay: "code",
+  maximumFractionDigits: 0,
+});
+
+const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccountsChange, onDataChanged, onScenarioChange, scenario, token }: ForecastPageProps) {
+  const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
+  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [scenarioManagerOpen, setScenarioManagerOpen] = useState(false);
+  const [scenarioCatalog, setScenarioCatalog] = useState<ScenarioSettingsSnapshot>();
+  const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
+    __realized: true,
+    "Réaliste": true,
+    "Prudent": true,
+    "Optimiste": false,
+  });
+  const [editingRecurrence, setEditingRecurrence] = useState<RecurrenceItem>();
+  const [selectedPoint, setSelectedPoint] = useState<ForecastPoint>();
+  const lastEditorRequestKey = useRef(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(undefined);
+    setSelectedPoint(undefined);
+    getForecast(token, { accountId, horizonDays, scenario }, controller.signal)
+      .then((data) => {
+        setSnapshot(data);
+        onAccountsChange(data.accounts);
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "La projection ne peut pas être chargée.");
+        }
+      });
+    return () => controller.abort();
+  }, [accountId, horizonDays, onAccountsChange, refreshKey, scenario, token]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getScenarioSettings(token, controller.signal)
+      .then(setScenarioCatalog)
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setNotice(cause instanceof Error ? cause.message : "Les scénarios ne peuvent pas être chargés.");
+        }
+      });
+    return () => controller.abort();
+  }, [refreshKey, token]);
+
+  useEffect(() => {
+    if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
+      lastEditorRequestKey.current = editorRequestKey;
+      setEditingRecurrence(undefined);
+      setManagerOpen(false);
+      setRescheduleOpen(false);
+      setSelectedPoint(undefined);
+      setEditorOpen(true);
+    }
+  }, [editorRequestKey]);
+
+  function completed(result: { message: string }) {
+    setEditorOpen(false);
+    setManagerOpen(false);
+    setRescheduleOpen(false);
+    setScenarioManagerOpen(false);
+    setEditingRecurrence(undefined);
+    setSelectedPoint(undefined);
+    setNotice(result.message);
+    setRefreshKey((key) => key + 1);
+    onDataChanged();
+  }
+
+  if (error) {
+    return (
+      <section className="error-state">
+        <strong>Le prévisionnel ne peut pas être affiché.</strong>
+        <p>{error}</p>
+        <button className="secondary-button" onClick={() => setRefreshKey((key) => key + 1)} type="button">Réessayer</button>
+      </section>
+    );
+  }
+
+  if (!snapshot) {
+    return <div className="loading-state"><span aria-hidden="true" />Calcul de la projection par le moteur Python…</div>;
+  }
+
+  return (
+    <>
+      {notice && <div className="transaction-notice forecast-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
+      <div className="forecast-page">
+      <article className="card forecast-projection">
+        <div className="forecast-card-heading">
+          <div>
+            <h2>Projection journalière</h2>
+            <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · solde réel et échéances prévues.</p>
+          </div>
+          <ScenarioSelector
+            catalog={scenarioCatalog}
+            onManage={() => {
+              setEditorOpen(false);
+              setManagerOpen(false);
+              setRescheduleOpen(false);
+              setSelectedPoint(undefined);
+              setScenarioManagerOpen(true);
+            }}
+            onScenarioChange={onScenarioChange}
+            onVisibilityChange={(name) => {
+              setVisibleSeries((current) => ({
+                ...current,
+                [name]: !(current[name] ?? name === scenario),
+              }));
+            }}
+            scenario={scenario}
+            visibleSeries={visibleSeries}
+          />
+        </div>
+
+        <ForecastChart onPointSelect={setSelectedPoint} snapshot={snapshot} visibleSeries={visibleSeries} />
+
+        <div className="forecast-summary-cards">
+          <ForecastSummaryCard
+            badge={snapshot.summary.lowBalance >= 5000 ? "Cash stable" : snapshot.summary.alert}
+            label="Point bas"
+            meta={`Atteint le ${formatDate(snapshot.summary.lowDate)}`}
+            tone={snapshot.summary.lowBalance >= 5000 ? "success" : "warning"}
+            value={formatMoney(snapshot.summary.lowBalance)}
+          />
+          <ForecastSummaryCard
+            badge={percentageChange(snapshot.summary.startingCash, snapshot.summary.endBalance)}
+            label="Solde final"
+            meta={`Projection au ${formatDate(snapshot.summary.endDate)}`}
+            tone="blue"
+            value={formatMoney(snapshot.summary.endBalance)}
+          />
+        </div>
+      </article>
+
+      <aside className="forecast-side">
+        <article className="card forecast-upcoming">
+          <div className="forecast-card-heading">
+            <div><h2>Échéances de l’horizon</h2><p>{snapshot.upcoming.length} récurrence{snapshot.upcoming.length > 1 ? "s" : ""} du {formatDate(snapshot.filters.referenceDate)} au {formatDate(snapshot.filters.endDate)}.</p></div>
+            <div className="forecast-heading-actions">
+              <button className="forecast-reschedule-button" onClick={() => {
+                setManagerOpen(false);
+                setSelectedPoint(undefined);
+                setRescheduleOpen(true);
+              }} type="button">
+                Décaler des échéances
+              </button>
+              <button className="forecast-manage-button" onClick={() => {
+                setRescheduleOpen(false);
+                setSelectedPoint(undefined);
+                setManagerOpen(true);
+              }} type="button">
+                Gérer <span>{snapshot.recurrences.length}</span>
+              </button>
+            </div>
+          </div>
+          <div className="forecast-upcoming-list">
+            {snapshot.upcoming.length > 0
+              ? snapshot.upcoming.map((event, index) => <UpcomingEvent event={event} key={`${event.date}-${event.name}-${index}`} />)
+              : <p className="forecast-empty">Aucune récurrence sur cette période.</p>}
+          </div>
+        </article>
+
+        <article className="card forecast-reading">
+          <div className="forecast-card-heading"><div><h2>Lecture immédiate</h2><p>Ce qui change sur la période.</p></div></div>
+          <Metric label="Encaissements prévus" tone="positive" value={signedMoney(snapshot.summary.totalIn)} />
+          <Metric label="Décaissements prévus" tone="negative" value={signedMoney(-snapshot.summary.totalOut)} />
+          <Metric label="Écart vs scénario prudent" tone="blue" value={signedMoney(snapshot.summary.prudentDifference)} />
+        </article>
+      </aside>
+      </div>
+      {editorOpen && (
+        <RecurrenceEditor
+          accounts={snapshot.accounts}
+          categories={snapshot.categories}
+          defaultAccountId={accountId}
+          defaultScenario={scenario}
+          key={editingRecurrence?.id ?? "new"}
+          onClose={() => {
+            setEditorOpen(false);
+            setEditingRecurrence(undefined);
+          }}
+          onCompleted={completed}
+          recurrence={editingRecurrence}
+          token={token}
+        />
+      )}
+      {managerOpen && (
+        <RecurrenceManager
+          accountId={accountId}
+          items={snapshot.recurrences}
+          onClose={() => setManagerOpen(false)}
+          onCompleted={completed}
+          onEdit={(item) => {
+            setManagerOpen(false);
+            setEditingRecurrence(item);
+            setEditorOpen(true);
+          }}
+          token={token}
+        />
+      )}
+      {rescheduleOpen && (
+        <OccurrenceRescheduleDrawer
+          accountId={accountId}
+          onClose={() => setRescheduleOpen(false)}
+          onCompleted={completed}
+          token={token}
+        />
+      )}
+      {scenarioManagerOpen && scenarioCatalog && (
+        <ScenarioManager
+          catalog={scenarioCatalog}
+          onChanged={(result: ScenarioActionResult) => {
+            setNotice(result.message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+          onClose={() => setScenarioManagerOpen(false)}
+          token={token}
+        />
+      )}
+      {selectedPoint && (
+        <ForecastDayDetails
+          onClose={() => setSelectedPoint(undefined)}
+          onCompleted={completed}
+          onEdit={(item) => {
+            setSelectedPoint(undefined);
+            setEditingRecurrence(item);
+            setEditorOpen(true);
+          }}
+          point={selectedPoint}
+          recurrences={snapshot.recurrences}
+          token={token}
+        />
+      )}
+    </>
+  );
+}
+
+function ForecastDayDetails({
+  onClose,
+  onCompleted,
+  onEdit,
+  point,
+  recurrences,
+  token,
+}: {
+  onClose: () => void;
+  onCompleted: (result: RecurrenceActionResult) => void;
+  onEdit: (item: RecurrenceItem) => void;
+  point: ForecastPoint;
+  recurrences: RecurrenceItem[];
+  token: string;
+}) {
+  const [deletingId, setDeletingId] = useState<number>();
+  const [error, setError] = useState<string>();
+  const dailyNet = point.events.reduce((sum, event) => sum + event.amount, 0);
+  const recurringEvents = point.events.filter((event) => event.source.startsWith("Récurrence"));
+  const otherEvents = point.events.filter((event) => !event.source.startsWith("Récurrence"));
+  const groups = [
+    {
+      id: "recurrences",
+      title: "Échéances récurrentes",
+      description: "Opérations planifiées qui expliquent la variation de trésorerie.",
+      events: recurringEvents,
+    },
+    {
+      id: "operations",
+      title: "Autres mouvements",
+      description: "Opérations réalisées ou hypothèses ponctuelles de la journée.",
+      events: otherEvents,
+    },
+  ].filter((group) => group.events.length > 0);
+
+  async function remove(item: RecurrenceItem) {
+    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
+    setDeletingId(item.id);
+    setError(undefined);
+    try {
+      onCompleted(await deleteRecurrence(token, item.id));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
+      setDeletingId(undefined);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deletingId && onClose()}>
+      <aside aria-labelledby="forecast-day-title" aria-modal="true" className="account-editor forecast-day-details" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Détail des opérations</span>
+            <h2 id="forecast-day-title">{formatDate(point.date)}</h2>
+          </div>
+          <button aria-label="Fermer" disabled={Boolean(deletingId)} onClick={onClose} type="button">×</button>
+        </header>
+        <div className="forecast-day-details__body">
+          <div className="forecast-day-details__summary">
+            <div><span>Solde prévu</span><strong>{formatMoney(point.balance)}</strong></div>
+            <div><span>Impact du jour</span><strong className={dailyNet >= 0 ? "positive" : "negative"}>{signedMoney(dailyNet)}</strong></div>
+            <div><span>Échéances récurrentes</span><strong>{recurringEvents.length}</strong></div>
+            <div><span>Autres mouvements</span><strong>{otherEvents.length}</strong></div>
+          </div>
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          <div className="forecast-day-details__list">
+            {groups.map((group) => (
+              <section className="forecast-day-group" key={group.id}>
+                <div className="forecast-day-group__heading">
+                  <div><strong>{group.title}</strong><span>{group.description}</span></div>
+                  <b>{group.events.length}</b>
+                </div>
+                <div className="forecast-day-group__rows">
+                  {group.events.map((event, index) => {
+                    const recurrence = event.recurringId === null
+                      ? undefined
+                      : recurrences.find((item) => item.id === event.recurringId);
+                    return (
+                      <article className="forecast-day-event" key={`${event.source}-${event.name}-${index}`}>
+                        <div className="forecast-day-event__marker" data-source={event.source} aria-hidden="true" />
+                        <div className="forecast-day-event__main">
+                          <div className="forecast-day-event__heading">
+                            <div>
+                              <span>{event.source || "Opération"}</span>
+                              <strong>{event.name}</strong>
+                            </div>
+                            <b className={event.amount >= 0 ? "positive" : "negative"}>{signedMoney(event.amount)}</b>
+                          </div>
+                          <div className="forecast-day-event__meta">
+                            <span>{event.account}</span>
+                            <span>{event.category}</span>
+                            {event.scenario && event.scenario !== "Tous" && <span>{event.scenario}</span>}
+                            {event.originalDate && event.originalDate !== event.date && <span>Initialement le {formatDate(event.originalDate)}</span>}
+                          </div>
+                          {recurrence && (
+                            <div className="forecast-day-event__actions">
+                              <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(recurrence)} type="button">Modifier la règle</button>
+                              <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(recurrence)} type="button">
+                                {deletingId === recurrence.id ? "Suppression…" : "Supprimer"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            {point.events.length === 0 && (
+              <div className="forecast-day-details__empty">
+                <strong>Aucune opération ce jour</strong>
+                <p>Le solde reste inchangé entre les deux points de la courbe.</p>
+              </div>
+            )}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
+          </footer>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function OccurrenceRescheduleDrawer({
+  accountId,
+  onClose,
+  onCompleted,
+  token,
+}: {
+  accountId: string;
+  onClose: () => void;
+  onCompleted: (result: OccurrenceRescheduleResult) => void;
+  token: string;
+}) {
+  const [data, setData] = useState<ReschedulableOccurrencesResult>();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [targetDate, setTargetDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(undefined);
+    getReschedulableOccurrences(token, accountId, controller.signal)
+      .then((result) => {
+        setData(result);
+        setTargetDate(result.minTargetDate);
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "Les échéances à décaler ne peuvent pas être chargées.");
+        }
+      });
+    return () => controller.abort();
+  }, [accountId, token]);
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedItems = useMemo(
+    () => (data?.items ?? []).filter((item) => selectedSet.has(item.id)),
+    [data, selectedSet],
+  );
+  const selectedTotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
+  const allSelected = Boolean(data?.items.length) && selectedIds.length === data?.items.length;
+
+  function toggle(item: ReschedulableOccurrence) {
+    setSelectedIds((current) => current.includes(item.id)
+      ? current.filter((id) => id !== item.id)
+      : [...current, item.id]);
+  }
+
+  function toggleAll() {
+    setSelectedIds(allSelected ? [] : (data?.items ?? []).map((item) => item.id));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!data || selectedIds.length === 0 || targetDate < data.minTargetDate) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      onCompleted(await rescheduleOccurrences(token, selectedIds, targetDate));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Le décalage groupé n’a pas pu être enregistré.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="reschedule-title" aria-modal="true" className="account-editor occurrence-reschedule" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Prévisionnel</span>
+            <h2 id="reschedule-title">Décaler des échéances</h2>
+          </div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form className="occurrence-reschedule__body" onSubmit={(event) => void submit(event)}>
+          <div className="occurrence-reschedule__intro">
+            <strong>Régulariser les prévisions non réalisées</strong>
+            <p>Seules les échéances arrivées aujourd’hui et sans transaction rapprochée sont proposées.</p>
+            {data && (
+              <span className="occurrence-reschedule__reference">
+                Aujourd’hui : {formatDate(data.referenceDate)} · première date cible : {formatDate(data.minTargetDate)}
+              </span>
+            )}
+          </div>
+
+          {data && data.items.length > 0 && (
+            <>
+              <div className="occurrence-reschedule__toolbar">
+                <button className="secondary-button" disabled={busy} onClick={toggleAll} type="button">
+                  {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                </button>
+                <label className="account-field">
+                  <span>Nouvelle date *</span>
+                  <input
+                    min={data.minTargetDate}
+                    onChange={(event) => setTargetDate(event.target.value)}
+                    required
+                    type="date"
+                    value={targetDate}
+                  />
+                </label>
+              </div>
+              <div className="occurrence-reschedule__summary" aria-live="polite">
+                <div><span>Sélection</span><strong>{selectedIds.length}</strong></div>
+                <div><span>Impact net</span><strong className={selectedTotal >= 0 ? "positive" : "negative"}>{signedMoney(selectedTotal)}</strong></div>
+                <div><span>Date cible</span><strong>{targetDate ? formatDate(targetDate) : "—"}</strong></div>
+              </div>
+            </>
+          )}
+
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          {!data && !error && <div className="loading-state"><span aria-hidden="true" />Recherche des échéances à régulariser…</div>}
+          {data && (
+            <div className="occurrence-reschedule__list">
+              {data.items.map((item) => (
+                <label className={selectedSet.has(item.id) ? "occurrence-reschedule__item occurrence-reschedule__item--selected" : "occurrence-reschedule__item"} key={item.id}>
+                  <input
+                    checked={selectedSet.has(item.id)}
+                    disabled={busy}
+                    onChange={() => toggle(item)}
+                    type="checkbox"
+                  />
+                  <span className="occurrence-reschedule__item-content">
+                    <span className="occurrence-reschedule__item-main">
+                      <span>
+                        <strong>{item.label}</strong>
+                        <small>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</small>
+                      </span>
+                      <b className={item.amount >= 0 ? "positive" : "negative"}>{signedMoney(item.amount)}</b>
+                    </span>
+                    <span className="occurrence-reschedule__item-meta">
+                      <span>Échéance : {formatDate(item.date)}</span>
+                      <span>{item.category}</span>
+                      {item.frequency && <span>{item.frequency}</span>}
+                      <em>{item.statusLabel}</em>
+                    </span>
+                    {item.alreadyRescheduled && item.originalDate !== item.date && (
+                      <small className="occurrence-reschedule__history">Date d’origine : {formatDate(item.originalDate)}</small>
+                    )}
+                  </span>
+                </label>
+              ))}
+              {data.items.length === 0 && (
+                <div className="forecast-day-details__empty">
+                  <strong>Aucune échéance à décaler</strong>
+                  <p>Toutes les opérations arrivées à échéance sont déjà réalisées, rapprochées ou traitées.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="account-editor-note">
+            Le décalage porte uniquement sur les occurrences sélectionnées. Les prochaines dates de chaque récurrence restent inchangées.
+          </p>
+          <footer>
+            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+            <button
+              disabled={busy || !data || selectedIds.length === 0 || targetDate < data.minTargetDate}
+              type="submit"
+            >
+              {busy
+                ? "Décalage…"
+                : selectedIds.length > 0
+                  ? `Décaler ${selectedIds.length} échéance${selectedIds.length > 1 ? "s" : ""}`
+                  : "Sélectionner des échéances"}
+            </button>
+          </footer>
+        </form>
+      </aside>
+    </div>
+  );
+}
+
+function RecurrenceManager({
+  accountId,
+  items,
+  onClose,
+  onCompleted,
+  onEdit,
+  token,
+}: {
+  accountId: string;
+  items: RecurrenceItem[];
+  onClose: () => void;
+  onCompleted: (result: RecurrenceActionResult) => void;
+  onEdit: (item: RecurrenceItem) => void;
+  token: string;
+}) {
+  const [deletingId, setDeletingId] = useState<number>();
+  const [error, setError] = useState<string>();
+  const visibleItems = accountId === "all"
+    ? items
+    : items.filter((item) => item.accountId === Number(accountId));
+
+  async function remove(item: RecurrenceItem) {
+    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
+    setDeletingId(item.id);
+    setError(undefined);
+    try {
+      onCompleted(await deleteRecurrence(token, item.id));
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
+      setDeletingId(undefined);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deletingId && onClose()}>
+      <aside aria-labelledby="recurrence-manager-title" aria-modal="true" className="account-editor recurrence-manager" role="dialog">
+        <header>
+          <div>
+            <span className="eyebrow">Prévisionnel</span>
+            <h2 id="recurrence-manager-title">Gérer les récurrences</h2>
+          </div>
+          <button aria-label="Fermer" disabled={Boolean(deletingId)} onClick={onClose} type="button">×</button>
+        </header>
+        <div className="recurrence-manager__body">
+          <div className="recurrence-manager__summary">
+            <strong>{visibleItems.length} récurrence(s)</strong>
+            <span>{accountId === "all" ? "Tous les comptes" : "Compte sélectionné"}</span>
+          </div>
+          <p className="recurrence-manager__explanation">
+            Les échéances décalées correspondent aux opérations visibles dans la courbe. La date du calendrier reste indiquée séparément.
+          </p>
+          {error && <p className="account-form-error" role="alert">{error}</p>}
+          <div className="recurrence-manager__list">
+            {visibleItems.map((item) => (
+              <article className="recurrence-manager__item" key={item.id}>
+                <div className="recurrence-manager__item-main">
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</span>
+                  </div>
+                  <b className={item.direction === "Crédit" ? "positive" : "negative"}>
+                    {signedMoney(item.direction === "Crédit" ? item.amount : -item.amount)}
+                  </b>
+                </div>
+                <div className="recurrence-manager__meta">
+                  <span>{item.category}</span>
+                  <span>{item.frequency}</span>
+                  {item.rescheduledOccurrenceCount > 0 ? (
+                    <>
+                      <span className="recurrence-status recurrence-status--rescheduled">
+                        {item.rescheduledOccurrenceCount} échéance{item.rescheduledOccurrenceCount > 1 ? "s" : ""} décalée{item.rescheduledOccurrenceCount > 1 ? "s" : ""} au {formatDate(item.nextRescheduledDate)}
+                      </span>
+                      {item.nextScheduledDate && item.nextScheduledDate !== item.nextRescheduledDate && (
+                        <span>Calendrier suivant : {formatDate(item.nextScheduledDate)}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span>Prochaine échéance : {item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "aucune à venir"}</span>
+                  )}
+                  <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>
+                    {item.status}
+                  </span>
+                </div>
+                <div className="recurrence-manager__actions">
+                  <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(item)} type="button">Modifier</button>
+                  <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(item)} type="button">
+                    {deletingId === item.id ? "Suppression…" : "Supprimer"}
+                  </button>
+                </div>
+              </article>
+            ))}
+            {visibleItems.length === 0 && <p className="forecast-empty">Aucune récurrence pour ce filtre.</p>}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
+          </footer>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+const STANDARD_SCENARIOS = [
+  { name: "Réaliste", color: "#2563eb", description: "Hypothèses centrales" },
+  { name: "Prudent", color: "#e11d48", description: "Vision de vigilance" },
+  { name: "Optimiste", color: "#7c3aed", description: "Hypothèses favorables" },
+];
+
+const CUSTOM_SCENARIO_COLORS = ["#f59e0b", "#0891b2", "#db2777", "#65a30d", "#9333ea"];
+
+function ScenarioSelector({
+  catalog,
+  onManage,
+  onScenarioChange,
+  onVisibilityChange,
+  scenario,
+  visibleSeries,
+}: {
+  catalog?: ScenarioSettingsSnapshot;
+  onManage: () => void;
+  onScenarioChange: (scenario: string) => void;
+  onVisibilityChange: (scenario: string) => void;
+  scenario: string;
+  visibleSeries: Record<string, boolean>;
+}) {
+  const standard = STANDARD_SCENARIOS.map((option) => {
+    const preset = catalog?.presets.find((item) => item.name === option.name);
+    return {
+      ...option,
+      description: preset
+        ? `Recettes ${preset.incomePercent} % · dépenses ${preset.expensePercent} %`
+        : option.description,
+    };
+  });
+  const custom = (catalog?.scenarios ?? [])
+    .filter((item) => !item.isReference && item.isActive)
+    .map((item, index) => ({
+      name: item.name,
+      color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
+      description: `${item.eventCount} hypothèse${item.eventCount > 1 ? "s" : ""}`,
+    }));
+  const options = [...standard, ...custom];
+  const active = options.find((option) => option.name === scenario) ?? options[0];
+
+  return (
+    <details className="scenario-picker">
+      <summary>
+        <i style={{ background: active.color }} />
+        <span><small>Scénario principal</small><strong>{active.name}</strong></span>
+        <b aria-hidden="true">⌄</b>
+      </summary>
+      <div className="scenario-picker__menu">
+        <div className="scenario-picker__title">
+          <span>Courbes comparées</span>
+          <small>Choisir le scénario principal</small>
+        </div>
+        <div className="scenario-picker__row scenario-picker__row--realized">
+          <button
+            aria-label={visibleSeries.__realized ? "Masquer le réalisé" : "Afficher le réalisé"}
+            className={visibleSeries.__realized ? "scenario-visibility scenario-visibility--on" : "scenario-visibility"}
+            onClick={() => onVisibilityChange("__realized")}
+            type="button"
+          >
+            <EyeIcon visible={Boolean(visibleSeries.__realized)} />
+          </button>
+          <i style={{ background: "#06a9c2" }} />
+          <span><strong>Réalisé</strong><small>Solde issu des opérations bancaires</small></span>
+        </div>
+        {options.map((option) => {
+          const selected = option.name === scenario;
+          const visible = selected || Boolean(visibleSeries[option.name]);
+          return (
+            <div className={selected ? "scenario-picker__row scenario-picker__row--selected" : "scenario-picker__row"} key={option.name}>
+              <button
+                aria-label={visible ? `Masquer ${option.name}` : `Afficher ${option.name}`}
+                className={visible ? "scenario-visibility scenario-visibility--on" : "scenario-visibility"}
+                disabled={selected}
+                onClick={() => onVisibilityChange(option.name)}
+                type="button"
+              >
+                <EyeIcon visible={visible} />
+              </button>
+              <i style={{ background: option.color }} />
+              <button className="scenario-picker__select" onClick={() => onScenarioChange(option.name)} type="button">
+                <span><strong>{option.name}</strong><small>{option.description}</small></span>
+                {selected && <b>Principal</b>}
+              </button>
+            </div>
+          );
+        })}
+        <button className="scenario-picker__manage" onClick={onManage} type="button">
+          <span aria-hidden="true">＋</span>
+          Gérer et paramétrer les scénarios
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function EyeIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+      {!visible && <path d="M4 4 20 20" />}
+    </svg>
+  );
+}
+
+function ForecastChart({
+  onPointSelect,
+  snapshot,
+  visibleSeries,
+}: {
+  onPointSelect: (point: ForecastPoint) => void;
+  snapshot: ForecastSnapshot;
+  visibleSeries: Record<string, boolean>;
+}) {
+  const definitions = [
+    {
+      id: "scenario-realistic",
+      name: "Réaliste",
+      color: STANDARD_SCENARIOS[0].color,
+      points: snapshot.filters.scenario === "Réaliste" ? snapshot.series.selected : snapshot.series.realistic,
+    },
+    {
+      id: "scenario-prudent",
+      name: "Prudent",
+      color: STANDARD_SCENARIOS[1].color,
+      points: snapshot.filters.scenario === "Prudent" ? snapshot.series.selected : snapshot.series.prudent,
+    },
+    {
+      id: "scenario-optimistic",
+      name: "Optimiste",
+      color: STANDARD_SCENARIOS[2].color,
+      points: snapshot.filters.scenario === "Optimiste" ? snapshot.series.selected : snapshot.series.optimistic,
+    },
+    ...Object.entries(snapshot.series.custom).map(([name, points], index) => ({
+      id: `scenario-custom-${index}`,
+      name,
+      color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
+      points: snapshot.filters.scenario === name ? snapshot.series.selected : points,
+    })),
+  ];
+  const selected = definitions.find((definition) => definition.name === snapshot.filters.scenario) ?? {
+    id: "scenario-selected",
+    name: snapshot.filters.scenario,
+    color: "#2563eb",
+    points: snapshot.series.selected,
+  };
+  const selectedPoints = selected.points.map((point) => ({
+    date: point.date,
+    value: point.balance,
+    details: (point.events ?? []).map((event) => ({
+      label: event.name,
+      meta: `${event.source} · ${event.account}`,
+      value: event.amount,
+      color: event.source.startsWith("Récurrence") || event.source === "Scénario"
+        ? "#7c3aed"
+        : event.amount >= 0 ? "#16a34a" : "#dc2626",
+    })),
+  }));
+  const comparisons = definitions
+    .filter((definition) => definition.name !== selected.name && visibleSeries[definition.name])
+    .map((definition) => ({
+      id: definition.id,
+      label: definition.name,
+      color: definition.color,
+      dashed: true,
+      points: definition.points.map((point) => ({ date: point.date, value: point.balance })),
+    }));
+
+  return (
+    <InteractiveLineChart
+      ariaLabel={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`}
+      flowBars={snapshot.series.selected.map((point) => ({
+        date: point.date,
+        inflow: point.inflow ?? 0,
+        outflow: point.outflow ?? 0,
+      }))}
+      onPointSelect={(index) => {
+        const point = snapshot.series.selected[index];
+        if (point) onPointSelect(point);
+      }}
+      series={[
+        {
+          id: selected.id,
+          label: `${selected.name} · principal`,
+          color: selected.color,
+          area: true,
+          points: selectedPoints,
+        },
+        ...(visibleSeries.__realized ? [{
+          id: "realized",
+          label: "Réalisé",
+          color: "#06a9c2",
+          points: snapshot.series.realized.map((point) => ({ date: point.date, value: point.balance })),
+        }] : []),
+        ...comparisons,
+      ]}
+      valueFormatter={formatMoney}
+    />
+  );
+}
+
+function ForecastSummaryCard({ badge, label, meta, tone, value }: { badge: string; label: string; meta: string; tone: "blue" | "success" | "warning"; value: string }) {
+  return (
+    <section className="forecast-summary-card">
+      <h3>{label}</h3>
+      <strong>{value}</strong>
+      <p>{meta}</p>
+      <span className={`forecast-badge forecast-badge--${tone}`}>{badge}</span>
+    </section>
+  );
+}
+
+function UpcomingEvent({ event }: { event: ForecastEvent }) {
+  const rescheduled = event.source === "Récurrence décalée";
+  const tone = rescheduled
+    ? "purple"
+    : event.amount > 0
+      ? "success"
+      : event.category.toLocaleLowerCase("fr").includes("épargne")
+        ? "cyan"
+        : "warning";
+  const origin = rescheduled && event.originalDate && event.originalDate !== event.date
+    ? ` · initialement le ${formatDate(event.originalDate)}`
+    : "";
+  return (
+    <div className="forecast-event">
+      <div><strong>{event.name}</strong><span>{formatDate(event.date)} · {signedMoney(event.amount)}{origin}</span></div>
+      <span className={`forecast-badge forecast-badge--${tone}`}>{rescheduled ? "Décalée" : "Prévue"}</span>
+    </div>
+  );
+}
+
+function Metric({ label, tone, value }: { label: string; tone: "blue" | "negative" | "positive"; value: string }) {
+  return <div className="forecast-metric"><span>{label}</span><strong className={`forecast-metric__value forecast-metric__value--${tone}`}>{value}</strong></div>;
+}
+
+function percentageChange(start: number, end: number): string {
+  if (!start) return "Projection calculée";
+  const change = ((end - start) / Math.abs(start)) * 100;
+  return `${change >= 0 ? "+ " : "- "}${Math.abs(change).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
+}
+
+function signedMoney(value: number): string {
+  if (value === 0) return formatMoney(value);
+  return `${value > 0 ? "+ " : "- "}${formatMoney(Math.abs(value))}`;
+}
+
+function formatMoney(value: number): string {
+  return currencyFormatter.format(value);
+}
+
+function formatDate(value: string): string {
+  if (!value) return "—";
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
+}

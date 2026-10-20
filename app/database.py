@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from app.services.counterparty_parser import extract_counterparty
 from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.services.reconciliation import (
@@ -24,6 +25,27 @@ from app.security.crypto_service import CryptoService, SecurityIntegrityError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+FORECAST_SCENARIO_PRESETS = {
+    "Réaliste": {
+        "description": "Montants prévisionnels conservés tels qu’ils ont été saisis.",
+        "income_percent": 100.0,
+        "expense_percent": 100.0,
+        "color": "#2563eb",
+    },
+    "Prudent": {
+        "description": "Recettes minorées et dépenses majorées pour anticiper une situation tendue.",
+        "income_percent": 90.0,
+        "expense_percent": 110.0,
+        "color": "#e11d48",
+    },
+    "Optimiste": {
+        "description": "Recettes majorées et dépenses minorées pour visualiser un contexte favorable.",
+        "income_percent": 110.0,
+        "expense_percent": 95.0,
+        "color": "#7c3aed",
+    },
+}
 
 
 def default_data_dir() -> Path:
@@ -54,7 +76,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 SECURE_DIR = DATA_DIR / "secure"
 ENCRYPTED_DB_PATH = SECURE_DIR / "valoria_vision.vvdb"
 DB_PATH = DATA_DIR / "valoria_vision.db"
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 @dataclass
@@ -224,6 +246,27 @@ class Database:
         self.seal_database_to_encrypted_vault()
         self.set_setting("security.database_vault_path", str(self.encrypted_db_path))
 
+    def prepare_existing_database(self) -> bool:
+        """Apply schema migrations to an existing local database for API use.
+
+        The React API must never create a new user database implicitly. It does,
+        however, need the same schema upgrades as the desktop application before
+        invoking business methods that rely on newer transaction columns.
+        """
+        if not self.path.exists():
+            return False
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            with conn:
+                self.create_schema(conn)
+                self.apply_migrations(conn)
+                self.set_schema_version(conn, SCHEMA_VERSION)
+        finally:
+            conn.close()
+        return True
+
     def create_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
@@ -277,6 +320,7 @@ class Database:
                 account_id INTEGER NOT NULL,
                 tx_date TEXT NOT NULL,
                 label TEXT NOT NULL,
+                beneficiary TEXT,
                 category TEXT,
                 amount REAL NOT NULL,
                 tx_type TEXT NOT NULL,
@@ -362,6 +406,8 @@ class Database:
                 source_id INTEGER,
                 account_id INTEGER,
                 expected_date TEXT NOT NULL,
+                original_expected_date TEXT,
+                rescheduled_at TEXT,
                 expected_amount REAL NOT NULL,
                 expected_label TEXT,
                 expected_category TEXT,
@@ -835,6 +881,8 @@ class Database:
                 source_id INTEGER,
                 account_id INTEGER,
                 expected_date TEXT NOT NULL,
+                original_expected_date TEXT,
+                rescheduled_at TEXT,
                 expected_amount REAL NOT NULL,
                 expected_label TEXT,
                 expected_category TEXT,
@@ -862,6 +910,8 @@ class Database:
             "source_id": "INTEGER",
             "account_id": "INTEGER",
             "expected_date": "TEXT",
+            "original_expected_date": "TEXT",
+            "rescheduled_at": "TEXT",
             "expected_amount": "REAL NOT NULL DEFAULT 0",
             "expected_label": "TEXT",
             "expected_category": "TEXT",
@@ -882,9 +932,20 @@ class Database:
         })
         self.populate_uuid(conn, "forecast_occurrences")
         conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_occurrences_source_date
-            ON forecast_occurrences(source_type, source_id, expected_date)
-            WHERE deleted_at IS NULL AND source_id IS NOT NULL
+            UPDATE forecast_occurrences
+            SET original_expected_date = expected_date
+            WHERE original_expected_date IS NULL OR original_expected_date = ''
+        """)
+        # The identity of a generated occurrence is its original due date.
+        # Several overdue occurrences from one recurrence may therefore be
+        # rescheduled to the same target date without being merged.
+        conn.execute("DROP INDEX IF EXISTS idx_forecast_occurrences_source_date")
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_occurrences_source_origin
+            ON forecast_occurrences(source_type, source_id, original_expected_date)
+            WHERE deleted_at IS NULL
+              AND source_id IS NOT NULL
+              AND original_expected_date IS NOT NULL
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_status ON forecast_occurrences(status, expected_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_occurrences_actual_tx ON forecast_occurrences(actual_transaction_id)")
@@ -894,12 +955,27 @@ class Database:
     def apply_r7_2_foundation(self, conn: sqlite3.Connection) -> None:
         """V0.6.6-R7.2 — import traceability and reconciliation status cleanup."""
         self.ensure_columns(conn, "transactions", {
+            "beneficiary": "TEXT",
             "source_line": "INTEGER",
             "source_profile": "TEXT",
             "raw_payload": "TEXT",
             "source_identifier": "TEXT",
             "currency": "TEXT NOT NULL DEFAULT 'EUR'",
         })
+        missing_beneficiaries = conn.execute(
+            """
+            SELECT id, label
+            FROM transactions
+            WHERE beneficiary IS NULL OR TRIM(beneficiary) = ''
+            """
+        ).fetchall()
+        conn.executemany(
+            "UPDATE transactions SET beneficiary = ? WHERE id = ?",
+            [
+                (extract_counterparty(row["label"]), int(row["id"]))
+                for row in missing_beneficiaries
+            ],
+        )
         self.ensure_columns(conn, "import_batches", {
             "parser_profile": "TEXT",
             "source_fingerprint": "TEXT",
@@ -1436,6 +1512,44 @@ class Database:
                 data,
             )
 
+    def update_account_status(self, account_id: int, status: str) -> bool:
+        """Update only the lifecycle status of an account."""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE accounts
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, account_id),
+            )
+        return cursor.rowcount > 0
+
+    def account_dependencies(self, account_id: int) -> dict[str, int]:
+        """Count business records that would be affected by deleting an account."""
+        queries = {
+            "transactions": "SELECT COUNT(*) FROM transactions WHERE account_id = ?",
+            "imports": "SELECT COUNT(*) FROM import_batches WHERE account_id = ?",
+            "recurrences": "SELECT COUNT(*) FROM recurring_items WHERE account_id = ?",
+            "forecasts": "SELECT COUNT(*) FROM forecast_occurrences WHERE account_id = ?",
+            "rules": "SELECT COUNT(*) FROM categorization_rules WHERE account_id = ?",
+            "scenario_events": "SELECT COUNT(*) FROM scenario_events WHERE account_id = ?",
+        }
+        with self.connect() as conn:
+            return {
+                key: int(conn.execute(query, (account_id,)).fetchone()[0] or 0)
+                for key, query in queries.items()
+            }
+
+    def delete_account(self, account_id: int) -> bool:
+        """Delete an empty account after the service has checked its dependencies."""
+        with self.connect() as conn:
+            cursor = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        deleted = cursor.rowcount > 0
+        if deleted:
+            self.seal_database_to_encrypted_vault()
+        return deleted
+
     def account_balance_at_date(self, account_id: int, target_date: str):
         with self.connect() as conn:
             account = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
@@ -1894,7 +2008,7 @@ class Database:
                 )
             )
 
-    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None, preserve_direction: bool = False) -> bool:
+    def insert_transaction(self, account_id: int, tx_date: str, label: str, category: str | None, amount: float, source: str, import_batch_id: int | None = None, *, beneficiary: str | None = None, currency: str = 'EUR', source_line: int | None = None, source_profile: str | None = None, raw_payload: str | None = None, source_identifier: str | None = None, preserve_direction: bool = False) -> bool:
         if source == "Manuel" and not preserve_direction:
             amount = self.normalize_amount_for_category(category, amount)
         tx_type = "Crédit" if amount >= 0 else "Débit"
@@ -1908,6 +2022,7 @@ class Database:
             categorized_by = "import_default" if category else None
             categorized_at = None
         signature = self.make_signature(account_id, tx_date, label, amount)
+        clean_beneficiary = (beneficiary or extract_counterparty(label)).strip() or None
         rules = self.reconciliation_rules()
         transaction_day = date.fromisoformat(tx_date)
         ForecastReconciliationService(self).generate_occurrences(
@@ -1920,12 +2035,12 @@ class Database:
                 return False
             cursor = conn.execute(
                 """
-                INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
+                INSERT INTO transactions(account_id, tx_date, label, beneficiary, category, amount, tx_type, status, source, import_batch_id, signature,
                                          categorization_status, categorized_by, categorization_rule_id, categorized_at,
                                          currency, source_line, source_profile, raw_payload, source_identifier)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                 """,
-                (account_id, tx_date, label, category, amount, tx_type, status, source, import_batch_id, signature,
+                (account_id, tx_date, label, clean_beneficiary, category, amount, tx_type, status, source, import_batch_id, signature,
                  categorization_status, categorized_by, categorized_at,
                  currency or 'EUR', source_line, source_profile, raw_payload, source_identifier),
             )
@@ -1986,6 +2101,7 @@ class Database:
             "account_id": data.get("account_id", row["account_id"]),
             "tx_date": data.get("tx_date", row["tx_date"]),
             "label": (data.get("label") or row["label"] or "Opération").strip(),
+            "beneficiary": (data.get("beneficiary") or extract_counterparty(data.get("label") or row["label"] or "")).strip() or None,
             "category": data.get("category", row["category"]),
             "amount": float(data.get("amount", row["amount"]) or 0),
             "status": data.get("status", row["status"] or "Validée"),
@@ -2013,6 +2129,7 @@ class Database:
                 SET account_id = :account_id,
                     tx_date = :tx_date,
                     label = :label,
+                    beneficiary = :beneficiary,
                     category = :category,
                     amount = :amount,
                     tx_type = :tx_type,
@@ -2573,17 +2690,18 @@ class Database:
                 )
             )
 
-    def add_recurring_item(self, data: dict) -> None:
+    def add_recurring_item(self, data: dict) -> int:
         payload = dict(data)
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
         with self.connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO recurring_items(account_id, name, category, amount, frequency, next_date, end_date, scenario, status)
                 VALUES (:account_id, :name, :category, :amount, :frequency, :next_date, :end_date, :scenario, :status)
                 """,
                 payload,
             )
+            return int(cursor.lastrowid)
 
     def get_recurring_item(self, item_id: int) -> sqlite3.Row | None:
         with self.connect() as conn:
@@ -2784,33 +2902,83 @@ class Database:
             })
 
         suppressed_occurrences: set[tuple[int, str]] = set()
+        moved_occurrences = []
         with self.connect() as conn:
-            occ_params: list = [start_date, end.isoformat()]
+            occ_params: list = [
+                start_date,
+                end.isoformat(),
+                start_date,
+                end.isoformat(),
+            ]
             occ_account = ""
             if account_id is not None:
-                occ_account = " AND account_id = ?"
+                occ_account = " AND o.account_id = ?"
                 occ_params.append(account_id)
             for occurrence in conn.execute(
                 f"""
-                SELECT source_id, expected_date, status, actual_transaction_id
-                FROM forecast_occurrences
-                WHERE source_type = 'recurring'
-                  AND deleted_at IS NULL
-                  AND source_id IS NOT NULL
-                  AND expected_date > ?
-                  AND expected_date <= ?{occ_account}
+                SELECT o.source_id, o.expected_date, o.original_expected_date,
+                       o.expected_amount, o.expected_label, o.expected_category,
+                       o.status, o.actual_transaction_id, o.remaining_amount,
+                       o.account_id, a.name AS account_name, r.scenario
+                FROM forecast_occurrences o
+                LEFT JOIN accounts a ON a.id = o.account_id
+                LEFT JOIN recurring_items r ON r.id = o.source_id
+                WHERE o.source_type = 'recurring'
+                  AND o.deleted_at IS NULL
+                  AND o.source_id IS NOT NULL
+                  AND (
+                        (COALESCE(o.original_expected_date, o.expected_date) > ?
+                         AND COALESCE(o.original_expected_date, o.expected_date) <= ?)
+                     OR (o.expected_date > ? AND o.expected_date <= ?)
+                  ){occ_account}
                 """,
                 occ_params,
             ):
-                status = occurrence["status"]
+                status = str(occurrence["status"] or "")
                 has_real = occurrence["actual_transaction_id"] is not None
-                if status in {"auto_matched", "ignored", "cancelled"} or (status in {"confirmed", "to_review"} and has_real):
-                    suppressed_occurrences.add((int(occurrence["source_id"]), occurrence["expected_date"]))
+                expected_date = str(occurrence["expected_date"])
+                original_date = str(occurrence["original_expected_date"] or expected_date)
+                source_id = int(occurrence["source_id"])
+                was_rescheduled = original_date != expected_date
+
+                if was_rescheduled:
+                    suppressed_occurrences.add((source_id, original_date))
+                    if (
+                        status in {"planned", "overdue", "to_review", "partially_matched"}
+                        and not has_real
+                        and start_date < expected_date <= end.isoformat()
+                    ):
+                        moved_occurrences.append(occurrence)
+                elif status in {"auto_matched", "ignored", "cancelled"} or (
+                    status in {"confirmed", "to_review"} and has_real
+                ):
+                    suppressed_occurrences.add((source_id, expected_date))
+
+        for occurrence in moved_occurrences:
+            occurrence_scenario = str(occurrence["scenario"] or "Réaliste")
+            if scenario != "Optimiste" and occurrence_scenario == "Optimiste":
+                continue
+            amount = float(occurrence["expected_amount"] or 0)
+            if occurrence["status"] == "partially_matched" and occurrence["remaining_amount"] is not None:
+                remaining = abs(float(occurrence["remaining_amount"] or 0))
+                amount = remaining if amount >= 0 else -remaining
+            events.append({
+                "date": occurrence["expected_date"],
+                "name": occurrence["expected_label"] or "Récurrence",
+                "category": occurrence["expected_category"] or "Prévisionnel",
+                "amount": amount,
+                "source": "Récurrence décalée",
+                "account": occurrence["account_name"] or "Compte",
+                "account_id": occurrence["account_id"],
+                "recurring_id": occurrence["source_id"],
+                "scenario": occurrence_scenario,
+                "original_date": occurrence["original_expected_date"] or occurrence["expected_date"],
+            })
 
         for item in self.list_recurring_items(active_only=True):
             if account_id is not None and item["account_id"] != account_id:
                 continue
-            if scenario in {"Réaliste", "Prudent"} and item["scenario"] == "Optimiste":
+            if scenario != "Optimiste" and item["scenario"] == "Optimiste":
                 continue
             next_date = datetime.strptime(item["next_date"], "%Y-%m-%d").date()
             end_date = datetime.strptime(item["end_date"], "%Y-%m-%d").date() if item["end_date"] else end
@@ -2916,6 +3084,92 @@ class Database:
 
         return sorted(events, key=lambda event: (event["date"], event["amount"]))
 
+    def forecast_scenario_presets(self) -> list[dict]:
+        """Return the editable assumptions used by the three standard scenarios."""
+        presets: list[dict] = []
+        for name, defaults in FORECAST_SCENARIO_PRESETS.items():
+            income_percent = float(defaults["income_percent"])
+            expense_percent = float(defaults["expense_percent"])
+            raw_value = self.get_user_preference(f"forecast.scenario.{name}", "")
+            if raw_value:
+                try:
+                    saved = json.loads(raw_value)
+                    income_percent = self._forecast_percent(saved.get("income_percent"), income_percent)
+                    expense_percent = self._forecast_percent(saved.get("expense_percent"), expense_percent)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    pass
+            presets.append({
+                "name": name,
+                "description": defaults["description"],
+                "incomePercent": income_percent,
+                "expensePercent": expense_percent,
+                "color": defaults["color"],
+            })
+        return presets
+
+    def update_forecast_scenario_preset(
+        self,
+        scenario: str,
+        income_percent: float,
+        expense_percent: float,
+    ) -> dict:
+        """Persist standard-scenario coefficients without changing real transactions."""
+        name = str(scenario or "").strip()
+        if name not in FORECAST_SCENARIO_PRESETS:
+            raise ValueError("Ce scénario standard n’existe pas.")
+        income = self._forecast_percent(income_percent, -1)
+        expense = self._forecast_percent(expense_percent, -1)
+        if income < 0 or expense < 0:
+            raise ValueError("Les coefficients doivent être compris entre 0 et 300 %.")
+        value = json.dumps(
+            {"income_percent": income, "expense_percent": expense},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_preferences(key, value, scope)
+                VALUES (?, ?, 'forecast')
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    scope = excluded.scope,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (f"forecast.scenario.{name}", value),
+            )
+        self.seal_database_to_encrypted_vault()
+        return next(item for item in self.forecast_scenario_presets() if item["name"] == name)
+
+    @staticmethod
+    def _forecast_percent(value, default: float) -> float:
+        try:
+            parsed = round(float(value), 2)
+        except (TypeError, ValueError):
+            return default
+        return parsed if 0 <= parsed <= 300 else default
+
+    def apply_forecast_scenario_preset(self, events: list[dict], scenario: str) -> list[dict]:
+        """Adjust only recurrence forecasts; posted and future bank transactions stay exact."""
+        presets = {item["name"]: item for item in self.forecast_scenario_presets()}
+        preset = presets.get(scenario, presets["Réaliste"])
+        adjusted_events: list[dict] = []
+        for event in events:
+            adjusted = dict(event)
+            amount = float(adjusted.get("amount") or 0)
+            source = str(adjusted.get("source") or "")
+            if source.startswith("Récurrence"):
+                percent = (
+                    float(preset["incomePercent"])
+                    if amount >= 0
+                    else float(preset["expensePercent"])
+                )
+                adjusted["original_amount"] = amount
+                adjusted["amount"] = round(amount * percent / 100, 2)
+                adjusted["scenario_adjustment_percent"] = percent
+            adjusted_events.append(adjusted)
+        return adjusted_events
+
     def cash_forecast(self, start_date: str = "2026-06-23", horizon_days: int = 90, scenario: str = "Réaliste", account_id: int | None = None) -> dict:
         """Daily cash projection for the selected period."""
         if account_id is None:
@@ -2934,7 +3188,8 @@ class Database:
             else:
                 starting_cash = 0.0
                 account_label = "Compte introuvable"
-        events = self.forecast_events(start_date, horizon_days, scenario, account_id=account_id)
+        raw_events = self.forecast_events(start_date, horizon_days, scenario, account_id=account_id)
+        events = self.apply_forecast_scenario_preset(raw_events, scenario)
         start = datetime.strptime(start_date, "%Y-%m-%d").date()
 
         events_by_day: dict[str, list[dict]] = {}

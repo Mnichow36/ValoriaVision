@@ -38,18 +38,24 @@ class R8PersistenceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def transaction(self, *, source: str = "Import bancaire", label: str = "LOYER") -> int:
+    def transaction(
+        self,
+        *,
+        source: str = "Import bancaire",
+        label: str = "LOYER",
+        beneficiary: str | None = None,
+    ) -> int:
         return int(
             self.conn.execute(
                 """
                 INSERT INTO transactions(
-                    account_id, tx_date, label, category, amount,
+                    account_id, tx_date, label, beneficiary, category, amount,
                     tx_type, status, source, signature
                 )
-                VALUES (?, '2026-06-09', ?, 'Logement', -900,
+                VALUES (?, '2026-06-09', ?, ?, 'Logement', -900,
                         'Débit', 'Validée', ?, ?)
                 """,
-                (self.account_id, label, source, str(uuid4())),
+                (self.account_id, label, beneficiary, source, str(uuid4())),
             ).lastrowid
         )
 
@@ -164,6 +170,29 @@ class R8PersistenceTests(unittest.TestCase):
             (persisted.entity_id,),
         ).fetchone()[0]
         self.assertEqual(event_count, 1)
+
+    def test_identified_counterparty_is_included_in_persisted_score(self) -> None:
+        transaction_id = self.transaction(
+            label="CARTE X7693 05/06 — LIDL 3011",
+            beneficiary="LIDL",
+        )
+        self.occurrence(label="LIDL")
+        persisted = qualify_and_persist_transaction(
+            self.conn,
+            transaction_id,
+            ReconciliationRules(auto_threshold=100, review_threshold=1),
+        )
+        self.assertEqual(persisted.status, "has_proposal")
+        proposal = self.conn.execute(
+            "SELECT score_details_json FROM reconciliation_proposals WHERE id = ?",
+            (persisted.entity_id,),
+        ).fetchone()
+        details = json.loads(proposal["score_details_json"])
+        criterion = next(
+            item for item in details["criteria"] if item["criterion"] == "counterparty"
+        )
+        self.assertEqual(criterion["points"], 5)
+        self.assertEqual(criterion["explanation"], "Bénéficiaire/émetteur identique")
 
     def test_ambiguous_result_creates_one_proposal_with_all_candidates(self) -> None:
         transaction_id = self.transaction()
