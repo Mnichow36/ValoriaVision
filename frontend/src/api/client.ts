@@ -105,6 +105,21 @@ export function updateAccount(token: string, accountId: number, payload: Account
   });
 }
 
+export function updateAccountStatus(token: string, accountId: number, status: string): Promise<AccountActionResult> {
+  return request<AccountActionResult>(`/api/v1/accounts/${accountId}/status`, {
+    method: "POST",
+    token,
+    body: { status },
+  });
+}
+
+export function deleteAccount(token: string, accountId: number): Promise<AccountActionResult> {
+  return request<AccountActionResult>(`/api/v1/accounts/${accountId}/delete`, {
+    method: "POST",
+    token,
+  });
+}
+
 export function updateAccountReference(
   token: string,
   accountId: number,

@@ -22,6 +22,10 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+class AccountDeletionBlockedError(ValueError):
+    """Raised when removing an account would destroy linked business data."""
+
+
 class AccountsReadService:
     """Expose the account engine through a stable, presentation-neutral contract."""
 
@@ -50,6 +54,8 @@ class AccountsReadService:
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Create an account through the existing database business boundary."""
         data = self._validated_account(payload)
+        # A newly created account always enters the active lifecycle.
+        data["status"] = "Actif"
         self._ensure_unique_identifier(data["identifier"])
         previous_ids = {
             int(_field(row, "id", 0) or 0)
@@ -69,13 +75,66 @@ class AccountsReadService:
 
     def update(self, account_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         """Update account metadata without silently changing its balance anchor."""
-        self._find_account(account_id)
+        existing = self._find_account(account_id)
         data = self._validated_account(payload, require_reference=False)
+        # Lifecycle changes use the dedicated, confirmed action.
+        data["status"] = str(_field(existing, "status", "Actif") or "Actif")
         self._ensure_unique_identifier(data["identifier"], account_id)
         self.database.update_account(account_id, data)
         return {
             "success": True,
             "message": "Le compte a été modifié.",
+            "accountId": account_id,
+        }
+
+    def change_status(self, account_id: int, status: Any) -> dict[str, Any]:
+        """Apply a confirmed account lifecycle transition without deleting history."""
+        row = self._find_account(account_id)
+        target = str(status or "").strip()
+        if target not in {"Actif", "Archivé", "Clos"}:
+            raise ValueError("Le statut du compte n’est pas reconnu.")
+        current = str(_field(row, "status", "Actif") or "Actif")
+        messages = {
+            "Actif": "Le compte a été restauré et réactivé.",
+            "Archivé": "Le compte a été archivé. Son historique reste disponible.",
+            "Clos": "Le compte a été clôturé. Son historique est conservé.",
+        }
+        if current != target and not self.database.update_account_status(account_id, target):
+            raise KeyError("Ce compte n’existe pas.")
+        return {
+            "success": True,
+            "message": messages[target] if current != target else f"Le compte est déjà {target.lower()}.",
+            "accountId": account_id,
+        }
+
+    def delete(self, account_id: int) -> dict[str, Any]:
+        """Delete an empty account while preserving every linked business record."""
+        self._find_account(account_id)
+        dependencies = self.database.account_dependencies(account_id)
+        labels = {
+            "transactions": ("opération", "opérations"),
+            "imports": ("import", "imports"),
+            "recurrences": ("récurrence", "récurrences"),
+            "forecasts": ("échéance prévisionnelle", "échéances prévisionnelles"),
+            "rules": ("règle de catégorisation", "règles de catégorisation"),
+            "scenario_events": ("événement de scénario", "événements de scénario"),
+        }
+        linked = [
+            f"{count} {labels[key][0 if count == 1 else 1]}"
+            for key, count in dependencies.items()
+            if count > 0
+        ]
+        if linked:
+            raise AccountDeletionBlockedError(
+                "Impossible de supprimer ce compte car il contient un historique ("
+                + ", ".join(linked)
+                + "). Vous pouvez l’archiver afin de conserver les données associées."
+            )
+        if not self.database.delete_account(account_id):
+            raise KeyError("Ce compte n’existe pas.")
+        return {
+            "success": True,
+            "message": "Le compte vide a été supprimé définitivement.",
             "accountId": account_id,
         }
 

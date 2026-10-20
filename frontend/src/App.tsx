@@ -73,7 +73,7 @@ const modules: Record<NavigationId, ModuleDefinition> = {
 export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
   const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
-  const [accountStatusFilter, setAccountStatusFilter] = useState("Tous");
+  const [accountStatusFilter, setAccountStatusFilter] = useState("Actif");
   const [forecastAccountId, setForecastAccountId] = useState("all");
   const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
   const [forecastHorizonDays, setForecastHorizonDays] = useState(15);

@@ -1512,6 +1512,44 @@ class Database:
                 data,
             )
 
+    def update_account_status(self, account_id: int, status: str) -> bool:
+        """Update only the lifecycle status of an account."""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE accounts
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, account_id),
+            )
+        return cursor.rowcount > 0
+
+    def account_dependencies(self, account_id: int) -> dict[str, int]:
+        """Count business records that would be affected by deleting an account."""
+        queries = {
+            "transactions": "SELECT COUNT(*) FROM transactions WHERE account_id = ?",
+            "imports": "SELECT COUNT(*) FROM import_batches WHERE account_id = ?",
+            "recurrences": "SELECT COUNT(*) FROM recurring_items WHERE account_id = ?",
+            "forecasts": "SELECT COUNT(*) FROM forecast_occurrences WHERE account_id = ?",
+            "rules": "SELECT COUNT(*) FROM categorization_rules WHERE account_id = ?",
+            "scenario_events": "SELECT COUNT(*) FROM scenario_events WHERE account_id = ?",
+        }
+        with self.connect() as conn:
+            return {
+                key: int(conn.execute(query, (account_id,)).fetchone()[0] or 0)
+                for key, query in queries.items()
+            }
+
+    def delete_account(self, account_id: int) -> bool:
+        """Delete an empty account after the service has checked its dependencies."""
+        with self.connect() as conn:
+            cursor = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        deleted = cursor.rowcount > 0
+        if deleted:
+            self.seal_database_to_encrypted_vault()
+        return deleted
+
     def account_balance_at_date(self, account_id: int, target_date: str):
         with self.connect() as conn:
             account = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()

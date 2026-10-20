@@ -1567,6 +1567,103 @@ button { cursor: pointer; }
   justify-content: center;
   width: 100%;
 }
+.account-inspector .account-detail__actions button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+.account-lifecycle-actions {
+  border-top: 1px solid #edf2f7;
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding-top: 13px;
+}
+.account-lifecycle-actions > span {
+  color: #71819a;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.account-lifecycle-actions > div {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.account-lifecycle-actions .account-status-button {
+  background: #f8fafc;
+  border: 1px solid #dbe3ed;
+  border-radius: 9px;
+  color: #334155;
+  font-size: 9px;
+  font-weight: 850;
+  min-height: 34px;
+  padding: 7px 9px;
+}
+.account-lifecycle-actions .account-status-button--restore {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+.account-lifecycle-actions .account-status-button--close {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+.account-inspector .account-delete-button {
+  background: #fff7f7;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.account-inspector .account-delete-button:hover {
+  background: #fff1f2;
+  border-color: #fda4af;
+}
+.account-lifecycle-dialog__body {
+  color: #526079;
+  display: grid;
+  font-size: 11px;
+  gap: 16px;
+  line-height: 1.6;
+}
+.account-lifecycle-dialog__body p {
+  margin: 0;
+}
+.account-lifecycle-dialog__body p strong {
+  color: #9f1239;
+}
+.account-lifecycle-dialog__identity {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+}
+.account-lifecycle-dialog__identity > div {
+  display: grid;
+  gap: 3px;
+}
+.account-lifecycle-dialog__identity strong {
+  color: var(--navy);
+  font-size: 13px;
+}
+.account-lifecycle-dialog__identity span {
+  color: var(--muted);
+  font-size: 9px;
+}
+.account-editor footer .account-status-confirm {
+  background: #c2410c;
+  border-color: #c2410c;
+}
+.account-editor footer .account-delete-confirm {
+  background: #be123c;
+  border-color: #be123c;
+}
+.account-editor footer .account-delete-confirm:hover {
+  background: #9f1239;
+  border-color: #9f1239;
+}
 
 @media (max-width: 1380px) {
   .accounts-workspace {

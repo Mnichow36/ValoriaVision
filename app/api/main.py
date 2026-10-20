@@ -11,7 +11,7 @@ from pydantic import BaseModel, SecretStr
 from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
-from app.services.accounts_read_service import AccountsReadService
+from app.services.accounts_read_service import AccountDeletionBlockedError, AccountsReadService
 from app.services.assets_read_service import AssetsReadService
 from app.services.bank_import_workflow_service import BankImportWorkflowService
 from app.services.budgets_read_service import BudgetsReadService
@@ -94,6 +94,10 @@ class AccountPayload(BaseModel):
 class AccountReferencePayload(BaseModel):
     initial_balance: float
     initial_date: str
+
+
+class AccountStatusPayload(BaseModel):
+    status: str
 
 
 class TransactionPayload(BaseModel):
@@ -409,6 +413,39 @@ def create_app(database: Database | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/accounts/{account_id}/status")
+    def update_account_status(
+        account_id: int,
+        payload: AccountStatusPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return AccountsReadService(active_database).change_status(account_id, payload.status)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/accounts/{account_id}/delete")
+    def delete_account(
+        account_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return AccountsReadService(active_database).delete(account_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except AccountDeletionBlockedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/v1/accounts/{account_id}/reference")
     def update_account_reference(

@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { createAccount, getAccounts, updateAccount, updateAccountReference } from "../api/client";
+import { createAccount, deleteAccount, getAccounts, updateAccount, updateAccountReference, updateAccountStatus } from "../api/client";
 import type { AccountActionResult, AccountOverview, AccountPayload, AccountsSnapshot } from "../api/contracts";
 
 type AccountsView = "accounts" | "balances" | "imports";
+type AccountStatus = "Actif" | "Archivé" | "Clos";
 type AccountEditorState = { mode: "create" } | { mode: "edit"; account: AccountOverview };
 
 interface AccountsPageProps {
@@ -33,6 +34,8 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
   const [refreshKey, setRefreshKey] = useState(0);
   const [editor, setEditor] = useState<AccountEditorState>();
   const [referenceAccount, setReferenceAccount] = useState<AccountOverview>();
+  const [statusChange, setStatusChange] = useState<{ account: AccountOverview; target: AccountStatus }>();
+  const [deletionAccount, setDeletionAccount] = useState<AccountOverview>();
   const lastEditorRequestKey = useRef(0);
 
   useEffect(() => {
@@ -70,8 +73,17 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
   function completed(result: AccountActionResult) {
     setEditor(undefined);
     setReferenceAccount(undefined);
+    setStatusChange(undefined);
     setNotice(result.message);
     if (result.accountId) setSelectedId(result.accountId);
+    setRefreshKey((key) => key + 1);
+    onAccountChanged();
+  }
+
+  function deleted(result: AccountActionResult) {
+    setDeletionAccount(undefined);
+    setNotice(result.message);
+    setSelectedId(undefined);
     setRefreshKey((key) => key + 1);
     onAccountChanged();
   }
@@ -115,8 +127,10 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
             <AccountDetail
               account={selected}
               onAttachImport={() => onAttachImport(selected.id)}
+              onDelete={() => setDeletionAccount(selected)}
               onEdit={() => setEditor({ mode: "edit", account: selected })}
               onReference={() => setReferenceAccount(selected)}
+              onStatusChange={(target) => setStatusChange({ account: selected, target })}
             />
           </section>
         ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />
@@ -135,6 +149,12 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
       )}
       {referenceAccount && (
         <ReferenceEditor account={referenceAccount} onClose={() => setReferenceAccount(undefined)} onCompleted={completed} token={token} />
+      )}
+      {statusChange && (
+        <AccountStatusDialog account={statusChange.account} onClose={() => setStatusChange(undefined)} onCompleted={completed} target={statusChange.target} token={token} />
+      )}
+      {deletionAccount && (
+        <AccountDeleteDialog account={deletionAccount} onClose={() => setDeletionAccount(undefined)} onCompleted={deleted} token={token} />
       )}
     </div>
   );
@@ -256,11 +276,13 @@ function TransactionsTable({ account }: { account: AccountOverview }) {
   );
 }
 
-function AccountDetail({ account, onAttachImport, onEdit, onReference }: {
+function AccountDetail({ account, onAttachImport, onDelete, onEdit, onReference, onStatusChange }: {
   account: AccountOverview;
   onAttachImport: () => void;
+  onDelete: () => void;
   onEdit: () => void;
   onReference: () => void;
+  onStatusChange: (status: AccountStatus) => void;
 }) {
   const fields = [
     ["Type de compte", account.type],
@@ -288,9 +310,18 @@ function AccountDetail({ account, onAttachImport, onEdit, onReference }: {
         <small>Compte {account.status.toLocaleLowerCase("fr-FR")}</small>
       </div>
       <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <div className="account-lifecycle-actions">
+        <span>Gestion du statut</span>
+        <div>
+          {account.status !== "Actif" && <button className="account-status-button account-status-button--restore" onClick={() => onStatusChange("Actif")} type="button">Restaurer</button>}
+          {account.status === "Actif" && <button className="account-status-button" onClick={() => onStatusChange("Archivé")} type="button">Archiver</button>}
+          {account.status !== "Clos" && <button className="account-status-button account-status-button--close" onClick={() => onStatusChange("Clos")} type="button">Clôturer</button>}
+        </div>
+      </div>
       <div className="account-detail__actions">
         <button onClick={onReference} type="button">Modifier le solde de référence</button>
-        <button className="primary-button" onClick={onAttachImport} type="button">Rattacher un import</button>
+        <button className="primary-button" disabled={account.status !== "Actif"} onClick={onAttachImport} type="button">Rattacher un import</button>
+        <button className="account-delete-button" onClick={onDelete} type="button">Supprimer définitivement</button>
       </div>
     </aside>
   );
@@ -389,13 +420,134 @@ function AccountEditor({ account, onClose, onCompleted, token }: {
             {!account && <label className="account-field"><span>Solde initial *</span><input onChange={(event) => field("initialBalance", Number(event.target.value))} required step="0.01" type="number" value={draft.initialBalance} /></label>}
             {!account && <label className="account-field"><span>Date initiale *</span><input onChange={(event) => field("initialDate", event.target.value)} required type="date" value={draft.initialDate} /></label>}
             <label className="account-field"><span>Devise *</span><select onChange={(event) => field("currency", event.target.value)} value={draft.currency}>{["EUR", "USD", "GBP", "CHF"].map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label className="account-field"><span>Statut *</span><select onChange={(event) => field("status", event.target.value)} value={draft.status}>{["Actif", "Archivé", "Clos"].map((value) => <option key={value}>{value}</option>)}</select></label>
           </div>
-          {account && <p className="account-editor-note">Le solde et sa date de référence se corrigent séparément avec « Modifier le solde » afin de préserver la traçabilité.</p>}
+          {account && <p className="account-editor-note">Le solde et sa date de référence se corrigent séparément. Le statut se gère depuis les actions « Archiver », « Clôturer » ou « Restaurer » afin de préserver la traçabilité.</p>}
           {formError && <div className="account-form-error" role="alert">{formError}</div>}
           <footer><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} type="submit">{busy ? "Enregistrement…" : account ? "Enregistrer" : "Ajouter le compte"}</button></footer>
         </form>
       </aside>
+    </div>
+  );
+}
+
+function AccountStatusDialog({ account, onClose, onCompleted, target, token }: {
+  account: AccountOverview;
+  onClose: () => void;
+  onCompleted: (result: AccountActionResult) => void;
+  target: AccountStatus;
+  token: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+  const copy = {
+    Actif: {
+      eyebrow: "Restauration du compte",
+      title: "Restaurer ce compte ?",
+      detail: "Le compte réintégrera immédiatement les listes actives et pourra de nouveau recevoir des imports et de nouvelles opérations.",
+      action: "Restaurer le compte",
+    },
+    Archivé: {
+      eyebrow: "Archivage sans perte",
+      title: "Archiver ce compte ?",
+      detail: "Le compte sera retiré des listes de travail actives. Ses transactions, imports, rapprochements et statistiques resteront consultables et il pourra être restauré.",
+      action: "Archiver le compte",
+    },
+    Clos: {
+      eyebrow: "Clôture du compte",
+      title: "Clôturer ce compte ?",
+      detail: "Le compte sera marqué comme clôturé et retiré des sélecteurs actifs. Son historique financier sera intégralement conservé.",
+      action: "Clôturer le compte",
+    },
+  }[target];
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      onCompleted(await updateAccountStatus(token, account.id, target));
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="account-status-title" aria-modal="true" className="account-editor account-editor--compact account-lifecycle-dialog" role="dialog">
+        <header>
+          <div><span className="eyebrow">{copy.eyebrow}</span><h2 id="account-status-title">{copy.title}</h2></div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="account-lifecycle-dialog__body">
+            <AccountDialogIdentity account={account} />
+            <p>{copy.detail}</p>
+            <p><strong>Aucune donnée liée ne sera supprimée.</strong></p>
+            {formError && <div className="account-form-error" role="alert">{formError}</div>}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+            <button className={target === "Actif" ? "" : "account-status-confirm"} disabled={busy} type="submit">{busy ? "Enregistrement…" : copy.action}</button>
+          </footer>
+        </form>
+      </aside>
+    </div>
+  );
+}
+
+function AccountDeleteDialog({ account, onClose, onCompleted, token }: {
+  account: AccountOverview;
+  onClose: () => void;
+  onCompleted: (result: AccountActionResult) => void;
+  token: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      onCompleted(await deleteAccount(token, account.id));
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <aside aria-labelledby="account-delete-title" aria-modal="true" className="account-editor account-editor--compact account-lifecycle-dialog" role="dialog">
+        <header>
+          <div><span className="eyebrow">Suppression protégée</span><h2 id="account-delete-title">Supprimer le compte ?</h2></div>
+          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
+        </header>
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="account-lifecycle-dialog__body">
+            <AccountDialogIdentity account={account} />
+            <p><strong>Cette action est définitive et réservée à un compte entièrement vide.</strong></p>
+            <p>Si une opération, un import, une récurrence, une prévision, une règle ou un scénario est rattaché au compte, Valoria Vision bloquera la suppression et vous invitera à l’archiver.</p>
+            {formError && <div className="account-form-error" role="alert">{formError}</div>}
+          </div>
+          <footer>
+            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Conserver le compte</button>
+            <button className="account-delete-confirm" disabled={busy} type="submit">{busy ? "Vérification…" : "Supprimer définitivement"}</button>
+          </footer>
+        </form>
+      </aside>
+    </div>
+  );
+}
+
+function AccountDialogIdentity({ account }: { account: AccountOverview }) {
+  return (
+    <div className="account-lifecycle-dialog__identity">
+      <BankBadge bank={account.bank} />
+      <div><strong>{account.name}</strong><span>{account.bank || "Banque non renseignée"} · {account.status}</span></div>
     </div>
   );
 }

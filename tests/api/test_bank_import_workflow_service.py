@@ -39,6 +39,7 @@ class StubCategorizer:
 class StubDatabase:
     def __init__(self):
         self.inserted = []
+        self.account_status = "Actif"
         self.updated = None
         self.categorized_batch = None
         self.batch = {
@@ -63,7 +64,7 @@ class StubDatabase:
             "name": "Compte courant",
             "bank": "Banque Test",
             "identifier": "FR7612345678901234567890123",
-            "status": "Actif",
+            "status": self.account_status,
         }]
 
     def transaction_exists(self, account_id, tx_date, label, amount):
@@ -133,6 +134,18 @@ class BankImportWorkflowServiceTest(unittest.TestCase):
         canceled = service.cancel(41)
         self.assertEqual(canceled["deletedCount"], 2)
         self.assertEqual(database.batch["status"], "Annulé")
+
+    def test_rejects_import_to_archived_account(self):
+        database = StubDatabase()
+        database.account_status = "Archivé"
+        service = BankImportWorkflowService(database, importer_factory=StubImporter)
+        encoded = base64.b64encode(b"statement").decode("ascii")
+
+        preview = service.preview("session-a", "releve.csv", encoded, 7)
+
+        self.assertFalse(preview["accountConsistent"])
+        self.assertIsNone(preview["accountId"])
+        self.assertIn("archivé ou clôturé", preview["accountMessage"])
 
     def test_import_parser_enriches_transactions_with_the_counterparty(self):
         analysis = ImportAnalysis(

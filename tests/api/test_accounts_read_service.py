@@ -3,11 +3,19 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from app.services.accounts_read_service import AccountsReadService
+from app.services.accounts_read_service import AccountDeletionBlockedError, AccountsReadService
 
 
 class StubDatabase:
     def __init__(self):
+        self.dependencies = {
+            "transactions": 0,
+            "imports": 0,
+            "recurrences": 0,
+            "forecasts": 0,
+            "rules": 0,
+            "scenario_events": 0,
+        }
         self.accounts = [
             {
                 "id": 7,
@@ -63,6 +71,22 @@ class StubDatabase:
         row = next(row for row in self.accounts if row["id"] == account_id)
         row["effective_initial_balance"] = balance
         row["effective_initial_date"] = reference_date
+
+    def update_account_status(self, account_id, status):
+        self.updated_status = (account_id, status)
+        row = next(row for row in self.accounts if row["id"] == account_id)
+        row["status"] = status
+        return True
+
+    def account_dependencies(self, account_id):
+        self.dependencies_requested_for = account_id
+        return self.dependencies
+
+    def delete_account(self, account_id):
+        self.deleted_account_id = account_id
+        before = len(self.accounts)
+        self.accounts = [row for row in self.accounts if row["id"] != account_id]
+        return len(self.accounts) < before
 
 
 class AccountsReadServiceTest(unittest.TestCase):
@@ -137,6 +161,58 @@ class AccountsReadServiceTest(unittest.TestCase):
         self.assertEqual(result["accountId"], 7)
         self.assertEqual(database.updated[1]["name"], "Compte principal")
         self.assertFalse(hasattr(database, "updated_reference"))
+
+    def test_archives_account_without_deleting_history(self):
+        database = StubDatabase()
+        service = AccountsReadService(database)
+
+        result = service.change_status(7, "Archivé")
+
+        self.assertEqual(result["accountId"], 7)
+        self.assertEqual(database.updated_status, (7, "Archivé"))
+        self.assertEqual(database.accounts[0]["status"], "Archivé")
+
+    def test_metadata_update_preserves_lifecycle_status(self):
+        database = StubDatabase()
+        database.accounts[0]["status"] = "Archivé"
+        service = AccountsReadService(database)
+
+        service.update(7, {
+            "name": "Compte principal",
+            "bank": "Banque Test",
+            "account_type": "Compte courant",
+            "identifier": "FR76 4255",
+            "initial_balance": 1000,
+            "initial_date": "2026-10-01",
+            "currency": "EUR",
+            "status": "Actif",
+        })
+
+        self.assertEqual(database.updated[1]["status"], "Archivé")
+
+    def test_deletes_empty_account(self):
+        database = StubDatabase()
+        service = AccountsReadService(database)
+
+        result = service.delete(7)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["accountId"], 7)
+        self.assertEqual(database.dependencies_requested_for, 7)
+        self.assertEqual(database.deleted_account_id, 7)
+        self.assertEqual(database.accounts, [])
+
+    def test_blocks_deletion_when_business_data_is_linked(self):
+        database = StubDatabase()
+        database.dependencies["transactions"] = 3
+        database.dependencies["recurrences"] = 1
+        service = AccountsReadService(database)
+
+        with self.assertRaisesRegex(AccountDeletionBlockedError, "3 opérations, 1 récurrence"):
+            service.delete(7)
+
+        self.assertFalse(hasattr(database, "deleted_account_id"))
+        self.assertEqual(len(database.accounts), 1)
 
     def test_updates_balance_reference_separately(self):
         database = StubDatabase()

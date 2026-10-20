@@ -295,7 +295,14 @@ class BankImportWorkflowService:
         }
 
     def _resolve_account(self, analysis: ImportAnalysis, requested_id: int | None) -> tuple[int | None, bool, str]:
-        accounts = list(self.database.list_accounts())
+        all_accounts = list(self.database.list_accounts())
+        selected_any = next((row for row in all_accounts if int(_field(row, "id", 0)) == int(requested_id or 0)), None)
+        if selected_any is not None and str(_field(selected_any, "status", "Actif") or "Actif") != "Actif":
+            return None, False, "Ce compte est archivé ou clôturé. Restaurez-le avant d’importer de nouvelles opérations."
+        accounts = [
+            row for row in all_accounts
+            if str(_field(row, "status", "Actif") or "Actif") == "Actif"
+        ]
         selected = next((row for row in accounts if int(_field(row, "id", 0)) == int(requested_id or 0)), None)
         identifiers = list(analysis.diagnostic.source_account_identifiers or [])
         if not identifiers:
@@ -308,6 +315,12 @@ class BankImportWorkflowService:
         if len(matches) > 1:
             return None, False, "Plusieurs comptes correspondent à l’identifiant détecté. Vérifiez les comptes avant l’import."
         if not matches:
+            inactive_match = next(
+                (row for row in all_accounts if _account_matches_identifier(row, identifiers)),
+                None,
+            )
+            if inactive_match is not None:
+                return None, False, "Le relevé correspond à un compte archivé ou clôturé. Restaurez-le avant l’import."
             return None, False, f"Le relevé indique le compte {shown}, absent des comptes Valoria."
         matched = matches[0]
         matched_id = int(_field(matched, "id", 0))
