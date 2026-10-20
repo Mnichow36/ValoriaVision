@@ -179,7 +179,10 @@ class ForecastReadServiceTest(unittest.TestCase):
         ).snapshot(horizon_days=15, scenario="Réaliste")
 
         self.assertEqual(len(snapshot["upcoming"]), 7)
-        self.assertEqual(snapshot["upcoming"][-1]["name"], "Salaire déplacé")
+        self.assertEqual(
+            {event["name"] for event in snapshot["upcoming"] if event["name"].startswith("Échéance")},
+            {f"Échéance {index}" for index in range(5)},
+        )
 
     def test_falls_back_to_supported_filter_values(self):
         snapshot = ForecastReadService(
