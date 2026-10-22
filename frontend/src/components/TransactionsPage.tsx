@@ -1,12 +1,15 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 
-import { bulkUpdateTransactions, createTransactionCategorizationRule, deleteRecurrence, getForecast, getTransactions, updateTransaction } from "../api/client";
-import type { ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
+import { bulkUpdateTransactions, cancelReconciliation, createTransaction, createTransactionCategorizationRule, deleteRecurrence, getForecast, getTransactions, updateTransaction } from "../api/client";
+import type { ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, TransactionActionResult, TransactionCreatePayload, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { SideDrawer } from "./SideDrawer";
 import { ReconciledPill } from "./ReconciledPill";
 import { RecurrenceEditor } from "./RecurrenceEditor";
 
 interface TransactionsPageProps {
+  createRequestKey: number;
   importRequestKey: number;
   onDataChanged: () => void;
   onNavigateSettings: () => void;
@@ -31,7 +34,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, token, view }: TransactionsPageProps) {
+export function TransactionsPage({ createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -41,6 +44,12 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
   const [dateTo, setDateTo] = useState("");
   const [allDates, setAllDates] = useState(true);
   const [editing, setEditing] = useState<TransactionRow>();
+  const [creating, setCreating] = useState(false);
+  const [menu, setMenu] = useState<ContextMenuState>();
+
+  useEffect(() => {
+    if (createRequestKey > 0) setCreating(true);
+  }, [createRequestKey]);
   const [notice, setNotice] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkCategory, setBulkCategory] = useState("");
@@ -130,6 +139,30 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
     }
   }
 
+  function openRowMenu(event: MouseEvent, transaction: TransactionRow) {
+    event.preventDefault();
+    const badge = transaction.reconciliation;
+    const items = [
+      { label: "Modifier la transaction", onSelect: () => setEditing(transaction) },
+      ...(badge?.reconciled && badge.occurrenceId
+        ? [{
+            label: "Annuler le rapprochement",
+            danger: true,
+            onSelect: () => {
+              cancelReconciliation(token, { occurrenceId: badge.occurrenceId as number, transactionId: transaction.id })
+                .then((result) => {
+                  setNotice(result.message);
+                  setRefreshKey((key) => key + 1);
+                  onDataChanged();
+                })
+                .catch((cause: unknown) => setNotice(errorMessage(cause)));
+            },
+          }]
+        : []),
+    ];
+    setMenu({ x: event.clientX, y: event.clientY, items });
+  }
+
   if (error) {
     return (
       <section className="error-state">
@@ -174,7 +207,6 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
 
   return (
     <div className="transactions-page">
-      <TransactionsTabs active="journal" onViewChange={onViewChange} />
       {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
@@ -211,6 +243,7 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
               {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
                 <TransactionLine
                   key={transaction.id}
+                  onContextMenu={(event) => openRowMenu(event, transaction)}
                   onEdit={() => setEditing(transaction)}
                   onToggle={() => toggleTransaction(transaction.id)}
                   selected={selectedIds.includes(transaction.id)}
@@ -253,6 +286,21 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
           title="Qualité données"
         />
       </section>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
+      {creating && (
+        <TransactionCreator
+          defaultAccountId={accountId !== "all" ? Number(accountId) : undefined}
+          onClose={() => setCreating(false)}
+          onCompleted={(result) => {
+            setCreating(false);
+            setNotice(result.message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+          snapshot={snapshot}
+          token={token}
+        />
+      )}
       {editing && (
         <TransactionEditor
           onClose={() => setEditing(undefined)}
@@ -268,21 +316,6 @@ export function TransactionsPage({ importRequestKey, onDataChanged, onNavigateSe
         />
       )}
     </div>
-  );
-}
-
-function TransactionsTabs({ active, onViewChange }: { active: "journal" | "recurrences"; onViewChange: (view: TransactionsView) => void }) {
-  return (
-    <nav aria-label="Vues des transactions" className="transactions-tabs">
-      <button className={active === "journal" ? "transactions-tab transactions-tab--active" : "transactions-tab"} onClick={() => onViewChange("journal")} type="button">
-        <span aria-hidden="true">↔</span>
-        Opérations
-      </button>
-      <button className={active === "recurrences" ? "transactions-tab transactions-tab--active" : "transactions-tab"} onClick={() => onViewChange("recurrences")} type="button">
-        <span aria-hidden="true">↻</span>
-        Récurrences
-      </button>
-    </nav>
   );
 }
 
@@ -384,7 +417,6 @@ function TransactionsRecurrences({
   if (error && !snapshot) {
     return (
       <div className="transactions-page">
-        <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
         <section className="error-state">
           <strong>Les récurrences ne peuvent pas être affichées.</strong>
           <p>{error}</p>
@@ -397,7 +429,6 @@ function TransactionsRecurrences({
   if (!snapshot) {
     return (
       <div className="transactions-page">
-        <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
         <div className="loading-state"><span aria-hidden="true" />Calcul des échéances dans l’horizon…</div>
       </div>
     );
@@ -405,7 +436,6 @@ function TransactionsRecurrences({
 
   return (
     <div className="transactions-page recurrence-workspace">
-      <TransactionsTabs active="recurrences" onViewChange={onViewChange} />
       {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       {error && <p className="account-form-error" role="alert">{error}</p>}
 
@@ -533,7 +563,7 @@ function TransactionsRecurrences({
   );
 }
 
-function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
+function TransactionLine({ onContextMenu, onEdit, onToggle, selected, transaction }: { onContextMenu: (event: MouseEvent) => void; onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
   const hasDistinctBankLabel = Boolean(transaction.beneficiary)
     && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
   return (
@@ -541,6 +571,7 @@ function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: 
       aria-label={`Modifier la transaction ${transaction.label}`}
       className={selected ? "transaction-row-action transaction-row-action--selected" : "transaction-row-action"}
       onClick={onEdit}
+      onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -557,6 +588,78 @@ function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: 
       <td><span className={`transaction-pill transaction-pill--${statusTone(transaction.status)}`}>{transaction.status}</span> <ReconciledPill badge={transaction.reconciliation} /></td>
       <td className={transaction.amount < 0 ? "transaction-amount transaction-amount--negative" : "transaction-amount transaction-amount--positive"}>{signedMoney(transaction.amount)}</td>
     </tr>
+  );
+}
+
+function TransactionCreator({ defaultAccountId, onClose, onCompleted, snapshot, token }: {
+  defaultAccountId?: number;
+  onClose: () => void;
+  onCompleted: (result: TransactionActionResult) => void;
+  snapshot: TransactionsSnapshot;
+  token: string;
+}) {
+  const activeAccounts = snapshot.accounts.filter((account) => account.status === "Actif");
+  const [draft, setDraft] = useState<TransactionCreatePayload>({
+    accountId: activeAccounts.find((account) => account.id === defaultAccountId)?.id ?? activeAccounts[0]?.id ?? 0,
+    date: new Date().toISOString().slice(0, 10),
+    label: "",
+    beneficiary: "",
+    category: "",
+    direction: "Débit",
+    amount: 0,
+  });
+  const [amountText, setAmountText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+
+  function field<Key extends keyof TransactionCreatePayload>(key: Key, value: TransactionCreatePayload[Key]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(amountText.replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormError("Indiquez un montant supérieur à zéro.");
+      return;
+    }
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      onCompleted(await createTransaction(token, { ...draft, amount }));
+    } catch (cause: unknown) {
+      setFormError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SideDrawer
+      eyebrow="Transactions"
+      footer={(
+        <>
+          <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+          <button disabled={busy || activeAccounts.length === 0} form="transaction-create-form" type="submit">{busy ? "Enregistrement…" : "Ajouter la transaction"}</button>
+        </>
+      )}
+      onClose={onClose}
+      title="Nouvelle transaction"
+    >
+      <form className="transaction-create-form" id="transaction-create-form" onSubmit={(event) => void submit(event)}>
+        <div className="account-editor-grid">
+          <label className="account-field account-field--wide"><span>Compte *</span><select onChange={(event) => field("accountId", Number(event.target.value))} value={draft.accountId}>{activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}</select></label>
+          <label className="account-field"><span>Date *</span><input onChange={(event) => field("date", event.target.value)} required type="date" value={draft.date} /></label>
+          <label className="account-field"><span>Sens *</span><select onChange={(event) => field("direction", event.target.value as "Débit" | "Crédit")} value={draft.direction}><option value="Débit">Dépense (débit)</option><option value="Crédit">Recette (crédit)</option></select></label>
+          <label className="account-field"><span>Montant (EUR) *</span><input autoFocus inputMode="decimal" onChange={(event) => setAmountText(event.target.value)} placeholder="0,00" required value={amountText} /></label>
+          <label className="account-field"><span>Catégorie</span><select onChange={(event) => field("category", event.target.value)} value={draft.category}><option value="">À catégoriser</option>{snapshot.categories.filter((category) => category.name && category.name !== "À catégoriser").map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}</select></label>
+          <label className="account-field account-field--wide"><span>Libellé *</span><input maxLength={240} onChange={(event) => field("label", event.target.value)} placeholder="Ex. Carte — boulangerie" required value={draft.label} /></label>
+          <label className="account-field account-field--wide"><span>Tiers (facultatif)</span><input maxLength={120} onChange={(event) => field("beneficiary", event.target.value)} placeholder="Ex. Boulangerie Martin" value={draft.beneficiary} /><small>Laissé vide, le tiers est déduit du libellé.</small></label>
+        </div>
+        <p className="account-editor-note">La transaction est enregistrée comme saisie manuelle. Elle met à jour immédiatement le solde du compte, les budgets, le prévisionnel et les propositions de rapprochement.</p>
+        {formError && <div className="account-form-error" role="alert">{formError}</div>}
+      </form>
+    </SideDrawer>
   );
 }
 

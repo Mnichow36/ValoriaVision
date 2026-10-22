@@ -182,6 +182,16 @@ export interface TransactionEditPayload {
   status: string;
 }
 
+export interface TransactionCreatePayload {
+  accountId: number;
+  date: string;
+  label: string;
+  beneficiary: string;
+  category: string;
+  direction: "Débit" | "Crédit";
+  amount: number;
+}
+
 export interface TransactionActionResult {
   success: boolean;
   message: string;

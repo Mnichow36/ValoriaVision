@@ -88,6 +88,7 @@ export function App() {
   const [reconciliationRulesRequestKey, setReconciliationRulesRequestKey] = useState(0);
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
+  const [transactionCreateRequestKey, setTransactionCreateRequestKey] = useState(0);
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
   const [assetEditorRequestKey, setAssetEditorRequestKey] = useState(0);
   const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
@@ -198,6 +199,7 @@ export function App() {
             onForecastHorizonChange={setForecastHorizonDays}
             onCreateRecurrence={() => setForecastRecurrenceRequestKey((key) => key + 1)}
             onOpenTransactionImport={() => openBankImport()}
+            onCreateTransaction={() => setTransactionCreateRequestKey((key) => key + 1)}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
             onReconciliationRules={() => setReconciliationRulesRequestKey((key) => key + 1)}
@@ -222,6 +224,7 @@ export function App() {
           )}
           {activeModule === "transactions" && (
             <TransactionsPage
+              createRequestKey={transactionCreateRequestKey}
               importRequestKey={transactionImportRequestKey}
               onDataChanged={() => {
                 void refreshDashboard();
@@ -286,6 +289,7 @@ function HeaderActions({
   onForecastHorizonChange,
   onCreateRecurrence,
   onOpenTransactionImport,
+  onCreateTransaction,
   onReconciliationAccountChange,
   onReconciliationRefresh,
   onReconciliationRules,
@@ -312,6 +316,7 @@ function HeaderActions({
   onForecastHorizonChange: (value: number) => void;
   onCreateRecurrence: () => void;
   onOpenTransactionImport: () => void;
+  onCreateTransaction: () => void;
   onReconciliationAccountChange: (value: string) => void;
   onReconciliationRefresh: () => void;
   onReconciliationRules: () => void;
@@ -373,6 +378,7 @@ function HeaderActions({
       <div className="header-actions">
         <button className="secondary-button" onClick={() => onTransactionViewChange("recurrences")} type="button">Récurrences</button>
         <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>
+        <button className="secondary-button" onClick={onCreateTransaction} type="button">Nouvelle transaction</button>
         <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
       </div>
     );

@@ -172,6 +172,71 @@ class TransactionsReadService:
             "transactionId": transaction_id,
         }
 
+    def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Crée une transaction saisie à la main ; mêmes contrôles que la modification."""
+
+        account_id = _integer(payload.get("account_id"))
+        account = next(
+            (row for row in self.database.list_accounts() if _integer(_field(row, "id", 0)) == account_id),
+            None,
+        )
+        if account is None:
+            raise ValueError("Le compte sélectionné n’existe pas.")
+        if str(_field(account, "status", "Actif") or "Actif") != "Actif":
+            raise ValueError("Ce compte n’est pas actif : choisissez un compte actif.")
+
+        raw_date = str(payload.get("tx_date", "") or "").strip()
+        try:
+            transaction_date = date.fromisoformat(raw_date).isoformat()
+        except ValueError as exc:
+            raise ValueError("La date de transaction est obligatoire et doit être valide.") from exc
+
+        label = str(payload.get("label", "") or "").strip()
+        if not label:
+            raise ValueError("Le libellé de la transaction est obligatoire.")
+
+        category = str(payload.get("category", "") or "").strip()
+        if category.casefold() == "à catégoriser".casefold():
+            category = ""
+        known = {str(_field(item, "name", "") or "").strip() for item in self.database.list_categories()}
+        if category and category not in known:
+            raise ValueError("La catégorie sélectionnée n’existe pas.")
+
+        direction = str(payload.get("direction", "") or "").strip()
+        if direction not in {"Débit", "Crédit"}:
+            raise ValueError("Le sens doit être Débit ou Crédit.")
+        try:
+            absolute_amount = abs(float(payload.get("amount", 0)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Le montant doit être un nombre.") from exc
+        if not math.isfinite(absolute_amount) or absolute_amount <= 0:
+            raise ValueError("Le montant doit être supérieur à zéro.")
+        amount = round(-absolute_amount if direction == "Débit" else absolute_amount, 2)
+
+        beneficiary = str(payload.get("beneficiary", "") or "").strip() or None
+        created = self.database.insert_transaction(
+            account_id,
+            transaction_date,
+            label,
+            category or None,
+            amount,
+            "Manuel",
+            beneficiary=beneficiary,
+            preserve_direction=True,
+        )
+        if not created:
+            raise ValueError(
+                "Une transaction identique existe déjà (même compte, même date, même libellé et même montant)."
+            )
+        signature = self.database.make_signature(account_id, transaction_date, label, amount)
+        with self.database.connect() as conn:
+            row = conn.execute("SELECT id FROM transactions WHERE signature = ?", (signature,)).fetchone()
+        return {
+            "success": True,
+            "message": "La transaction a été ajoutée.",
+            "transactionId": _integer(_field(row, "id", 0)) if row is not None else 0,
+        }
+
     def bulk_update(
         self,
         transaction_ids: list[int],
