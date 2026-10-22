@@ -2804,3 +2804,48 @@ button.forecast-kpi { cursor: pointer; }
 .side-drawer .account-field { margin-bottom: 12px; }
 .account-editor .side-drawer__footer .bgt-danger { background: transparent; border: 0; box-shadow: none; color: #b91c1c; margin-right: auto; padding: 0; min-height: 0; height: auto; }
 .bgt-toast { position: fixed; top: 92px; right: 40px; z-index: 40; box-shadow: 0 6px 20px rgba(15, 27, 58, .15); }
+
+/* Tableau de bord : alertes, qualité et échéances réellement actives */
+.r8-alerts-panel .panel-heading, .r8-upcoming-panel .panel-heading { align-items: center; display: flex; justify-content: space-between; }
+.dash-count { background: #fee2e2; border-radius: 999px; color: #b91c1c; font-size: 12px; font-weight: 800; padding: 2px 10px; }
+.r8-alerts-panel ul { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
+.r8-alerts-panel li.dash-alert { background: transparent; border: 0; display: block; margin: 0; padding: 0; }
+.dash-alert button { align-items: center; background: #fff; border: 1px solid #e3e9f3; border-left: 4px solid #2563eb; border-radius: 10px; color: #0f1b3a; display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; text-align: left; width: 100%; }
+.dash-alert button:not(:disabled):hover { background: #f1f5fb; }
+.dash-alert button:disabled { cursor: default; }
+.dash-alert--critical button { border-left-color: #dc2626; }
+.dash-alert--warning button { border-left-color: #d97706; }
+.dash-alert--success button { border-left-color: #16a34a; }
+.dash-alert button span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dash-alert button strong { font-size: 12px; }
+.dash-alert button small { color: #52627d; font-size: 11px; }
+.dash-alert button b { color: #1d4ed8; font-size: 11px; white-space: nowrap; }
+.dash-quality__rate { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 700; margin: 6px 0 6px; }
+.r8-quality-track { margin-bottom: 10px; }
+.dash-rows { display: flex; flex-direction: column; gap: 6px; }
+.dash-rows button { align-items: center; background: #fff; border: 1px solid #e3e9f3; border-radius: 10px; color: #0f1b3a; display: flex; font-size: 12px; justify-content: space-between; padding: 7px 12px; }
+.dash-rows button:hover { background: #f1f5fb; }
+.dash-rows button b { color: #1d4ed8; }
+.dash-upcoming { list-style: none; margin: 4px 0 0; padding: 0; }
+.dash-upcoming li { align-items: center; border-bottom: 1px solid #eef2f8; display: flex; font-size: 12px; gap: 10px; padding: 6px 0; }
+.dash-upcoming li span { color: #52627d; font-weight: 600; width: 40px; }
+.dash-upcoming li strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r8-dashboard-bottom { grid-template-columns: 1.25fr 1fr 1fr; }
+/* Tableau de bord : tient sur un écran à 100 % */
+.r8-dashboard { grid-template-rows: auto minmax(0, 1fr) 262px; height: calc(100vh - 126px); min-height: 660px; }
+.r8-dashboard .r8-kpi { min-height: 0; padding: 14px 18px; }
+.r8-dashboard .r8-kpi > strong { margin: 10px 0 6px; }
+.r8-dashboard-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px; min-height: 0; }
+.r8-dashboard-main .r8-expenses-panel, .r8-dashboard-main .r8-assets-panel { min-height: 0; overflow: hidden; }
+.r8-dashboard-main .r8-expenses-content { margin-top: 8px; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; }
+.r8-dashboard-main .r8-flow-panel { grid-column: auto; grid-template-columns: 1fr; align-content: start; gap: 10px; min-height: 0; }
+.r8-dashboard-bottom { min-height: 0; }
+.r8-dashboard-bottom .r8-panel { overflow: hidden; }
+.r8-upcoming-panel .panel-heading h2 { white-space: nowrap; }
+.r8-upcoming-panel .bgt-link { white-space: nowrap; }
+.r8-dashboard-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 300px; }
+.r8-dashboard-main .interactive-donut--with-legend { grid-template-columns: minmax(110px, .75fr) minmax(130px, 1fr); gap: 10px; }
+.r8-dashboard-main .interactive-donut__visual { max-width: 170px; }
+.r8-dashboard-main .interactive-donut__legend-item span { font-size: 11px; }
+.r8-dashboard-main .interactive-donut__legend-item strong { font-size: 11px; }
+.r8-dashboard-main .interactive-donut__center strong { font-size: 13px; }

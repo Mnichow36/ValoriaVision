@@ -32,6 +32,23 @@ export interface DashboardAlert {
   level: "info" | "success" | "warning" | "critical";
   title: string;
   detail: string;
+  target?: "budgets" | "forecast" | "transactions" | "reconciliation" | null;
+}
+
+export interface DashboardQuality {
+  total: number;
+  uncategorized: number;
+  uncategorizedLarge: number;
+  categorizedPercent: number;
+  lastImport: string | null;
+  daysSinceImport: number | null;
+  reconciliationPending: number;
+}
+
+export interface DashboardUpcoming {
+  date: string;
+  label: string;
+  amount: number;
 }
 
 export interface DashboardSnapshot {
@@ -48,6 +65,14 @@ export interface DashboardSnapshot {
   };
   assets: AssetSlice[];
   alerts: DashboardAlert[];
+  filters?: { accountId: number | null; month: string };
+  accounts?: { id: number; name: string; status: string }[];
+  months?: string[];
+  toProcess?: number;
+  expensesByCategory?: { label: string; value: number }[];
+  budgetComparable?: boolean;
+  quality?: DashboardQuality;
+  upcoming?: DashboardUpcoming[];
 }
 
 export interface ReconciliationBadge {

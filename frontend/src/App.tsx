@@ -79,6 +79,8 @@ export function App() {
   const [forecastHorizonDays, setForecastHorizonDays] = useState(30);
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
   const [forecastRecurrenceRequestKey, setForecastRecurrenceRequestKey] = useState(0);
+  const [dashboardAccountId, setDashboardAccountId] = useState("all");
+  const [dashboardMonth, setDashboardMonth] = useState("");
   const [budgetMonth, setBudgetMonth] = useState("");
   const [budgetMonths, setBudgetMonths] = useState<string[]>([]);
   const [reconciliationAccountId, setReconciliationAccountId] = useState("all");
@@ -134,10 +136,20 @@ export function App() {
     setTransactionImportRequestKey((key) => key + 1);
   }
 
-  async function refreshDashboard() {
+  async function refreshDashboard(filters?: { accountId?: string; month?: string }) {
     if (state.status !== "ready") return;
-    const snapshot = await getDashboard(state.token).catch(() => undefined);
+    const snapshot = await getDashboard(state.token, filters ?? { accountId: dashboardAccountId, month: dashboardMonth }).catch(() => undefined);
     if (snapshot) setState({ status: "ready", snapshot, token: state.token });
+  }
+
+  function changeDashboardAccount(accountId: string) {
+    setDashboardAccountId(accountId);
+    void refreshDashboard({ accountId, month: dashboardMonth });
+  }
+
+  function changeDashboardMonth(month: string) {
+    setDashboardMonth(month);
+    void refreshDashboard({ accountId: dashboardAccountId, month });
   }
 
   if (state.status === "booting") {
@@ -184,6 +196,10 @@ export function App() {
             activeModule={activeModule}
             accountStatusFilter={accountStatusFilter}
             dashboard={state.snapshot}
+            dashboardAccountId={dashboardAccountId}
+            dashboardMonth={dashboardMonth}
+            onDashboardAccountChange={changeDashboardAccount}
+            onDashboardMonthChange={changeDashboardMonth}
             budgetMonth={budgetMonth}
             budgetMonths={budgetMonths}
             forecastAccountId={forecastAccountId}
@@ -211,7 +227,7 @@ export function App() {
           />
         </header>
         <div className="workspace-content">
-          {activeModule === "dashboard" && <Dashboard snapshot={state.snapshot} />}
+          {activeModule === "dashboard" && <Dashboard onImport={() => openBankImport()} onNavigate={setActiveModule} snapshot={state.snapshot} />}
           {activeModule === "accounts" && (
             <AccountsPage
               editorRequestKey={accountEditorRequestKey}
@@ -282,6 +298,10 @@ function HeaderActions({
   budgetMonth,
   budgetMonths,
   dashboard,
+  dashboardAccountId,
+  dashboardMonth,
+  onDashboardAccountChange,
+  onDashboardMonthChange,
   forecastAccountId,
   forecastAccounts,
   forecastHorizonDays,
@@ -310,6 +330,10 @@ function HeaderActions({
   budgetMonth: string;
   budgetMonths: string[];
   dashboard: DashboardSnapshot;
+  dashboardAccountId: string;
+  dashboardMonth: string;
+  onDashboardAccountChange: (value: string) => void;
+  onDashboardMonthChange: (value: string) => void;
   forecastAccountId: string;
   forecastAccounts: ForecastAccount[];
   forecastHorizonDays: number;
@@ -336,8 +360,13 @@ function HeaderActions({
   if (activeModule === "dashboard") {
     return (
       <div className="header-actions">
-        <button className="secondary-button" type="button">Tous les comptes</button>
-        <button className="secondary-button" type="button">{formatPeriod(dashboard.period)}</button>
+        <select aria-label="Compte du tableau de bord" onChange={(event) => onDashboardAccountChange(event.target.value)} value={dashboardAccountId}>
+          <option value="all">Tous les comptes</option>
+          {(dashboard.accounts ?? []).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+        </select>
+        <select aria-label="Mois du tableau de bord" onChange={(event) => onDashboardMonthChange(event.target.value)} value={dashboardMonth || dashboard.period}>
+          {(dashboard.months ?? [dashboard.period]).map((month) => <option key={month} value={month}>{formatPeriod(month)}</option>)}
+        </select>
         <button onClick={onOpenTransactionImport} type="button">Importer</button>
       </div>
     );
@@ -476,21 +505,23 @@ function groupSlices(items: { label: string; value: number }[], palette: string[
   return slices.map((item, index) => ({ ...item, color: palette[index % palette.length] }));
 }
 
-function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
+function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; onNavigate: (module: NavigationId) => void; snapshot: DashboardSnapshot }) {
   const kpis = new Map(snapshot.kpis.map((kpi) => [kpi.id, kpi]));
   const cash = kpis.get("cash")?.value ?? 0;
   const netWorth = kpis.get("net-worth")?.value ?? 0;
   const income = kpis.get("income")?.value ?? 0;
   const expenses = kpis.get("expenses")?.value ?? snapshot.budget.totalRealized;
   const savings = income - expenses;
-  const expenseRows = snapshot.budget.rows.filter((row) => row.actual > 0);
-  const expenseTotal = expenseRows.reduce((total, row) => total + row.actual, 0);
+  const expenseRows = snapshot.expensesByCategory
+    ?? snapshot.budget.rows.filter((row) => row.actual > 0).map((row) => ({ label: row.category, value: row.actual }));
+  const expenseTotal = expenseRows.reduce((total, row) => total + row.value, 0);
   const assetTotal = snapshot.assets.reduce((total, item) => total + item.value, 0);
+  const comparable = snapshot.budgetComparable ?? true;
   const budgetVariance = snapshot.budget.totalRealized - snapshot.budget.totalPlanned;
-  const toProcess = snapshot.alerts.filter((alert) => alert.level === "warning" || alert.level === "critical").length
-    + snapshot.budget.rows.filter((row) => row.usage > 100).length;
+  const toProcess = snapshot.toProcess ?? snapshot.alerts.filter((alert) => alert.level === "warning" || alert.level === "critical").length;
+  const filtered = snapshot.filters?.accountId != null;
   const expenseSlices = groupSlices(
-    expenseRows.map((row) => ({ label: row.category, value: row.actual })),
+    expenseRows.map((row) => ({ label: row.label, value: row.value })),
     ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626", "#7c3aed", "#64748b"],
   );
   const assetSlices = groupSlices(
@@ -498,14 +529,16 @@ function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
     ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b", "#64748b"],
   );
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
+  const quality = snapshot.quality;
+  const varianceLabel = comparable ? `${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget` : "Compte seul · budget global non comparable";
 
   return (
     <div className="r8-dashboard">
       <section className="r8-kpi-grid" aria-label="Indicateurs principaux">
-        <DashboardKpi label="Cash disponible" value={moneyCode.format(cash)} detail="Comptes courants et épargne" tone="cyan" />
-        <DashboardKpi label="Patrimoine net" value={moneyCode.format(netWorth)} detail="Actifs moins passifs" tone="purple" />
-        <DashboardKpi label="Dépenses mois" value={moneyCode.format(expenses)} detail={`${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget`} tone="red" />
-        <DashboardKpi label="À traiter" value={String(toProcess)} detail={`${snapshot.alerts.length} alerte(s) à surveiller`} tone="amber" />
+        <DashboardKpi label="Cash disponible" value={moneyCode.format(cash)} detail={filtered ? "Solde du compte sélectionné" : "Comptes courants et épargne"} tone="cyan" />
+        <DashboardKpi label="Patrimoine net" value={moneyCode.format(netWorth)} detail="Actifs moins passifs (global)" tone="purple" />
+        <DashboardKpi label="Dépenses mois" value={moneyCode.format(expenses)} detail={varianceLabel} tone="red" />
+        <DashboardKpi label="À traiter" value={String(toProcess)} detail={toProcess > 0 ? "Voir les alertes en bas de page" : "Rien à signaler"} tone="amber" />
       </section>
 
       <section className="r8-dashboard-main">
@@ -514,45 +547,72 @@ function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
           <div className="r8-expenses-content r8-expenses-content--interactive">
             <InteractiveDonutChart ariaLabel="Répartition des dépenses par catégorie" slices={expenseSlices} valueFormatter={(value) => moneyCode.format(value)} />
           </div>
-          <span className={budgetVariance > 0 ? "r8-variance r8-variance--warning" : "r8-variance"}>{budgetVariance > 0 ? "+ " : ""}{moneyCode.format(budgetVariance)} vs budget</span>
+          {comparable && <span className={budgetVariance > 0 ? "r8-variance r8-variance--warning" : "r8-variance"}>{varianceLabel}</span>}
         </article>
         <article className="card r8-panel r8-assets-panel">
-          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Total des actifs · {moneyCode.format(assetTotal)}.</p></div></div>
+          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Total des actifs · {moneyCode.format(assetTotal)} · tous comptes.</p></div></div>
           <InteractiveDonutChart ariaLabel="Répartition du patrimoine par famille" slices={assetSlices} valueFormatter={(value) => moneyCode.format(value)} />
         </article>
         <article className="card r8-panel r8-flow-panel">
-          <div className="panel-heading"><div><h2>Flux du mois</h2><p>Revenus, dépenses et épargne nette.</p></div></div>
+          <div className="panel-heading"><div><h2>Flux du mois</h2><p>Revenus, dépenses et épargne nette · hors transferts.</p></div></div>
           <FlowBar label="Revenus" maximum={flowMaximum} tone="green" value={income} />
           <FlowBar label="Dépenses" maximum={flowMaximum} tone="red" value={expenses} />
           <FlowBar label="Épargne nette" maximum={flowMaximum} tone="blue" value={savings} />
-          <span className="category-chip">Flux hors transferts</span>
         </article>
       </section>
 
       <section className="r8-dashboard-bottom">
         <article className="card r8-panel r8-alerts-panel">
-          <div className="panel-heading"><div><h2>Alertes utiles</h2></div></div>
-          <ul>{snapshot.alerts.slice(0, 2).map((alert) => <li key={`${alert.title}-${alert.detail}`}><strong>{alert.title}</strong><small>{alert.detail}</small></li>)}</ul>
+          <div className="panel-heading"><div><h2>Alertes utiles</h2></div>{toProcess > 0 && <span className="dash-count">{toProcess}</span>}</div>
+          <ul>
+            {snapshot.alerts.slice(0, 4).map((alert) => (
+              <li className={`dash-alert dash-alert--${alert.level}`} key={`${alert.title}-${alert.detail}`}>
+                <button disabled={!alert.target} onClick={() => alert.target && onNavigate(alert.target)} type="button">
+                  <span><strong>{alert.title}</strong><small>{alert.detail}</small></span>
+                  {alert.target && <b>{DASH_TARGETS[alert.target]} ›</b>}
+                </button>
+              </li>
+            ))}
+          </ul>
         </article>
         <article className="card r8-panel r8-quality-panel">
-          <div className="panel-heading"><div><h2>Qualité données</h2></div></div>
-          <span className="status-chip status-chip--success">100 % calculées localement</span>
-          <div className="r8-quality-track"><span /></div>
-          <p>{snapshot.budget.rows.length} catégorie(s) budgétaires analysée(s)</p>
+          <div className="panel-heading"><div><h2>Qualité des données</h2><p>Ce qu’il reste à traiter pour des chiffres fiables.</p></div></div>
+          {quality ? (
+            <>
+              <div className="dash-quality__rate"><span>Transactions catégorisées</span><b className={quality.categorizedPercent >= 95 ? "bgt-good" : quality.categorizedPercent >= 80 ? "bgt-warn" : "bgt-bad"}>{quality.categorizedPercent.toLocaleString("fr-FR")} %</b></div>
+              <div className="r8-quality-track"><span style={{ width: `${Math.min(100, quality.categorizedPercent)}%` }} /></div>
+              <div className="dash-rows">
+                <button onClick={() => onNavigate("transactions")} type="button"><span>À catégoriser</span><b>{quality.uncategorized} ›</b></button>
+                <button onClick={() => onNavigate("reconciliation")} type="button"><span>Rapprochements en attente</span><b>{quality.reconciliationPending} ›</b></button>
+                <button onClick={onImport} type="button"><span>Dernier import</span><b>{quality.lastImport ? (quality.daysSinceImport === 0 ? "aujourd’hui" : `il y a ${quality.daysSinceImport} j`) : "aucun"} ›</b></button>
+              </div>
+            </>
+          ) : <p className="bgt-empty">Indicateurs indisponibles.</p>}
         </article>
-        <article className="card r8-panel r8-summary-panel">
-          <div className="panel-heading"><div><h2>Synthèse rapide</h2></div></div>
-          <dl>
-            <div><dt>Cash disponible</dt><dd>{moneyCode.format(cash)}</dd></div>
-            <div><dt>Patrimoine net</dt><dd>{moneyCode.format(netWorth)}</dd></div>
-            <div><dt>Épargne nette</dt><dd>{moneyCode.format(savings)}</dd></div>
-          </dl>
-          <span className="category-chip category-chip--warning">Bêta en cours</span>
+        <article className="card r8-panel r8-upcoming-panel">
+          <div className="panel-heading"><div><h2>Prochaines échéances</h2><p>Les 5 prochains mouvements prévus.</p></div><button className="bgt-link" onClick={() => onNavigate("forecast")} type="button">Prévisionnel ›</button></div>
+          {(snapshot.upcoming ?? []).length === 0 && <p className="bgt-empty">Aucun mouvement prévu prochainement.</p>}
+          <ul className="dash-upcoming">
+            {(snapshot.upcoming ?? []).map((item, index) => (
+              <li key={`${item.date}-${item.label}-${index}`}>
+                <span>{item.date.slice(8, 10)}/{item.date.slice(5, 7)}</span>
+                <strong title={item.label}>{item.label}</strong>
+                <b className={item.amount >= 0 ? "bgt-good" : ""}>{item.amount > 0 ? "+ " : item.amount < 0 ? "- " : ""}{moneyCode.format(Math.abs(item.amount))}</b>
+              </li>
+            ))}
+          </ul>
         </article>
       </section>
     </div>
   );
 }
+
+const DASH_TARGETS: Record<string, string> = {
+  budgets: "Budgets",
+  forecast: "Prévisionnel",
+  transactions: "Transactions",
+  reconciliation: "Rapprochements",
+};
 
 function DashboardKpi({ detail, label, tone, value }: { detail: string; label: string; tone: string; value: string }) {
   return (

@@ -2768,34 +2768,68 @@ class Database:
         """
         return date.today().strftime("%Y-%m")
 
-    def dashboard_metrics(self) -> dict[str, float]:
-        summary = self.account_summary()
-        with self.connect() as conn:
-            current_month = self.dashboard_current_month()
-            tx_rows = list(
-                conn.execute(
-                    """
-                    SELECT category, amount
-                    FROM transactions
-                    WHERE tx_date LIKE ?
-                    """,
-                    (current_month + "%",),
-                )
-            )
-            revenus = sum(float(row["amount"] or 0) for row in tx_rows if is_true_income(row["category"], float(row["amount"] or 0)))
-            depenses = abs(sum(float(row["amount"] or 0) for row in tx_rows if is_current_expense(row["category"], float(row["amount"] or 0))))
-        liquidites_disponibles = summary["liquidites"]
+    def dashboard_metrics(self, month: str | None = None, account_id: int | None = None) -> dict[str, float]:
+        """Dashboard figures. `account_id` limits cash, flows and forecast to one account;
+        net worth always stays global (it is not tied to a bank account)."""
+        current_month = month or self.dashboard_current_month()
+        flows = self.dashboard_month_flows(current_month, account_id)
+        if account_id is None:
+            liquidites_disponibles = self.account_summary()["liquidites"]
+        else:
+            row = next((item for item in self.list_accounts() if int(item["id"]) == int(account_id)), None)
+            liquidites_disponibles = float(row["calculated_balance"] or 0) if row else 0.0
         patrimoine_net = self.net_worth_breakdown()["net_worth"]
         start_date = self.default_forecast_start_date()
-        forecast_30 = self.cash_forecast(start_date, 30, "Réaliste")["end_balance"]
+        forecast_30 = self.cash_forecast(start_date, 30, "Réaliste", account_id=account_id)["end_balance"]
         return {
             "cash": liquidites_disponibles,
             "forecast_30": forecast_30,
             "forecast_start_date": start_date,
             "patrimoine_net": patrimoine_net,
-            "revenus": revenus,
-            "depenses": depenses,
+            "revenus": flows["revenus"],
+            "depenses": flows["depenses"],
             "month": current_month,
+        }
+
+    def dashboard_month_flows(self, month: str, account_id: int | None = None) -> dict:
+        """Income, expenses and expenses by category for a month (optionally one account)."""
+        params: list = [month + "%"]
+        sql = "SELECT category, amount FROM transactions WHERE tx_date LIKE ?"
+        if account_id is not None:
+            sql += " AND account_id = ?"
+            params.append(int(account_id))
+        with self.connect() as conn:
+            tx_rows = list(conn.execute(sql, params))
+        revenus = 0.0
+        by_category: dict[str, float] = {}
+        for row in tx_rows:
+            category = row["category"]
+            amount = float(row["amount"] or 0)
+            if is_true_income(category, amount):
+                revenus += amount
+            if is_current_expense(category, amount):
+                name = category or "À catégoriser"
+                by_category[name] = by_category.get(name, 0.0) + abs(amount)
+        return {"revenus": revenus, "depenses": sum(by_category.values()), "by_category": by_category}
+
+    def dashboard_quality(self, account_id: int | None = None) -> dict:
+        """Data-quality indicators: categorisation rate, large uncategorised items, last import."""
+        where = "WHERE account_id = ?" if account_id is not None else ""
+        params: list = [int(account_id)] if account_id is not None else []
+        uncategorized_sql = "(category IS NULL OR category = '' OR category = 'À catégoriser' OR status = 'À catégoriser')"
+        with self.connect() as conn:
+            total = conn.execute(f"SELECT COUNT(*) AS c FROM transactions {where}", params).fetchone()["c"]
+            joiner = "AND" if where else "WHERE"
+            uncategorized = conn.execute(f"SELECT COUNT(*) AS c FROM transactions {where} {joiner} {uncategorized_sql}", params).fetchone()["c"]
+            large = conn.execute(f"SELECT COUNT(*) AS c FROM transactions {where} {joiner} {uncategorized_sql} AND ABS(amount) > 100", params).fetchone()["c"]
+            batch_where = "WHERE status = 'Importé'" + (" AND account_id = ?" if account_id is not None else "")
+            last = conn.execute(f"SELECT MAX(created_at) AS last FROM import_batches {batch_where}", params).fetchone()["last"]
+        return {
+            "total": int(total),
+            "uncategorized": int(uncategorized),
+            "uncategorizedLarge": int(large),
+            "categorizedPercent": round((1 - uncategorized / total) * 100, 1) if total else 100.0,
+            "lastImport": str(last)[:10] if last else None,
         }
 
     def expenses_by_category(self) -> dict[str, float]:

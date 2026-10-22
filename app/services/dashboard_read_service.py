@@ -29,15 +29,21 @@ class DashboardReadService:
         self.today_provider = today_provider
         self.now_provider = now_provider
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, account_id: int | None = None, month: str | None = None) -> dict[str, Any]:
         today = self.today_provider()
-        metrics = self.database.dashboard_metrics()
+        if month is not None and not (len(month) == 7 and month[4] == "-" and month[:4].isdigit() and month[5:].isdigit() and 1 <= int(month[5:]) <= 12):
+            raise ValueError("Le mois doit avoir la forme AAAA-MM.")
+        interactive = hasattr(self.database, "dashboard_quality")
+        if interactive:
+            metrics = self.database.dashboard_metrics(month, account_id)
+        else:
+            metrics = self.database.dashboard_metrics()
         month = str(metrics.get("month") or today.strftime("%Y-%m"))
         forecast = self.database.dashboard_forecast_chart(60)
         budget = self.database.budget_report(month)
         assets = self.database.asset_summary()
 
-        return {
+        result = {
             "generatedAt": self.now_provider().isoformat(),
             "period": month,
             "currency": "EUR",
@@ -47,6 +53,119 @@ class DashboardReadService:
             "assets": self._assets(assets),
             "alerts": self._alerts(forecast),
         }
+        if interactive:
+            result.update(self._interactive(account_id, month, budget, today))
+        return result
+
+    # -- Tableau de bord interactif : filtres, alertes réelles, qualité, échéances --
+    def _interactive(self, account_id: int | None, month: str, budget: dict[str, Any], today: date) -> dict[str, Any]:
+        db = self.database
+        quality = db.dashboard_quality(account_id)
+        flows = db.dashboard_month_flows(month, account_id)
+        start = db.default_forecast_start_date()
+        forecast = db.cash_forecast(start, 60, "Réaliste", account_id=account_id)
+        reconciliation = self._reconciliation(account_id)
+        accounts = [
+            {
+                "id": int(row["id"]),
+                "name": (f"{row['bank']} - " if row["bank"] else "") + str(row["name"]) + (" (archivé)" if row["status"] != "Actif" else ""),
+                "status": str(row["status"]),
+            }
+            for row in db.list_accounts()
+            if row["status"] != "Clos"
+        ]
+        alerts = self._real_alerts(account_id, month, budget, forecast, quality, reconciliation)
+        upcoming = [
+            {"date": str(event["date"]), "label": str(event.get("name") or event.get("label") or "Mouvement"), "amount": _number(event.get("amount"))}
+            for event in forecast.get("upcoming", [])
+            if str(event["date"]) >= today.isoformat()
+        ][:5]
+        last_import = quality["lastImport"]
+        days_since = None
+        if last_import:
+            try:
+                days_since = (today - date.fromisoformat(last_import)).days
+            except ValueError:
+                days_since = None
+        return {
+            "filters": {"accountId": account_id, "month": month},
+            "accounts": accounts,
+            "months": [str(item) for item in db.budget_months()],
+            "alerts": alerts,
+            "toProcess": len([alert for alert in alerts if alert["level"] != "success"]),
+            "expensesByCategory": [
+                {"label": name, "value": round(value, 2)}
+                for name, value in sorted(flows["by_category"].items(), key=lambda item: -item[1])
+            ],
+            "budgetComparable": account_id is None,
+            "quality": {**quality, "daysSinceImport": days_since, "reconciliationPending": reconciliation["pending"]},
+            "upcoming": upcoming,
+        }
+
+    def _reconciliation(self, account_id: int | None) -> dict[str, int]:
+        try:
+            from app.services.reconciliation_read_service import ReconciliationReadService
+            summary = ReconciliationReadService(self.database).snapshot(account_id).get("summary", {})
+            return {"pending": int(summary.get("unmatchedTransactions") or 0), "gap": int(summary.get("partial") or 0)}
+        except Exception:  # le tableau de bord ne doit jamais tomber à cause des rapprochements
+            return {"pending": 0, "gap": 0}
+
+    @staticmethod
+    def _eur(value: float) -> str:
+        return f"{value:,.0f}".replace(",", "\u202f") + "\u00a0€"
+
+    def _real_alerts(self, account_id, month, budget, forecast, quality, reconciliation) -> list[dict[str, Any]]:
+        alerts: list[dict[str, Any]] = []
+        if account_id is None:
+            over = [row for row in budget.get("rows", []) if row.get("status") == "Dépassement"]
+            over.sort(key=lambda row: float(row.get("actual") or 0) - float(row.get("planned") or 0), reverse=True)
+            for row in over[:2]:
+                alerts.append({
+                    "level": "warning", "target": "budgets",
+                    "title": f"{row['category']} dépasse son budget",
+                    "detail": f"{self._eur(float(row['actual']))} / {self._eur(float(row['planned']))} ce mois-ci",
+                })
+        balances = forecast.get("balances") or []
+        points = forecast.get("daily_points") or []
+        if balances:
+            low = min(balances)
+            index = balances.index(low)
+            when = str(points[index]["date"])[5:].split("-") if index < len(points) else []
+            when_label = f"{when[1]}/{when[0]}" if len(when) == 2 else ""
+            threshold = self._safety_threshold()
+            if low < 0:
+                alerts.append({"level": "critical", "target": "forecast", "title": "Trésorerie négative prévue",
+                               "detail": f"Point bas {self._eur(low)} le {when_label}"})
+            elif threshold > 0 and low < threshold:
+                alerts.append({"level": "warning", "target": "forecast", "title": "Solde sous le seuil de sécurité",
+                               "detail": f"Point bas {self._eur(low)} le {when_label} · seuil {self._eur(threshold)}"})
+        if quality["uncategorized"] > 0:
+            n = quality["uncategorized"]
+            large = quality["uncategorizedLarge"]
+            alerts.append({
+                "level": "info", "target": "transactions",
+                "title": f"{n} transaction{'s' if n > 1 else ''} à catégoriser",
+                "detail": f"Dont {large} supérieure{'s' if large > 1 else ''} à 100 €" if large else "Aucune supérieure à 100 €",
+            })
+        if reconciliation["pending"] > 0:
+            n = reconciliation["pending"]
+            gap = reconciliation["gap"]
+            alerts.append({
+                "level": "info", "target": "reconciliation",
+                "title": f"{n} rapprochement{'s' if n > 1 else ''} à traiter",
+                "detail": f"{gap} écart{'s' if gap > 1 else ''} de montant à régler" if gap else "Opérations bancaires sans prévision associée",
+            })
+        order = {"critical": 0, "warning": 1, "info": 2}
+        alerts.sort(key=lambda alert: order.get(alert["level"], 3))
+        if not alerts:
+            alerts.append({"level": "success", "target": None, "title": "Aucune alerte", "detail": "Budget, trésorerie et données sont à jour."})
+        return alerts
+
+    def _safety_threshold(self) -> float:
+        try:
+            return max(0.0, float(str(self.database.get_setting("forecast.safety_threshold", "0") or "0").replace(",", ".")))
+        except (AttributeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _kpis(metrics: dict[str, Any]) -> list[dict[str, Any]]:

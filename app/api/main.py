@@ -457,13 +457,18 @@ def create_app(database: Database | None = None) -> FastAPI:
 
     @app.get("/api/v1/dashboard")
     def dashboard(
+        account_id: int | None = None,
+        month: str | None = None,
         x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
-        return DashboardReadService(active_database).snapshot()
+        try:
+            return DashboardReadService(active_database).snapshot(account_id, month)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/v1/accounts")
     def accounts(

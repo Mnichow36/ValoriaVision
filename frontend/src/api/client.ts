@@ -68,8 +68,12 @@ export function closeSession(token: string): Promise<{ locked: boolean }> {
   return request<{ locked: boolean }>("/api/v1/auth/lock", { method: "POST", token });
 }
 
-export function getDashboard(token: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
-  return request<DashboardSnapshot>("/api/v1/dashboard", { token, signal });
+export function getDashboard(token: string, filters?: { accountId?: string; month?: string }, signal?: AbortSignal): Promise<DashboardSnapshot> {
+  const query = new URLSearchParams();
+  if (filters?.accountId && filters.accountId !== "all") query.set("account_id", filters.accountId);
+  if (filters?.month) query.set("month", filters.month);
+  const encoded = query.toString();
+  return request<DashboardSnapshot>(`/api/v1/dashboard${encoded ? `?${encoded}` : ""}`, { token, signal });
 }
 
 export function getAccounts(token: string, signal?: AbortSignal): Promise<AccountsSnapshot> {
