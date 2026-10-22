@@ -168,13 +168,16 @@ class AssetsReadService:
         if callable(accounts_provider):
             for account in accounts_provider():
                 if _field(account, "status") == "Actif":
-                    day = _parse_date(_field(account, "initial_date") or _field(account, "reference_date"))
+                    day = _parse_date(_field(account, "effective_initial_date") or _field(account, "initial_date") or _field(account, "reference_date"))
                     if day is not None:
                         account_days.append(day)
-        # L'historique commence quand toutes les sources existent (valorisations ET comptes) :
-        # sinon l'ouverture d'un compte ressemblerait à une hausse de patrimoine.
-        starts = [min(days) for days in (all_days, account_days) if days]
-        earliest = max(starts) if starts else today
+        # L'historique commence quand TOUTES les sources existent : le premier actif valorisé
+        # et le dernier compte ouvert. Avant, un compte pas encore ouvert compterait 0 et son
+        # ouverture ressemblerait à une hausse de patrimoine.
+        if account_days:
+            earliest = max(max(account_days), min(all_days) if all_days else max(account_days))
+        else:
+            earliest = min(all_days) if all_days else today
         sampled = [_add_months(today, -offset) for offset in range(12, -1, -1)]
         sampled = [day for day in sampled if day >= earliest]
         if not sampled or sampled[0] > earliest:

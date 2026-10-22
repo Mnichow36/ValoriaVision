@@ -50,6 +50,19 @@ class AssetsInsightsTest(unittest.TestCase):
         self.assertEqual(series[0]["net"], 200000 + 10000 + 5000 - 110000)
         self.assertEqual(series[-1]["net"], 116000.0)
 
+    def test_history_starts_when_the_last_account_was_opened(self):
+        class LateAccount(InsightsDatabase):
+            def list_accounts(self):
+                return [
+                    {"id": 1, "status": "Actif", "initial_date": "2026-04-01"},
+                    {"id": 2, "status": "Actif", "initial_date": "2026-06-23"},
+                    {"id": 3, "status": "Archivé", "initial_date": "2026-09-01"},
+                ]
+
+        snapshot = AssetsReadService(LateAccount(), now_provider=lambda: datetime(2026, 10, 22, 12, tzinfo=timezone.utc)).snapshot()
+        self.assertEqual(snapshot["evolution"][0]["date"], "2026-06-23")
+        self.assertEqual(snapshot["headline"]["change"]["fromDate"], "2026-06-23")
+
     def test_twelve_month_change_is_flagged_incomplete_when_history_is_short(self):
         change = service().snapshot()["headline"]["change"]
         self.assertFalse(change["complete"])
