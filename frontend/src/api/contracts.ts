@@ -439,6 +439,10 @@ export interface ForecastSnapshot {
     totalIn: number;
     totalOut: number;
     prudentDifference: number;
+    safetyThreshold: number;
+    daysBelowThreshold: number;
+    totalDays: number;
+    overdueOccurrences: number;
     alert: string;
   };
   upcoming: ForecastEvent[];

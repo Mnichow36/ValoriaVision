@@ -113,8 +113,8 @@ class ForecastReadServiceTest(unittest.TestCase):
 
         self.assertEqual(snapshot["filters"]["accountId"], 7)
         self.assertEqual(snapshot["filters"]["referenceDate"], "2026-10-14")
-        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-09")
-        self.assertEqual(snapshot["filters"]["endDate"], "2027-01-07")
+        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-14")
+        self.assertEqual(snapshot["filters"]["endDate"], "2027-01-12")
         self.assertEqual(snapshot["summary"]["endBalance"], 1000.0)
         self.assertEqual(snapshot["summary"]["prudentDifference"], 100.0)
         self.assertEqual(snapshot["series"]["realized"][-1]["balance"], 850.0)
@@ -191,8 +191,33 @@ class ForecastReadServiceTest(unittest.TestCase):
         ).snapshot(horizon_days=45, scenario="Inconnu")
         self.assertEqual(snapshot["filters"]["horizonDays"], 15)
         self.assertEqual(snapshot["filters"]["scenario"], "Réaliste")
-        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-13")
-        self.assertEqual(snapshot["filters"]["endDate"], "2026-10-28")
+        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-18")
+        self.assertEqual(snapshot["filters"]["endDate"], "2026-11-02")
+
+    def test_no_forecast_point_before_today_and_safety_threshold(self):
+        class ThresholdDatabase(StubDatabase):
+            settings = {"forecast.safety_threshold": "900"}
+
+            def get_setting(self, key, default=""):
+                return self.settings.get(key, default)
+
+            def set_setting(self, key, value):
+                self.settings[key] = value
+
+        database = ThresholdDatabase()
+        service = ForecastReadService(database, now_provider=lambda: datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc))
+        snapshot = service.snapshot(horizon_days=15)
+        for key in ("selected", "realized", "realistic", "prudent", "optimistic"):
+            self.assertTrue(all(point["date"] >= "2026-10-15" for point in snapshot["series"][key]), key)
+        self.assertEqual(snapshot["filters"]["startDate"], "2026-10-15")
+        self.assertEqual(snapshot["summary"]["safetyThreshold"], 900.0)
+        self.assertEqual(snapshot["summary"]["daysBelowThreshold"], 0)
+        self.assertEqual(service.update_safety_threshold("1 500".replace(" ", ""))["safetyThreshold"], 1500.0)
+        self.assertEqual(service.snapshot(horizon_days=15)["summary"]["daysBelowThreshold"], 1)
+        with self.assertRaises(ValueError):
+            service.update_safety_threshold("abc")
+        with self.assertRaises(ValueError):
+            service.update_safety_threshold(-5)
 
 
 if __name__ == "__main__":

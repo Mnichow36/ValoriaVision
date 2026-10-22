@@ -30,7 +30,8 @@ def _integer(value: Any) -> int:
 class ForecastReadService:
     """Expose daily cash projections without coupling React to SQLite rows."""
 
-    ALLOWED_HORIZONS = {15, 30, 60, 90}
+    ALLOWED_HORIZONS = {15, 30, 60, 90, 180, 365}
+    SAFETY_THRESHOLD_KEY = "forecast.safety_threshold"
     ALLOWED_SCENARIOS = {"Prudent", "Réaliste", "Optimiste"}
 
     def __init__(
@@ -57,22 +58,28 @@ class ForecastReadService:
             if current_time.tzinfo is not None
             else current_time.date()
         )
-        forecast_start = reference_date - timedelta(days=5)
-        start_date = forecast_start.isoformat()
-        end_date = (forecast_start + timedelta(days=horizon)).isoformat()
+        # Règle métier : aucune prévision n'est antérieure à aujourd'hui. Le moteur part de la
+        # veille (solde réel) et seules les journées à partir d'aujourd'hui sont exposées.
+        engine_start = reference_date - timedelta(days=1)
+        engine_start_date = engine_start.isoformat()
+        engine_horizon = horizon + 1
+        start_date = reference_date.isoformat()
+        end_date = (reference_date + timedelta(days=horizon)).isoformat()
         built_in_forecasts = {
-            name: self.database.cash_forecast(start_date, horizon, name, account_id=account_id)
+            name: self.database.cash_forecast(engine_start_date, engine_horizon, name, account_id=account_id)
             for name in self.ALLOWED_SCENARIOS
         }
         selected = (
             built_in_forecasts[selected_scenario]
             if selected_scenario in built_in_forecasts
-            else self.database.cash_forecast(start_date, horizon, selected_scenario, account_id=account_id)
+            else self.database.cash_forecast(engine_start_date, engine_horizon, selected_scenario, account_id=account_id)
         )
+        threshold = self.safety_threshold()
+        from_today = lambda points: [p for p in points if str(p.get("date") or "") >= start_date]
         prudent = built_in_forecasts["Prudent"]
         optimistic = built_in_forecasts["Optimiste"]
         realistic = built_in_forecasts["Réaliste"]
-        selected_points = selected.get("daily_points") or []
+        selected_points = from_today(selected.get("daily_points") or [])
         low_point = min(selected_points, key=lambda point: _number(point.get("balance")), default=None)
         end_point = selected_points[-1] if selected_points else None
         occurrences_by_recurrence = self._recurrence_events(selected_points)
@@ -113,33 +120,77 @@ class ForecastReadService:
             "series": {
                 "selected": self._series(selected_points),
                 "realized": self._realized_series(_number(selected.get("starting_cash")), selected_points),
-                "realistic": self._series(realistic.get("daily_points") or []),
-                "prudent": self._series(prudent.get("daily_points") or []),
-                "optimistic": self._series(optimistic.get("daily_points") or []),
+                "realistic": self._series(from_today(realistic.get("daily_points") or [])),
+                "prudent": self._series(from_today(prudent.get("daily_points") or [])),
+                "optimistic": self._series(from_today(optimistic.get("daily_points") or [])),
                 "custom": {
                     name: self._series(
-                        (
+                        from_today((
                             selected
                             if name == selected_scenario
-                            else self.database.cash_forecast(start_date, horizon, name, account_id=account_id)
-                        ).get("daily_points") or []
+                            else self.database.cash_forecast(engine_start_date, engine_horizon, name, account_id=account_id)
+                        ).get("daily_points") or [])
                     )
                     for name in custom_scenarios
                 },
             },
             "summary": {
-                "startingCash": _number(selected.get("starting_cash")),
-                "lowBalance": _number(selected.get("min_balance")),
+                "startingCash": _number(selected_points[0].get("balance")) if selected_points else _number(selected.get("starting_cash")),
+                "lowBalance": _number((low_point or {}).get("balance")) if low_point else _number(selected.get("min_balance")),
                 "lowDate": str((low_point or {}).get("date") or start_date),
                 "endBalance": _number(selected.get("end_balance")),
                 "endDate": str((end_point or {}).get("date") or start_date),
                 "totalIn": _number(selected.get("total_in")),
                 "totalOut": _number(selected.get("total_out")),
                 "prudentDifference": _number(_number(selected.get("end_balance")) - _number(prudent.get("end_balance"))),
+                "safetyThreshold": threshold,
+                "daysBelowThreshold": sum(1 for point in selected_points if _number(point.get("balance")) < threshold),
+                "totalDays": len(selected_points),
+                "overdueOccurrences": self._overdue_count(start_date, account_id),
                 "alert": str(selected.get("alert") or "Prévision disponible"),
             },
             "upcoming": [self._event(event) for event in upcoming_recurrences],
         }
+
+    def _overdue_count(self, reference_date: str, account_id: int | None) -> int:
+        """Prévisions de récurrence antérieures à aujourd'hui, non réalisées : à décaler ou reporter."""
+        connect = getattr(self.database, "connect", None)
+        if connect is None:
+            return 0
+        try:
+            with connect() as conn:
+                query = (
+                    "SELECT COUNT(*) FROM forecast_occurrences "
+                    "WHERE source_type = 'recurring' AND deleted_at IS NULL "
+                    "AND status IN ('planned', 'overdue') AND actual_transaction_id IS NULL "
+                    "AND expected_date < ?"
+                )
+                params: list[Any] = [reference_date]
+                if account_id is not None:
+                    query += " AND account_id = ?"
+                    params.append(account_id)
+                return int(conn.execute(query, params).fetchone()[0] or 0)
+        except Exception:  # base de test minimale ou table absente
+            return 0
+
+    def safety_threshold(self) -> float:
+        getter = getattr(self.database, "get_setting", None)
+        if getter is None:
+            return 0.0
+        try:
+            return max(0.0, float(str(getter(self.SAFETY_THRESHOLD_KEY, "0") or "0").replace(",", ".")))
+        except ValueError:
+            return 0.0
+
+    def update_safety_threshold(self, value: Any) -> dict[str, Any]:
+        try:
+            amount = round(float(str(value).replace(",", ".")), 2)
+        except (TypeError, ValueError):
+            raise ValueError("Le seuil de sécurité doit être un nombre.")
+        if amount < 0 or amount > 10_000_000:
+            raise ValueError("Le seuil de sécurité doit être compris entre 0 et 10 000 000 €.")
+        self.database.set_setting(self.SAFETY_THRESHOLD_KEY, str(amount))
+        return {"success": True, "message": f"Seuil de sécurité fixé à {amount:,.2f} €.".replace(",", " "), "safetyThreshold": amount}
 
     @staticmethod
     def _account(row: Any) -> dict[str, Any]:

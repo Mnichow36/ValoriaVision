@@ -621,3 +621,11 @@ export function postponeRecurrenceOccurrences(token: string, occurrenceIds: numb
     body: { occurrence_ids: occurrenceIds },
   });
 }
+
+export function updateSafetyThreshold(token: string, amount: number): Promise<{ success: boolean; message: string; safetyThreshold: number }> {
+  return request<{ success: boolean; message: string; safetyThreshold: number }>("/api/v1/forecast/safety-threshold", {
+    method: "PUT",
+    token,
+    body: { amount },
+  });
+}

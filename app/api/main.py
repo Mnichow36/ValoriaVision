@@ -169,6 +169,10 @@ class RecurrencePayload(BaseModel):
     scenario: str = "Réaliste"
 
 
+class SafetyThresholdPayload(BaseModel):
+    amount: float
+
+
 class OccurrenceUpdatePayload(BaseModel):
     date: str
     amount: float
@@ -678,6 +682,20 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return ForecastReadService(active_database).snapshot(account_id, horizon_days, scenario)
+
+    @app.put("/api/v1/forecast/safety-threshold")
+    def update_safety_threshold(
+        payload: SafetyThresholdPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return ForecastReadService(active_database).update_safety_threshold(payload.amount)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/v1/forecast/reschedulable-occurrences")
     def reschedulable_forecast_occurrences(

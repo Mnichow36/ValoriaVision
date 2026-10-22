@@ -76,7 +76,7 @@ export function App() {
   const [accountStatusFilter, setAccountStatusFilter] = useState("Actif");
   const [forecastAccountId, setForecastAccountId] = useState("all");
   const [forecastAccounts, setForecastAccounts] = useState<ForecastAccount[]>([]);
-  const [forecastHorizonDays, setForecastHorizonDays] = useState(15);
+  const [forecastHorizonDays, setForecastHorizonDays] = useState(30);
   const [forecastScenario, setForecastScenario] = useState("Réaliste");
   const [forecastRecurrenceRequestKey, setForecastRecurrenceRequestKey] = useState(0);
   const [budgetMonth, setBudgetMonth] = useState("");
@@ -247,6 +247,10 @@ export function App() {
                 void refreshDashboard();
                 setReconciliationRefreshKey((key) => key + 1);
               }}
+              onOpenRecurrences={() => {
+                setTransactionsView("recurrences");
+                setActiveModule("transactions");
+              }}
               onScenarioChange={setForecastScenario}
               scenario={forecastScenario}
               token={state.token}
@@ -391,13 +395,11 @@ function HeaderActions({
           <option value="all">Tous les comptes</option>
           {forecastAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
         </select>
-        <select aria-label="Horizon de la projection" onChange={(event) => onForecastHorizonChange(Number(event.target.value))} value={forecastHorizonDays}>
-          <option value={15}>J−5 à J+10</option>
-          <option value={30}>J−5 à J+25</option>
-          <option value={60}>J−5 à J+55</option>
-          <option value={90}>J−5 à J+85</option>
-        </select>
-        <button onClick={onCreateRecurrence} type="button">Nouvelle récurrence</button>
+        <div aria-label="Horizon de la projection" className="segmented" role="group">
+          {[[15, "15 j"], [30, "30 j"], [90, "3 mois"], [365, "12 mois"]].map(([days, label]) => (
+            <button aria-pressed={forecastHorizonDays === days} className={forecastHorizonDays === days ? "segmented__item segmented__item--active" : "segmented__item"} key={days} onClick={() => onForecastHorizonChange(days as number)} type="button">{label}</button>
+          ))}
+        </div>
       </div>
     );
   }

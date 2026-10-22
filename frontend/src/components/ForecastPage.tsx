@@ -1,8 +1,10 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { deleteRecurrence, getForecast, getReschedulableOccurrences, getScenarioSettings, rescheduleOccurrences } from "../api/client";
+import { deleteRecurrence, getForecast, getScenarioSettings, updateSafetyThreshold } from "../api/client";
 import type { ForecastAccount, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, ReschedulableOccurrence, ReschedulableOccurrencesResult, ScenarioActionResult, ScenarioSettingsSnapshot } from "../api/contracts";
-import { InteractiveLineChart } from "./InteractiveCharts";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { ForecastStepChart } from "./ForecastStepChart";
+import { SideDrawer } from "./SideDrawer";
 import { ScenarioManager } from "./ScenarioManager";
 import { RecurrenceEditor } from "./RecurrenceEditor";
 
@@ -12,6 +14,7 @@ interface ForecastPageProps {
   horizonDays: number;
   onAccountsChange: (accounts: ForecastAccount[]) => void;
   onDataChanged: () => void;
+  onOpenRecurrences: () => void;
   onScenarioChange: (scenario: string) => void;
   scenario: string;
   token: string;
@@ -30,14 +33,14 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccountsChange, onDataChanged, onScenarioChange, scenario, token }: ForecastPageProps) {
+export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccountsChange, onDataChanged, onOpenRecurrences, onScenarioChange, scenario, token }: ForecastPageProps) {
   const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [managerOpen, setManagerOpen] = useState(false);
-  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [thresholdOpen, setThresholdOpen] = useState(false);
+  const [menu, setMenu] = useState<ContextMenuState>();
   const [scenarioManagerOpen, setScenarioManagerOpen] = useState(false);
   const [scenarioCatalog, setScenarioCatalog] = useState<ScenarioSettingsSnapshot>();
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
@@ -83,17 +86,26 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
     if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
       lastEditorRequestKey.current = editorRequestKey;
       setEditingRecurrence(undefined);
-      setManagerOpen(false);
-      setRescheduleOpen(false);
       setSelectedPoint(undefined);
       setEditorOpen(true);
     }
   }, [editorRequestKey]);
 
+  function openEventMenu(event: React.MouseEvent, item: ForecastEvent) {
+    event.preventDefault();
+    const rule = item.recurringId === null ? undefined : snapshot?.recurrences.find((recurrence) => recurrence.id === item.recurringId);
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: "Voir dans Récurrences", onSelect: onOpenRecurrences },
+        { label: "Modifier la règle…", disabled: !rule, onSelect: () => { if (rule) { setEditingRecurrence(rule); setEditorOpen(true); } } },
+      ],
+    });
+  }
+
   function completed(result: { message: string }) {
     setEditorOpen(false);
-    setManagerOpen(false);
-    setRescheduleOpen(false);
     setScenarioManagerOpen(false);
     setEditingRecurrence(undefined);
     setSelectedPoint(undefined);
@@ -118,90 +130,112 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
 
   return (
     <>
-      {notice && <div className="transaction-notice forecast-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
-      <div className="forecast-page">
-      <article className="card forecast-projection">
-        <div className="forecast-card-heading">
-          <div>
-            <h2>Projection journalière</h2>
-            <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · solde réel et échéances prévues.</p>
+      <div className="forecast-v2">
+        {notice && <div className="transaction-notice forecast-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
+        <section aria-label="Synthèse du prévisionnel" className="forecast-kpis">
+          <div className="forecast-kpi">
+            <span>Solde aujourd’hui</span>
+            <strong>{formatMoney(snapshot.summary.startingCash)}</strong>
+            <small>{snapshot.filters.accountLabel}, au {formatDate(snapshot.filters.referenceDate)}</small>
           </div>
-          <ScenarioSelector
-            catalog={scenarioCatalog}
-            onManage={() => {
-              setEditorOpen(false);
-              setManagerOpen(false);
-              setRescheduleOpen(false);
-              setSelectedPoint(undefined);
-              setScenarioManagerOpen(true);
-            }}
-            onScenarioChange={onScenarioChange}
-            onVisibilityChange={(name) => {
-              setVisibleSeries((current) => ({
-                ...current,
-                [name]: !(current[name] ?? name === scenario),
-              }));
-            }}
-            scenario={scenario}
-            visibleSeries={visibleSeries}
-          />
-        </div>
+          <div className="forecast-kpi">
+            <span>Point bas</span>
+            <strong>{formatMoney(snapshot.summary.lowBalance)}</strong>
+            <small>Atteint le {formatDate(snapshot.summary.lowDate)}</small>
+          </div>
+          <div className="forecast-kpi">
+            <span>Solde au {formatDate(snapshot.summary.endDate)}</span>
+            <strong>{formatMoney(snapshot.summary.endBalance)}</strong>
+            <small className="forecast-kpi__positive">{signedMoney(snapshot.summary.endBalance - snapshot.summary.startingCash)} · {percentageChange(snapshot.summary.startingCash, snapshot.summary.endBalance)}</small>
+          </div>
+          <div className="forecast-kpi">
+            <span>Écart scénario prudent</span>
+            <strong>{signedMoney(snapshot.summary.prudentDifference)}</strong>
+            <small>sur le solde final</small>
+          </div>
+          <button
+            className={snapshot.summary.safetyThreshold > 0 && snapshot.summary.daysBelowThreshold > 0 ? "forecast-kpi forecast-kpi--alert" : "forecast-kpi forecast-kpi--ok"}
+            onClick={() => setThresholdOpen(true)}
+            title="Régler le seuil de sécurité"
+            type="button"
+          >
+            <span>Seuil de sécurité</span>
+            <strong>{snapshot.summary.safetyThreshold > 0 ? (snapshot.summary.daysBelowThreshold > 0 ? `${snapshot.summary.daysBelowThreshold} jour${snapshot.summary.daysBelowThreshold > 1 ? "s" : ""} sous le seuil` : "0 jour sous le seuil") : "Non défini"}</strong>
+            <small>{snapshot.summary.safetyThreshold > 0 ? `Seuil réglé à ${formatMoney(snapshot.summary.safetyThreshold)}` : "Cliquer pour le régler"}</small>
+          </button>
+        </section>
 
-        <ForecastChart onPointSelect={setSelectedPoint} snapshot={snapshot} visibleSeries={visibleSeries} />
-
-        <div className="forecast-summary-cards">
-          <ForecastSummaryCard
-            badge={snapshot.summary.lowBalance >= 5000 ? "Cash stable" : snapshot.summary.alert}
-            label="Point bas"
-            meta={`Atteint le ${formatDate(snapshot.summary.lowDate)}`}
-            tone={snapshot.summary.lowBalance >= 5000 ? "success" : "warning"}
-            value={formatMoney(snapshot.summary.lowBalance)}
-          />
-          <ForecastSummaryCard
-            badge={percentageChange(snapshot.summary.startingCash, snapshot.summary.endBalance)}
-            label="Solde final"
-            meta={`Projection au ${formatDate(snapshot.summary.endDate)}`}
-            tone="blue"
-            value={formatMoney(snapshot.summary.endBalance)}
-          />
-        </div>
-      </article>
-
-      <aside className="forecast-side">
-        <article className="card forecast-upcoming">
-          <div className="forecast-card-heading">
-            <div><h2>Échéances de l’horizon</h2><p>{snapshot.upcoming.length} récurrence{snapshot.upcoming.length > 1 ? "s" : ""} du {formatDate(snapshot.filters.referenceDate)} au {formatDate(snapshot.filters.endDate)}.</p></div>
-            <div className="forecast-heading-actions">
-              <button className="forecast-reschedule-button" onClick={() => {
-                setManagerOpen(false);
-                setSelectedPoint(undefined);
-                setRescheduleOpen(true);
-              }} type="button">
-                Décaler des échéances
-              </button>
-              <button className="forecast-manage-button" onClick={() => {
-                setRescheduleOpen(false);
-                setSelectedPoint(undefined);
-                setManagerOpen(true);
-              }} type="button">
-                Gérer <span>{snapshot.recurrences.length}</span>
-              </button>
+        <div className="forecast-v2__main">
+          <article className="card forecast-projection forecast-projection--v2">
+            <div className="forecast-card-heading">
+              <div>
+                <h2>Solde projeté, jour par jour</h2>
+                <p>Du {formatDate(snapshot.filters.startDate)} au {formatDate(snapshot.filters.endDate)} · aucune prévision antérieure à aujourd’hui.</p>
+              </div>
+              <div className="forecast-heading-actions">
+                {snapshot.summary.overdueOccurrences > 0 && (
+                  <button className="occurrence-overdue-chip" onClick={onOpenRecurrences} title="Ouvrir les récurrences à décaler ou reporter" type="button">
+                    {snapshot.summary.overdueOccurrences} prévision{snapshot.summary.overdueOccurrences > 1 ? "s" : ""} antérieure{snapshot.summary.overdueOccurrences > 1 ? "s" : ""} à traiter
+                  </button>
+                )}
+                <ScenarioSelector
+                  catalog={scenarioCatalog}
+                  onManage={() => {
+                    setEditorOpen(false);
+                    setSelectedPoint(undefined);
+                    setScenarioManagerOpen(true);
+                  }}
+                  onScenarioChange={onScenarioChange}
+                  onVisibilityChange={(name) => {
+                    setVisibleSeries((current) => ({
+                      ...current,
+                      [name]: !(current[name] ?? name === scenario),
+                    }));
+                  }}
+                  scenario={scenario}
+                  visibleSeries={visibleSeries}
+                />
+              </div>
             </div>
-          </div>
-          <div className="forecast-upcoming-list">
-            {snapshot.upcoming.length > 0
-              ? snapshot.upcoming.map((event, index) => <UpcomingEvent event={event} key={`${event.date}-${event.name}-${index}`} />)
-              : <p className="forecast-empty">Aucune récurrence sur cette période.</p>}
-          </div>
-        </article>
+            <div className="forecast-legend">
+              <span><i style={{ background: "#2563eb" }} />{snapshot.filters.scenario}</span>
+              {scenario !== "Prudent" && visibleSeries.Prudent && <span><i className="forecast-legend__dash" />Prudent</span>}
+              {snapshot.summary.safetyThreshold > 0 && <span><i className="forecast-legend__threshold" />Seuil</span>}
+            </div>
+            <div className="forecast-step-host">
+              <ForecastStepChart
+                comparison={scenario !== "Prudent" && visibleSeries.Prudent ? { label: "Prudent", points: snapshot.series.prudent } : undefined}
+                onPointSelect={setSelectedPoint}
+                points={snapshot.series.selected}
+                referenceDate={snapshot.filters.referenceDate}
+                scenarioLabel={snapshot.filters.scenario}
+                threshold={snapshot.summary.safetyThreshold}
+              />
+            </div>
+          </article>
 
-        <article className="card forecast-reading">
-          <div className="forecast-card-heading"><div><h2>Lecture immédiate</h2><p>Ce qui change sur la période.</p></div></div>
-          <Metric label="Encaissements prévus" tone="positive" value={signedMoney(snapshot.summary.totalIn)} />
-          <Metric label="Décaissements prévus" tone="negative" value={signedMoney(-snapshot.summary.totalOut)} />
-          <Metric label="Écart vs scénario prudent" tone="blue" value={signedMoney(snapshot.summary.prudentDifference)} />
-        </article>
-      </aside>
+          <article className="card forecast-upcoming forecast-upcoming--v2">
+            <div className="forecast-card-heading">
+              <h2>Prochaines échéances</h2>
+              <span className="forecast-count">{Math.min(10, snapshot.upcoming.length)} sur {snapshot.upcoming.length}</span>
+            </div>
+            <div className="forecast-upcoming-list forecast-upcoming-list--v2">
+              {snapshot.upcoming.length > 0
+                ? snapshot.upcoming.slice(0, 10).map((event, index) => (
+                  <div className="forecast-row" key={`${event.date}-${event.name}-${index}`} onContextMenu={(mouseEvent) => openEventMenu(mouseEvent, event)}>
+                    <span className="forecast-row__date">{shortDay(event.date)}</span>
+                    <strong className="forecast-row__label" title={event.name}>{event.name}{event.source === "Récurrence décalée" ? " · décalée" : ""}</strong>
+                    <span className={event.amount >= 0 ? "forecast-row__amount positive" : "forecast-row__amount negative"}>{signedMoney(event.amount)}</span>
+                  </div>
+                ))
+                : <p className="forecast-empty">Aucune récurrence sur cette période.</p>}
+            </div>
+            <div className="forecast-upcoming__footer">
+              <span>Clic droit sur une ligne : voir ou modifier la règle.</span>
+              <button className="forecast-link" onClick={onOpenRecurrences} type="button">Tout voir dans Récurrences →</button>
+            </div>
+          </article>
+        </div>
       </div>
       {editorOpen && (
         <RecurrenceEditor
@@ -219,28 +253,6 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
           token={token}
         />
       )}
-      {managerOpen && (
-        <RecurrenceManager
-          accountId={accountId}
-          items={snapshot.recurrences}
-          onClose={() => setManagerOpen(false)}
-          onCompleted={completed}
-          onEdit={(item) => {
-            setManagerOpen(false);
-            setEditingRecurrence(item);
-            setEditorOpen(true);
-          }}
-          token={token}
-        />
-      )}
-      {rescheduleOpen && (
-        <OccurrenceRescheduleDrawer
-          accountId={accountId}
-          onClose={() => setRescheduleOpen(false)}
-          onCompleted={completed}
-          token={token}
-        />
-      )}
       {scenarioManagerOpen && scenarioCatalog && (
         <ScenarioManager
           catalog={scenarioCatalog}
@@ -250,6 +262,19 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
             onDataChanged();
           }}
           onClose={() => setScenarioManagerOpen(false)}
+          token={token}
+        />
+      )}
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
+      {thresholdOpen && (
+        <SafetyThresholdDrawer
+          current={snapshot.summary.safetyThreshold}
+          onClose={() => setThresholdOpen(false)}
+          onSaved={(message) => {
+            setThresholdOpen(false);
+            setNotice(message);
+            setRefreshKey((key) => key + 1);
+          }}
           token={token}
         />
       )}
@@ -396,281 +421,6 @@ function ForecastDayDetails({
   );
 }
 
-function OccurrenceRescheduleDrawer({
-  accountId,
-  onClose,
-  onCompleted,
-  token,
-}: {
-  accountId: string;
-  onClose: () => void;
-  onCompleted: (result: OccurrenceRescheduleResult) => void;
-  token: string;
-}) {
-  const [data, setData] = useState<ReschedulableOccurrencesResult>();
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [targetDate, setTargetDate] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setError(undefined);
-    getReschedulableOccurrences(token, accountId, controller.signal)
-      .then((result) => {
-        setData(result);
-        setTargetDate(result.minTargetDate);
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "Les échéances à décaler ne peuvent pas être chargées.");
-        }
-      });
-    return () => controller.abort();
-  }, [accountId, token]);
-
-  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const selectedItems = useMemo(
-    () => (data?.items ?? []).filter((item) => selectedSet.has(item.id)),
-    [data, selectedSet],
-  );
-  const selectedTotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
-  const allSelected = Boolean(data?.items.length) && selectedIds.length === data?.items.length;
-
-  function toggle(item: ReschedulableOccurrence) {
-    setSelectedIds((current) => current.includes(item.id)
-      ? current.filter((id) => id !== item.id)
-      : [...current, item.id]);
-  }
-
-  function toggleAll() {
-    setSelectedIds(allSelected ? [] : (data?.items ?? []).map((item) => item.id));
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!data || selectedIds.length === 0 || targetDate < data.minTargetDate) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      onCompleted(await rescheduleOccurrences(token, selectedIds, targetDate));
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Le décalage groupé n’a pas pu être enregistré.");
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
-      <aside aria-labelledby="reschedule-title" aria-modal="true" className="account-editor occurrence-reschedule" role="dialog">
-        <header>
-          <div>
-            <span className="eyebrow">Prévisionnel</span>
-            <h2 id="reschedule-title">Décaler des échéances</h2>
-          </div>
-          <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
-        </header>
-        <form className="occurrence-reschedule__body" onSubmit={(event) => void submit(event)}>
-          <div className="occurrence-reschedule__intro">
-            <strong>Régulariser les prévisions non réalisées</strong>
-            <p>Seules les échéances arrivées aujourd’hui et sans transaction rapprochée sont proposées.</p>
-            {data && (
-              <span className="occurrence-reschedule__reference">
-                Aujourd’hui : {formatDate(data.referenceDate)} · première date cible : {formatDate(data.minTargetDate)}
-              </span>
-            )}
-          </div>
-
-          {data && data.items.length > 0 && (
-            <>
-              <div className="occurrence-reschedule__toolbar">
-                <button className="secondary-button" disabled={busy} onClick={toggleAll} type="button">
-                  {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
-                </button>
-                <label className="account-field">
-                  <span>Nouvelle date *</span>
-                  <input
-                    min={data.minTargetDate}
-                    onChange={(event) => setTargetDate(event.target.value)}
-                    required
-                    type="date"
-                    value={targetDate}
-                  />
-                </label>
-              </div>
-              <div className="occurrence-reschedule__summary" aria-live="polite">
-                <div><span>Sélection</span><strong>{selectedIds.length}</strong></div>
-                <div><span>Impact net</span><strong className={selectedTotal >= 0 ? "positive" : "negative"}>{signedMoney(selectedTotal)}</strong></div>
-                <div><span>Date cible</span><strong>{targetDate ? formatDate(targetDate) : "—"}</strong></div>
-              </div>
-            </>
-          )}
-
-          {error && <p className="account-form-error" role="alert">{error}</p>}
-          {!data && !error && <div className="loading-state"><span aria-hidden="true" />Recherche des échéances à régulariser…</div>}
-          {data && (
-            <div className="occurrence-reschedule__list">
-              {data.items.map((item) => (
-                <label className={selectedSet.has(item.id) ? "occurrence-reschedule__item occurrence-reschedule__item--selected" : "occurrence-reschedule__item"} key={item.id}>
-                  <input
-                    checked={selectedSet.has(item.id)}
-                    disabled={busy}
-                    onChange={() => toggle(item)}
-                    type="checkbox"
-                  />
-                  <span className="occurrence-reschedule__item-content">
-                    <span className="occurrence-reschedule__item-main">
-                      <span>
-                        <strong>{item.label}</strong>
-                        <small>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</small>
-                      </span>
-                      <b className={item.amount >= 0 ? "positive" : "negative"}>{signedMoney(item.amount)}</b>
-                    </span>
-                    <span className="occurrence-reschedule__item-meta">
-                      <span>Échéance : {formatDate(item.date)}</span>
-                      <span>{item.category}</span>
-                      {item.frequency && <span>{item.frequency}</span>}
-                      <em>{item.statusLabel}</em>
-                    </span>
-                    {item.alreadyRescheduled && item.originalDate !== item.date && (
-                      <small className="occurrence-reschedule__history">Date d’origine : {formatDate(item.originalDate)}</small>
-                    )}
-                  </span>
-                </label>
-              ))}
-              {data.items.length === 0 && (
-                <div className="forecast-day-details__empty">
-                  <strong>Aucune échéance à décaler</strong>
-                  <p>Toutes les opérations arrivées à échéance sont déjà réalisées, rapprochées ou traitées.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <p className="account-editor-note">
-            Le décalage porte uniquement sur les occurrences sélectionnées. Les prochaines dates de chaque récurrence restent inchangées.
-          </p>
-          <footer>
-            <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
-            <button
-              disabled={busy || !data || selectedIds.length === 0 || targetDate < data.minTargetDate}
-              type="submit"
-            >
-              {busy
-                ? "Décalage…"
-                : selectedIds.length > 0
-                  ? `Décaler ${selectedIds.length} échéance${selectedIds.length > 1 ? "s" : ""}`
-                  : "Sélectionner des échéances"}
-            </button>
-          </footer>
-        </form>
-      </aside>
-    </div>
-  );
-}
-
-function RecurrenceManager({
-  accountId,
-  items,
-  onClose,
-  onCompleted,
-  onEdit,
-  token,
-}: {
-  accountId: string;
-  items: RecurrenceItem[];
-  onClose: () => void;
-  onCompleted: (result: RecurrenceActionResult) => void;
-  onEdit: (item: RecurrenceItem) => void;
-  token: string;
-}) {
-  const [deletingId, setDeletingId] = useState<number>();
-  const [error, setError] = useState<string>();
-  const visibleItems = accountId === "all"
-    ? items
-    : items.filter((item) => item.accountId === Number(accountId));
-
-  async function remove(item: RecurrenceItem) {
-    if (!window.confirm(`Supprimer définitivement la récurrence « ${item.name} » ?`)) return;
-    setDeletingId(item.id);
-    setError(undefined);
-    try {
-      onCompleted(await deleteRecurrence(token, item.id));
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "La récurrence ne peut pas être supprimée.");
-      setDeletingId(undefined);
-    }
-  }
-
-  return (
-    <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deletingId && onClose()}>
-      <aside aria-labelledby="recurrence-manager-title" aria-modal="true" className="account-editor recurrence-manager" role="dialog">
-        <header>
-          <div>
-            <span className="eyebrow">Prévisionnel</span>
-            <h2 id="recurrence-manager-title">Gérer les récurrences</h2>
-          </div>
-          <button aria-label="Fermer" disabled={Boolean(deletingId)} onClick={onClose} type="button">×</button>
-        </header>
-        <div className="recurrence-manager__body">
-          <div className="recurrence-manager__summary">
-            <strong>{visibleItems.length} récurrence(s)</strong>
-            <span>{accountId === "all" ? "Tous les comptes" : "Compte sélectionné"}</span>
-          </div>
-          <p className="recurrence-manager__explanation">
-            Les échéances décalées correspondent aux opérations visibles dans la courbe. La date du calendrier reste indiquée séparément.
-          </p>
-          {error && <p className="account-form-error" role="alert">{error}</p>}
-          <div className="recurrence-manager__list">
-            {visibleItems.map((item) => (
-              <article className="recurrence-manager__item" key={item.id}>
-                <div className="recurrence-manager__item-main">
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</span>
-                  </div>
-                  <b className={item.direction === "Crédit" ? "positive" : "negative"}>
-                    {signedMoney(item.direction === "Crédit" ? item.amount : -item.amount)}
-                  </b>
-                </div>
-                <div className="recurrence-manager__meta">
-                  <span>{item.category}</span>
-                  <span>{item.frequency}</span>
-                  {item.rescheduledOccurrenceCount > 0 ? (
-                    <>
-                      <span className="recurrence-status recurrence-status--rescheduled">
-                        {item.rescheduledOccurrenceCount} échéance{item.rescheduledOccurrenceCount > 1 ? "s" : ""} décalée{item.rescheduledOccurrenceCount > 1 ? "s" : ""} au {formatDate(item.nextRescheduledDate)}
-                      </span>
-                      {item.nextScheduledDate && item.nextScheduledDate !== item.nextRescheduledDate && (
-                        <span>Calendrier suivant : {formatDate(item.nextScheduledDate)}</span>
-                      )}
-                    </>
-                  ) : (
-                    <span>Prochaine échéance : {item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "aucune à venir"}</span>
-                  )}
-                  <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>
-                    {item.status}
-                  </span>
-                </div>
-                <div className="recurrence-manager__actions">
-                  <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(item)} type="button">Modifier</button>
-                  <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(item)} type="button">
-                    {deletingId === item.id ? "Suppression…" : "Supprimer"}
-                  </button>
-                </div>
-              </article>
-            ))}
-            {visibleItems.length === 0 && <p className="forecast-empty">Aucune récurrence pour ce filtre.</p>}
-          </div>
-          <footer>
-            <button className="secondary-button" disabled={Boolean(deletingId)} onClick={onClose} type="button">Fermer</button>
-          </footer>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
 const STANDARD_SCENARIOS = [
   { name: "Réaliste", color: "#2563eb", description: "Hypothèses centrales" },
   { name: "Prudent", color: "#e11d48", description: "Vision de vigilance" },
@@ -778,135 +528,41 @@ function EyeIcon({ visible }: { visible: boolean }) {
   );
 }
 
-function ForecastChart({
-  onPointSelect,
-  snapshot,
-  visibleSeries,
-}: {
-  onPointSelect: (point: ForecastPoint) => void;
-  snapshot: ForecastSnapshot;
-  visibleSeries: Record<string, boolean>;
-}) {
-  const definitions = [
-    {
-      id: "scenario-realistic",
-      name: "Réaliste",
-      color: STANDARD_SCENARIOS[0].color,
-      points: snapshot.filters.scenario === "Réaliste" ? snapshot.series.selected : snapshot.series.realistic,
-    },
-    {
-      id: "scenario-prudent",
-      name: "Prudent",
-      color: STANDARD_SCENARIOS[1].color,
-      points: snapshot.filters.scenario === "Prudent" ? snapshot.series.selected : snapshot.series.prudent,
-    },
-    {
-      id: "scenario-optimistic",
-      name: "Optimiste",
-      color: STANDARD_SCENARIOS[2].color,
-      points: snapshot.filters.scenario === "Optimiste" ? snapshot.series.selected : snapshot.series.optimistic,
-    },
-    ...Object.entries(snapshot.series.custom).map(([name, points], index) => ({
-      id: `scenario-custom-${index}`,
-      name,
-      color: CUSTOM_SCENARIO_COLORS[index % CUSTOM_SCENARIO_COLORS.length],
-      points: snapshot.filters.scenario === name ? snapshot.series.selected : points,
-    })),
-  ];
-  const selected = definitions.find((definition) => definition.name === snapshot.filters.scenario) ?? {
-    id: "scenario-selected",
-    name: snapshot.filters.scenario,
-    color: "#2563eb",
-    points: snapshot.series.selected,
-  };
-  const selectedPoints = selected.points.map((point) => ({
-    date: point.date,
-    value: point.balance,
-    details: (point.events ?? []).map((event) => ({
-      label: event.name,
-      meta: `${event.source} · ${event.account}`,
-      value: event.amount,
-      color: event.source.startsWith("Récurrence") || event.source === "Scénario"
-        ? "#7c3aed"
-        : event.amount >= 0 ? "#16a34a" : "#dc2626",
-    })),
-  }));
-  const comparisons = definitions
-    .filter((definition) => definition.name !== selected.name && visibleSeries[definition.name])
-    .map((definition) => ({
-      id: definition.id,
-      label: definition.name,
-      color: definition.color,
-      dashed: true,
-      points: definition.points.map((point) => ({ date: point.date, value: point.balance })),
-    }));
+function SafetyThresholdDrawer({ current, onClose, onSaved, token }: { current: number; onClose: () => void; onSaved: (message: string) => void; token: string }) {
+  const [value, setValue] = useState(String(current || "").replace(".", ","));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function save() {
+    const amount = Number((value || "0").replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0) { setError("Saisis un montant positif (0 pour désactiver le seuil)."); return; }
+    setBusy(true);
+    setError(undefined);
+    try {
+      onSaved((await updateSafetyThreshold(token, amount)).message);
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Le seuil n’a pas pu être enregistré.");
+      setBusy(false);
+    }
+  }
 
   return (
-    <InteractiveLineChart
-      ariaLabel={`Projection ${snapshot.filters.scenario} sur ${snapshot.filters.horizonDays} jours`}
-      flowBars={snapshot.series.selected.map((point) => ({
-        date: point.date,
-        inflow: point.inflow ?? 0,
-        outflow: point.outflow ?? 0,
-      }))}
-      onPointSelect={(index) => {
-        const point = snapshot.series.selected[index];
-        if (point) onPointSelect(point);
-      }}
-      series={[
-        {
-          id: selected.id,
-          label: `${selected.name} · principal`,
-          color: selected.color,
-          area: true,
-          points: selectedPoints,
-        },
-        ...(visibleSeries.__realized ? [{
-          id: "realized",
-          label: "Réalisé",
-          color: "#06a9c2",
-          points: snapshot.series.realized.map((point) => ({ date: point.date, value: point.balance })),
-        }] : []),
-        ...comparisons,
-      ]}
-      valueFormatter={formatMoney}
-    />
+    <SideDrawer
+      eyebrow="Prévisionnel"
+      footer={(<><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer"}</button></>)}
+      onClose={onClose}
+      title="Seuil de sécurité"
+    >
+      <p className="drawer-help">Solde minimum que tu souhaites garder, tous comptes confondus. Le graphique trace ce seuil et compte les jours où le solde projeté passe en dessous. 0 désactive le seuil.</p>
+      <label className="account-field"><span>Seuil</span><div className="rules-input"><input inputMode="decimal" onChange={(event) => setValue(event.target.value)} value={value} /><b>€</b></div></label>
+      {error && <p className="account-form-error" role="alert">{error}</p>}
+    </SideDrawer>
   );
 }
 
-function ForecastSummaryCard({ badge, label, meta, tone, value }: { badge: string; label: string; meta: string; tone: "blue" | "success" | "warning"; value: string }) {
-  return (
-    <section className="forecast-summary-card">
-      <h3>{label}</h3>
-      <strong>{value}</strong>
-      <p>{meta}</p>
-      <span className={`forecast-badge forecast-badge--${tone}`}>{badge}</span>
-    </section>
-  );
-}
-
-function UpcomingEvent({ event }: { event: ForecastEvent }) {
-  const rescheduled = event.source === "Récurrence décalée";
-  const tone = rescheduled
-    ? "purple"
-    : event.amount > 0
-      ? "success"
-      : event.category.toLocaleLowerCase("fr").includes("épargne")
-        ? "cyan"
-        : "warning";
-  const origin = rescheduled && event.originalDate && event.originalDate !== event.date
-    ? ` · initialement le ${formatDate(event.originalDate)}`
-    : "";
-  return (
-    <div className="forecast-event">
-      <div><strong>{event.name}</strong><span>{formatDate(event.date)} · {signedMoney(event.amount)}{origin}</span></div>
-      <span className={`forecast-badge forecast-badge--${tone}`}>{rescheduled ? "Décalée" : "Prévue"}</span>
-    </div>
-  );
-}
-
-function Metric({ label, tone, value }: { label: string; tone: "blue" | "negative" | "positive"; value: string }) {
-  return <div className="forecast-metric"><span>{label}</span><strong className={`forecast-metric__value forecast-metric__value--${tone}`}>{value}</strong></div>;
+function shortDay(value: string): string {
+  const parts = value.split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : value;
 }
 
 function percentageChange(start: number, end: number): string {
