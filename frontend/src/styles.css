@@ -2610,7 +2610,7 @@ button.forecast-kpi { cursor: pointer; }
 .pat-card__heading span { font-size: 12px; color: #52627d; }
 .pat-empty { color: #52627d; font-size: 14px; margin: 24px 0; }
 .pat-allocation__body { flex: 1; min-height: 0; display: flex; align-items: center; gap: 24px; }
-.pat-donut { position: relative; width: 290px; aspect-ratio: 1; flex: 0 0 290px; max-height: 100%; }
+.pat-donut { position: relative; height: min(100%, 310px); max-height: 310px; min-height: 240px; aspect-ratio: 1; flex: 0 0 auto; }
 .pat-donut svg { width: 100%; height: 100%; display: block; }
 .pat-donut__segment { cursor: pointer; transition: opacity .15s, stroke-width .15s; outline: none; }
 .pat-donut__segment:focus-visible { stroke-linecap: butt; filter: drop-shadow(0 0 3px #2563eb); }
@@ -2618,7 +2618,7 @@ button.forecast-kpi { cursor: pointer; }
 .pat-donut__center span { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: #52627d; text-transform: uppercase; }
 .pat-donut__center strong { font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
 .pat-donut__center small { font-size: 12px; color: #52627d; }
-.pat-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pat-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 230px; display: flex; flex-direction: column; gap: 6px; }
 .pat-legend button { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 9px 10px; text-align: left; cursor: pointer; color: #0f1b3a; font: inherit; opacity: .65; }
 .pat-legend button.is-active, .pat-legend button:hover { background: #f1f5fb; border-color: #cdd7e6; opacity: 1; }
 .pat-legend i { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
@@ -2632,7 +2632,8 @@ button.forecast-kpi { cursor: pointer; }
 .pat-toggle { display: flex; background: #e6ecf6; border-radius: 10px; padding: 3px; }
 .pat-toggle button { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; color: #3b4b69; cursor: pointer; }
 .pat-toggle button.is-active { background: #fff; color: #1d4ed8; font-weight: 700; box-shadow: 0 1px 2px rgba(15, 27, 58, .12); }
-.pat-chart { width: 100%; height: auto; flex: 1 1 auto; min-height: 0; max-height: 250px; }
+.pat-chart-host { flex: 1 1 0; min-height: 180px; position: relative; }
+.pat-chart { position: absolute; inset: 0; display: block; }
 .pat-ratio { border-top: 1px solid #e3e9f3; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .pat-ratio__bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: #e6ecf6; }
 .pat-ratio__bar i { background: #2563eb; }

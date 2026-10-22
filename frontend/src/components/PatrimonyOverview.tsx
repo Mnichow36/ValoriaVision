@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AssetCategoryInsight, AssetDebtInsight, AssetsSnapshot } from "../api/contracts";
 
@@ -238,13 +238,24 @@ function EvolutionCard({ debts, onOpenDebt, snapshot }: { debts: AssetDebtInsigh
 }
 
 function EvolutionChart({ label, points }: { label: string; points: { date: string; value: number }[] }) {
-  const width = 440;
-  const height = 232;
+  const host = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 440, height: 232 });
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const update = () => setSize({ width: Math.max(element.clientWidth, 280), height: Math.max(element.clientHeight, 180) });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const { width, height } = size;
   const left = 54;
-  const right = 428;
-  const top = 22;
-  const bottom = 198;
-  if (points.length < 2) return <p className="pat-empty">Historique insuffisant pour tracer la courbe.</p>;
+  const right = width - 12;
+  const top = 26;
+  const bottom = height - 28;
+  if (points.length < 2) return <div className="pat-chart-host" ref={host}><p className="pat-empty">Historique insuffisant pour tracer la courbe.</p></div>;
   const values = points.map((point) => point.value);
   let min = Math.min(...values);
   let max = Math.max(...values);
@@ -257,30 +268,32 @@ function EvolutionChart({ label, points }: { label: string; points: { date: stri
   const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
   const area = `${line} L${right} ${bottom} L${left} ${bottom} Z`;
   const last = points[points.length - 1];
-  const grid = [0, 1, 2].map((index) => min + ((max - min) * (index + 0.5)) / 3);
+  const grid = [0, 1, 2, 3].map((index) => min + ((max - min) * (index + 0.5)) / 4);
   const compact = (value: number) => `${Math.round(value / 1000).toLocaleString("fr-FR")} k`;
   const month = (value: string) => new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(new Date(`${value}T12:00:00`)).replace(".", "");
   const labelIndexes = [0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1];
 
   return (
-    <svg aria-label={`${label} : de ${money.format(points[0].value)} à ${money.format(last.value)}`} className="pat-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
-      {grid.map((value) => (
-        <g key={value}>
-          <line stroke="#e3e9f3" x1={left} x2={right} y1={y(value)} y2={y(value)} />
-          <text fill="#52627d" fontSize="10" textAnchor="end" x={left - 6} y={y(value) + 3}>{compact(value)}</text>
-        </g>
-      ))}
-      <path d={area} fill="#2563eb" opacity="0.1" />
-      <path d={line} fill="none" stroke="#2563eb" strokeLinejoin="round" strokeWidth="2.6" />
-      {points.map((point, index) => (
-        <circle cx={x(index)} cy={y(point.value)} fill={index === points.length - 1 ? "#fff" : "transparent"} key={point.date} r={index === points.length - 1 ? 5 : 7} stroke={index === points.length - 1 ? "#2563eb" : "none"} strokeWidth="2.5">
-          <title>{`${formatDay(point.date)} : ${money.format(point.value)}`}</title>
-        </circle>
-      ))}
-      <text fill="#1d4ed8" fontSize="11" fontWeight="700" textAnchor="end" x={right - 8} y={Math.max(y(last.value) - 10, 12)}>{money.format(last.value)}</text>
-      {labelIndexes.map((index, position) => (
-        <text fill="#52627d" fontSize="10" key={index} textAnchor={position === 0 ? "start" : position === labelIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={218}>{month(points[index].date)}</text>
-      ))}
-    </svg>
+    <div className="pat-chart-host" ref={host}>
+      <svg aria-label={`${label} : de ${money.format(points[0].value)} à ${money.format(last.value)}`} className="pat-chart" height={height} role="img" viewBox={`0 0 ${width} ${height}`} width={width}>
+        {grid.map((value) => (
+          <g key={value}>
+            <line stroke="#e3e9f3" x1={left} x2={right} y1={y(value)} y2={y(value)} />
+            <text fill="#52627d" fontSize="11" textAnchor="end" x={left - 8} y={y(value) + 4}>{compact(value)}</text>
+          </g>
+        ))}
+        <path d={area} fill="#2563eb" opacity="0.1" />
+        <path d={line} fill="none" stroke="#2563eb" strokeLinejoin="round" strokeWidth="2.8" />
+        {points.map((point, index) => (
+          <circle cx={x(index)} cy={y(point.value)} fill={index === points.length - 1 ? "#fff" : "transparent"} key={point.date} r={index === points.length - 1 ? 5.5 : 8} stroke={index === points.length - 1 ? "#2563eb" : "none"} strokeWidth="2.5">
+            <title>{`${formatDay(point.date)} : ${money.format(point.value)}`}</title>
+          </circle>
+        ))}
+        <text fill="#1d4ed8" fontSize="12" fontWeight="700" textAnchor="end" x={right - 10} y={Math.max(y(last.value) - 12, 14)}>{money.format(last.value)}</text>
+        {labelIndexes.map((index, position) => (
+          <text fill="#52627d" fontSize="11" key={index} textAnchor={position === 0 ? "start" : position === labelIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={height - 6}>{month(points[index].date)}</text>
+        ))}
+      </svg>
+    </div>
   );
 }
