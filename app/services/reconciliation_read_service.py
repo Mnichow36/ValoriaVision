@@ -204,9 +204,13 @@ class ReconciliationReadService:
                 {"id": "all", "label": "Tous les statuts"},
             ],
             "rules": {
-                "automaticThreshold": int(rules.get("auto_match_threshold") or 90),
+                "automaticThreshold": int(rules.get("auto_threshold") or 90),
                 "reviewThreshold": int(rules.get("review_threshold") or 60),
-                "dateToleranceDays": int(rules.get("date_tolerance_days") or 5),
+                "dateToleranceDays": int(rules.get("date_tolerance_days", 5)),
+                "amountToleranceAbs": float(rules.get("amount_tolerance_abs", 1.0)),
+                "amountTolerancePercent": float(rules.get("amount_tolerance_percent", 2.0)),
+                "manualWindowDays": int(rules.get("manual_window_days", 45)),
+                "manualAmountTolerancePercent": float(rules.get("manual_amount_tolerance_percent", 10.0)),
             },
             "summary": {
                 "unmatchedTransactions": len(active_transactions) + len(manual_candidates),
@@ -262,7 +266,46 @@ class ReconciliationReadService:
             )
         ]
 
-    MANUAL_WINDOW_DAYS = 45
+    RULE_FIELDS = {
+        "dateToleranceDays": "date_tolerance_days",
+        "amountToleranceAbs": "amount_tolerance_abs",
+        "amountTolerancePercent": "amount_tolerance_percent",
+        "manualWindowDays": "manual_window_days",
+        "manualAmountTolerancePercent": "manual_amount_tolerance_percent",
+    }
+
+    def update_rules(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Enregistre les écarts de dates et de montants choisis par l'utilisateur."""
+
+        limits = {
+            "dateToleranceDays": (0, 60, "Écart de date automatique"),
+            "amountToleranceAbs": (0, 100000, "Écart de montant (€)"),
+            "amountTolerancePercent": (0, 100, "Écart de montant automatique (%)"),
+            "manualWindowDays": (0, 180, "Fenêtre de date manuelle"),
+            "manualAmountTolerancePercent": (0, 100, "Écart de montant manuel (%)"),
+        }
+        engine = self.engine_factory(self.database)
+        clean: dict[str, float] = {}
+        for key, engine_key in self.RULE_FIELDS.items():
+            if key not in values or values[key] is None:
+                continue
+            low, high, label = limits[key]
+            try:
+                number = float(values[key])
+            except (TypeError, ValueError):
+                return {"success": False, "message": f"{label} : valeur invalide."}
+            if number < low or number > high:
+                return {"success": False, "message": f"{label} : choisissez une valeur entre {low} et {high}."}
+            clean[engine_key] = number
+        auto_days = clean.get("date_tolerance_days")
+        manual_days = clean.get("manual_window_days")
+        current = engine.rules_config(refresh=True)
+        if (manual_days if manual_days is not None else current["manual_window_days"]) < (
+            auto_days if auto_days is not None else current["date_tolerance_days"]
+        ):
+            return {"success": False, "message": "La fenêtre manuelle doit être au moins égale à l’écart de date automatique."}
+        engine.save_rules_config(clean)
+        return {"success": True, "message": "Règles de rapprochement enregistrées."}
 
     def _manual_date_candidates(
         self,
@@ -274,6 +317,7 @@ class ReconciliationReadService:
         """Opérations non rapprochées dont une prévision ouverte ne diffère que par la date."""
 
         rules = engine.rules_config()
+        window = int(rules.get("manual_window_days", 45))
         result: dict[int, dict[str, Any]] = {}
         for tx in transactions:
             tx_id = int(_field(tx, "id", 0) or 0)
@@ -294,7 +338,7 @@ class ReconciliationReadService:
                 expected = abs(_number(_field(occ, "expected_amount", 0)))
                 tolerance = max(
                     float(rules.get("amount_tolerance_abs", 1.0)),
-                    expected * float(rules.get("amount_tolerance_percent", 2.0)) / 100.0,
+                    expected * float(rules.get("manual_amount_tolerance_percent", 10.0)) / 100.0,
                 )
                 if abs(abs(amount) - expected) > tolerance:
                     continue
@@ -302,7 +346,7 @@ class ReconciliationReadService:
                 if occ_date is None:
                     continue
                 gap = abs((tx_date - occ_date).days)
-                if gap > self.MANUAL_WINDOW_DAYS:
+                if gap > window:
                     continue
                 key = (gap, abs(abs(amount) - expected))
                 if best is None or key < (best[0], best[1]):

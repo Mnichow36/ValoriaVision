@@ -2416,3 +2416,15 @@ button { cursor: pointer; }
 .reconciliation-history__line { display: grid; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid #e3e8f1; }
 .reconciliation-history__line:last-child { border-bottom: 0; padding-bottom: 0; }
 .reconciliation-history__line--cancelled { color: #6b778c; }
+
+/* Réglage des écarts de dates et de montants */
+.reconciliation-rules { display: grid; gap: 12px; padding: 12px 16px; }
+.rules-body { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.rules-group { display: grid; gap: 10px; align-content: start; }
+.rules-group h3 { margin: 0; font-size: 0.95rem; }
+.rules-group p { margin: 0; color: #6b778c; font-size: 0.8rem; }
+.rules-field { display: grid; gap: 3px; font-size: 0.85rem; }
+.rules-field div { display: flex; align-items: center; gap: 8px; }
+.rules-field input { width: 90px; padding: 6px 8px; border: 1px solid #d9e1ec; border-radius: 8px; font: inherit; }
+.rules-field small { color: #8794a8; }
+.rules-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }

@@ -40,6 +40,14 @@ class ReconciliationCancelPayload(BaseModel):
     transaction_id: int | None = None
 
 
+class ReconciliationRulesPayload(BaseModel):
+    date_tolerance_days: int | None = None
+    amount_tolerance_abs: float | None = None
+    amount_tolerance_percent: float | None = None
+    manual_window_days: int | None = None
+    manual_amount_tolerance_percent: float | None = None
+
+
 class SettingsGeneralPayload(BaseModel):
     currency: str = "EUR"
     current_month: str = ""
@@ -1084,6 +1092,24 @@ def create_app(database: Database | None = None) -> FastAPI:
                 include_overage=payload.include_overage,
             )
         )
+
+    @app.put("/api/v1/reconciliation/rules")
+    def update_reconciliation_rules(
+        payload: ReconciliationRulesPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        service = ReconciliationReadService(active_database)
+        return reconciliation_action(service.update_rules({
+            "dateToleranceDays": payload.date_tolerance_days,
+            "amountToleranceAbs": payload.amount_tolerance_abs,
+            "amountTolerancePercent": payload.amount_tolerance_percent,
+            "manualWindowDays": payload.manual_window_days,
+            "manualAmountTolerancePercent": payload.manual_amount_tolerance_percent,
+        }))
 
     @app.post("/api/v1/reconciliation/links/cancel")
     def cancel_reconciliation_link(

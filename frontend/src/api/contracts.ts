@@ -666,6 +666,10 @@ export interface ReconciliationSnapshot {
     automaticThreshold: number;
     reviewThreshold: number;
     dateToleranceDays: number;
+    amountToleranceAbs: number;
+    amountTolerancePercent: number;
+    manualWindowDays: number;
+    manualAmountTolerancePercent: number;
   };
   summary: {
     unmatchedTransactions: number;
@@ -679,6 +683,14 @@ export interface ReconciliationSnapshot {
   transactions: ReconciliationTransaction[];
   occurrences: ReconciliationOccurrence[];
   suggestions: ReconciliationSuggestion[];
+}
+
+export interface ReconciliationRulesPayload {
+  dateToleranceDays: number;
+  amountToleranceAbs: number;
+  amountTolerancePercent: number;
+  manualWindowDays: number;
+  manualAmountTolerancePercent: number;
 }
 
 export interface ReconciliationActionResult {

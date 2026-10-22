@@ -190,6 +190,63 @@ class ReconciliationCancelHistoryTest(unittest.TestCase):
             changed, _ = ForecastReconciliationService(database).confirm_manual_match(occurrence_id, tx_id)
             self.assertEqual(changed, 1)
 
+    def test_user_can_change_date_and_amount_gaps(self):
+        with TemporaryDirectory() as root:
+            database = build_database(root)
+            service = ReconciliationReadService(database)
+
+            defaults = service.snapshot()["rules"]
+            self.assertEqual(defaults["dateToleranceDays"], 5)
+            self.assertEqual(defaults["manualWindowDays"], 45)
+
+            result = service.update_rules({
+                "dateToleranceDays": 8,
+                "amountTolerancePercent": 3,
+                "manualWindowDays": 20,
+                "manualAmountTolerancePercent": 15,
+            })
+            self.assertTrue(result["success"], result["message"])
+            rules = ReconciliationReadService(database).snapshot()["rules"]
+            self.assertEqual(rules["dateToleranceDays"], 8)
+            self.assertEqual(rules["amountTolerancePercent"], 3.0)
+            self.assertEqual(rules["manualWindowDays"], 20)
+            self.assertEqual(rules["manualAmountTolerancePercent"], 15.0)
+            # Les seuils non modifiés sont conservés.
+            self.assertEqual(rules["automaticThreshold"], 90)
+
+    def test_invalid_gaps_are_refused_with_a_clear_message(self):
+        with TemporaryDirectory() as root:
+            service = ReconciliationReadService(build_database(root))
+            self.assertFalse(service.update_rules({"dateToleranceDays": -1})["success"])
+            self.assertFalse(service.update_rules({"manualAmountTolerancePercent": 250})["success"])
+            refused = service.update_rules({"dateToleranceDays": 30, "manualWindowDays": 10})
+            self.assertFalse(refused["success"])
+            self.assertIn("fenêtre", refused["message"])
+
+    def test_manual_window_setting_controls_the_late_income_listing(self):
+        with TemporaryDirectory() as root:
+            database = build_database(root)
+            today = date.today()
+            with database.connect() as conn:
+                account_id = int(conn.execute("SELECT id FROM accounts WHERE status = 'Actif' ORDER BY id LIMIT 1").fetchone()["id"])
+                recurring_id = int(conn.execute("SELECT id FROM recurring_items ORDER BY id LIMIT 1").fetchone()["id"])
+                tx_id = int(conn.execute(
+                    "INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, signature) "
+                    "VALUES (?, ?, 'VIREMENT RETRAITE', 'Revenus', 802.0, 'Crédit', 'Validée', 'test', ?)",
+                    (account_id, today.isoformat(), str(uuid4())),
+                ).lastrowid)
+                conn.execute(
+                    "INSERT INTO forecast_occurrences(uuid, source_type, source_id, account_id, expected_date, "
+                    "expected_amount, expected_label, expected_category, direction, status) "
+                    "VALUES (?, 'recurring', ?, ?, ?, 802.0, 'Retraite 2', 'Revenus', 'credit', 'planned')",
+                    (str(uuid4()), recurring_id, account_id, (today - timedelta(days=20)).isoformat()),
+                )
+            service = ReconciliationReadService(database)
+            ids = lambda: [row["id"] for row in service.snapshot()["transactions"]]
+            self.assertIn(tx_id, ids())
+            service.update_rules({"manualWindowDays": 10})
+            self.assertNotIn(tx_id, ids())
+
     def test_cancel_route_requires_a_session_and_reports_errors(self):
         with TemporaryDirectory() as root:
             app = create_app(build_database(root))

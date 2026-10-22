@@ -9,6 +9,7 @@ import {
   getReconciliation,
   getReconciliationHistory,
   rejectReconciliationProposal,
+  updateReconciliationRules,
 } from "../api/client";
 import { ContextMenu, type ContextMenuItem, type ContextMenuState } from "./ContextMenu";
 import type {
@@ -217,6 +218,12 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
 
   return (
     <div className="reconciliation-page">
+      <RulesPanel
+        onSaved={() => setLocalRefreshKey((key) => key + 1)}
+        rules={snapshot.rules}
+        token={token}
+      />
+
       <section className="reconciliation-kpis" aria-label="Indicateurs de rapprochement">
         <ReconciliationKpi detail="Issues des imports et saisies" label="Transactions non rapprochées" tone="blue" value={snapshot.summary.unmatchedTransactions} />
         <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} écarts de montant`} label="Prévisions ouvertes" tone="cyan" value={snapshot.summary.openOccurrences} />
@@ -287,6 +294,87 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
       )}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
     </div>
+  );
+}
+
+function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: ReconciliationSnapshot["rules"]; token: string }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState({
+    dateToleranceDays: String(rules.dateToleranceDays),
+    amountToleranceAbs: String(rules.amountToleranceAbs),
+    amountTolerancePercent: String(rules.amountTolerancePercent),
+    manualWindowDays: String(rules.manualWindowDays),
+    manualAmountTolerancePercent: String(rules.manualAmountTolerancePercent),
+  });
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string }>();
+
+  useEffect(() => {
+    setDraft({
+      dateToleranceDays: String(rules.dateToleranceDays),
+      amountToleranceAbs: String(rules.amountToleranceAbs),
+      amountTolerancePercent: String(rules.amountTolerancePercent),
+      manualWindowDays: String(rules.manualWindowDays),
+      manualAmountTolerancePercent: String(rules.manualAmountTolerancePercent),
+    });
+  }, [rules]);
+
+  function field(key: keyof typeof draft, label: string, unit: string, hint: string) {
+    return (
+      <label className="rules-field">
+        <span>{label}</span>
+        <div><input inputMode="decimal" onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} value={draft[key]} /><b>{unit}</b></div>
+        <small>{hint}</small>
+      </label>
+    );
+  }
+
+  async function save() {
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const toNumber = (value: string) => Number(value.replace(",", "."));
+      const result = await updateReconciliationRules(token, {
+        dateToleranceDays: toNumber(draft.dateToleranceDays),
+        amountToleranceAbs: toNumber(draft.amountToleranceAbs),
+        amountTolerancePercent: toNumber(draft.amountTolerancePercent),
+        manualWindowDays: toNumber(draft.manualWindowDays),
+        manualAmountTolerancePercent: toNumber(draft.manualAmountTolerancePercent),
+      });
+      setFeedback({ kind: "success", text: result.message });
+      onSaved();
+    } catch (cause: unknown) {
+      setFeedback({ kind: "error", text: cause instanceof Error ? cause.message : "Les règles n’ont pas pu être enregistrées." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card reconciliation-rules">
+      <button aria-expanded={open} className="secondary-button" onClick={() => setOpen((value) => !value)} type="button">
+        Écarts de dates et de montants · {rules.dateToleranceDays} j / {rules.amountTolerancePercent} % auto · {rules.manualWindowDays} j / {rules.manualAmountTolerancePercent} % manuel
+      </button>
+      {open && (
+        <div className="rules-body">
+          <div className="rules-group">
+            <h3>Rapprochement automatique</h3>
+            <p>Au-delà de ces écarts, le moteur ne propose aucune correspondance automatique.</p>
+            {field("dateToleranceDays", "Écart de date maximum", "jours", "0 à 60")}
+            {field("amountToleranceAbs", "Écart de montant minimum toléré", "€", "Toujours toléré, même sur un petit montant")}
+            {field("amountTolerancePercent", "Écart de montant en pourcentage", "%", "0 à 100, appliqué au montant prévu")}
+          </div>
+          <div className="rules-group">
+            <h3>Proposition manuelle</h3>
+            <p>Pour les opérations qui arrivent plus tôt ou plus tard que prévu (retraite, salaire…). Elles sont listées avec la pastille « Écart de date ».</p>
+            {field("manualWindowDays", "Fenêtre de date", "jours", "0 à 180, au moins égale à l’écart automatique")}
+            {field("manualAmountTolerancePercent", "Écart de montant", "%", "0 à 100")}
+          </div>
+          {feedback && <p className={`reconciliation-feedback reconciliation-feedback--${feedback.kind}`} role="status">{feedback.text}</p>}
+          <div className="rules-actions"><button className="reconciliation-actions__primary" disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer les écarts"}</button></div>
+        </div>
+      )}
+    </section>
   );
 }
 

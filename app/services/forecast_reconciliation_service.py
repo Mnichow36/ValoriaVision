@@ -57,6 +57,9 @@ class ForecastReconciliationService:
         "auto_threshold": 90,
         "review_threshold": 60,
         "ambiguity_min_delta": 10,
+        # Proposition manuelle : opérations de même montant mais à une autre date.
+        "manual_window_days": 45,
+        "manual_amount_tolerance_percent": 10.0,
     }
 
     def __init__(self, db) -> None:
@@ -108,7 +111,20 @@ class ForecastReconciliationService:
                 self.db.get_setting("reconciliation.ambiguity_min_delta", str(defaults["ambiguity_min_delta"])),
                 defaults["ambiguity_min_delta"], integer=True,
             ),
+            "manual_window_days": self._setting_number(
+                self.db.get_setting("reconciliation.manual_window_days", str(defaults["manual_window_days"])),
+                defaults["manual_window_days"], integer=True,
+            ),
+            "manual_amount_tolerance_percent": self._setting_number(
+                self.db.get_setting(
+                    "reconciliation.manual_amount_tolerance_percent",
+                    str(defaults["manual_amount_tolerance_percent"]),
+                ),
+                defaults["manual_amount_tolerance_percent"],
+            ),
         }
+        config["manual_window_days"] = max(0, min(config["manual_window_days"], 180))
+        config["manual_amount_tolerance_percent"] = max(0.0, min(config["manual_amount_tolerance_percent"], 100.0))
         config["date_tolerance_days"] = max(0, min(config["date_tolerance_days"], 60))
         config["amount_tolerance_abs"] = max(0.0, config["amount_tolerance_abs"])
         config["amount_tolerance_percent"] = max(0.0, min(config["amount_tolerance_percent"], 100.0))
@@ -122,7 +138,7 @@ class ForecastReconciliationService:
         return dict(config)
 
     def save_rules_config(self, config: dict) -> dict:
-        merged = {**self.DEFAULT_RULES, **dict(config or {})}
+        merged = {**self.DEFAULT_RULES, **self.rules_config(refresh=True), **dict(config or {})}
         auto_threshold = int(self._setting_number(merged["auto_threshold"], self.DEFAULT_RULES["auto_threshold"], integer=True))
         review_threshold = int(self._setting_number(merged["review_threshold"], self.DEFAULT_RULES["review_threshold"], integer=True))
         if review_threshold >= auto_threshold:
@@ -137,6 +153,8 @@ class ForecastReconciliationService:
             "auto_threshold": str(auto_threshold),
             "review_threshold": str(review_threshold),
             "ambiguity_min_delta": str(self._setting_number(merged["ambiguity_min_delta"], self.DEFAULT_RULES["ambiguity_min_delta"], integer=True)),
+            "manual_window_days": str(self._setting_number(merged["manual_window_days"], self.DEFAULT_RULES["manual_window_days"], integer=True)),
+            "manual_amount_tolerance_percent": str(self._setting_number(merged["manual_amount_tolerance_percent"], self.DEFAULT_RULES["manual_amount_tolerance_percent"])),
         }
         for key, value in keys.items():
             self.db.set_setting(f"reconciliation.{key}", value)
