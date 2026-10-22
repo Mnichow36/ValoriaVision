@@ -17,6 +17,7 @@ from app.services.bank_import_workflow_service import BankImportWorkflowService
 from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
 from app.services.forecast_read_service import ForecastReadService
+from app.services.recurrence_occurrences_service import RecurrenceOccurrencesService
 from app.services.recurrence_write_service import RecurrenceWriteService
 from app.services.reconciliation_read_service import ReconciliationReadService
 from app.services.scenario_event_service import ScenarioEventService
@@ -166,6 +167,22 @@ class RecurrencePayload(BaseModel):
     next_date: str
     end_date: str | None = None
     scenario: str = "Réaliste"
+
+
+class OccurrenceUpdatePayload(BaseModel):
+    date: str
+    amount: float
+    label: str
+    category: str = ""
+
+
+class OccurrenceIdsPayload(BaseModel):
+    occurrence_ids: list[int]
+
+
+class OccurrenceShiftPayload(BaseModel):
+    occurrence_ids: list[int]
+    target_date: str
 
 
 class OccurrenceReschedulePayload(BaseModel):
@@ -689,6 +706,71 @@ def create_app(database: Database | None = None) -> FastAPI:
         if not result["success"]:
             raise HTTPException(status_code=409, detail=result["message"])
         return result
+
+    @app.get("/api/v1/recurrences/occurrences")
+    def recurrence_occurrences(
+        account_id: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return RecurrenceOccurrencesService(active_database).snapshot(account_id, start_date, end_date)
+
+    def _occurrence_action(result: dict) -> dict:
+        if not result["success"]:
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result
+
+    @app.put("/api/v1/recurrences/occurrences/{occurrence_id}")
+    def update_recurrence_occurrence(
+        occurrence_id: int,
+        payload: OccurrenceUpdatePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _occurrence_action(RecurrenceOccurrencesService(active_database).update(occurrence_id, payload.model_dump()))
+
+    @app.post("/api/v1/recurrences/occurrences/shift")
+    def shift_recurrence_occurrences(
+        payload: OccurrenceShiftPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _occurrence_action(
+            RecurrenceOccurrencesService(active_database).shift(payload.occurrence_ids, payload.target_date)
+        )
+
+    @app.post("/api/v1/recurrences/occurrences/delete")
+    def delete_recurrence_occurrences(
+        payload: OccurrenceIdsPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _occurrence_action(RecurrenceOccurrencesService(active_database).delete(payload.occurrence_ids))
+
+    @app.post("/api/v1/recurrences/occurrences/{occurrence_id}/restore")
+    def restore_recurrence_occurrence(
+        occurrence_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _occurrence_action(RecurrenceOccurrencesService(active_database).restore(occurrence_id))
 
     @app.post("/api/v1/recurrences")
     def create_recurrence(

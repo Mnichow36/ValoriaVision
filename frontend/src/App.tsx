@@ -87,6 +87,7 @@ export function App() {
   const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
   const [reconciliationRulesRequestKey, setReconciliationRulesRequestKey] = useState(0);
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
+  const [recurrenceRuleRequestKey, setRecurrenceRuleRequestKey] = useState(0);
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
   const [transactionCreateRequestKey, setTransactionCreateRequestKey] = useState(0);
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
@@ -158,11 +159,8 @@ export function App() {
   }
 
   const module = activeModule === "transactions"
-    ? transactionsView === "recurrences"
-      ? {
-          title: "Récurrences",
-          description: "Identifier, planifier et gérer les opérations récurrentes qui alimentent le prévisionnel.",
-        }
+    ? transactionsView === "recurrences" || transactionsView === "rules"
+      ? modules.transactions
       : transactionsView !== "journal"
         ? {
             title: transactionsView === "history" ? "Lots d’import" : "Imports bancaires",
@@ -200,6 +198,7 @@ export function App() {
             onCreateRecurrence={() => setForecastRecurrenceRequestKey((key) => key + 1)}
             onOpenTransactionImport={() => openBankImport()}
             onCreateTransaction={() => setTransactionCreateRequestKey((key) => key + 1)}
+            onCreateRecurrenceRule={() => setRecurrenceRuleRequestKey((key) => key + 1)}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
             onReconciliationRules={() => setReconciliationRulesRequestKey((key) => key + 1)}
@@ -233,6 +232,7 @@ export function App() {
               onNavigateSettings={() => setActiveModule("settings")}
               onViewChange={setTransactionsView}
               preferredImportAccountId={preferredImportAccountId}
+              ruleCreateRequestKey={recurrenceRuleRequestKey}
               token={state.token}
               view={transactionsView}
             />
@@ -290,6 +290,7 @@ function HeaderActions({
   onCreateRecurrence,
   onOpenTransactionImport,
   onCreateTransaction,
+  onCreateRecurrenceRule,
   onReconciliationAccountChange,
   onReconciliationRefresh,
   onReconciliationRules,
@@ -317,6 +318,7 @@ function HeaderActions({
   onCreateRecurrence: () => void;
   onOpenTransactionImport: () => void;
   onCreateTransaction: () => void;
+  onCreateRecurrenceRule: () => void;
   onReconciliationAccountChange: (value: string) => void;
   onReconciliationRefresh: () => void;
   onReconciliationRules: () => void;
@@ -366,17 +368,16 @@ function HeaderActions({
         </div>
       );
     }
-    if (transactionView === "recurrences") {
+    if (transactionView === "recurrences" || transactionView === "rules") {
       return (
         <div className="header-actions">
-          <button className="secondary-button" onClick={() => onTransactionViewChange("journal")} type="button">Opérations</button>
+          {transactionView === "rules" && <button className="secondary-button" onClick={onCreateRecurrenceRule} type="button">Nouvelle récurrence</button>}
           <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
         </div>
       );
     }
     return (
       <div className="header-actions">
-        <button className="secondary-button" onClick={() => onTransactionViewChange("recurrences")} type="button">Récurrences</button>
         <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>
         <button className="secondary-button" onClick={onCreateTransaction} type="button">Nouvelle transaction</button>
         <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>

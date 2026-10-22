@@ -2471,3 +2471,14 @@ button { cursor: pointer; }
 .transactions-table th:nth-child(6) .transaction-sort { margin-left: auto; }
 .transactions-table th:nth-child(6) { text-align: right; }
 .transactions-table th .transaction-select { display: inline-flex; gap: 8px; }
+
+/* Liste des occurrences de récurrence */
+.transaction-filters--occurrences { grid-template-columns: minmax(210px, 1.4fr) minmax(150px, 1fr) minmax(190px, 1.1fr) minmax(170px, 1fr); }
+.transaction-filters--occurrences .transaction-count { grid-column: 1 / -1; justify-self: start; }
+.occurrence-table-wrap { max-height: max(340px, calc(100vh - 400px)); }
+.occurrence-note { color: #6b7a99; display: block; font-size: 12px; font-weight: 600; margin-top: 2px; }
+.occurrence-row--deleted { opacity: 0.55; }
+.occurrence-hint { color: #6b7a99; font-size: 13px; margin: 12px 4px 0; }
+.drawer-help { color: #52627d; font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
+.drawer-quick { display: flex; gap: 8px; margin-bottom: 12px; }
+.drawer-list { color: #334155; font-size: 13px; margin: 8px 0 0; max-height: 240px; overflow: auto; padding-left: 18px; }

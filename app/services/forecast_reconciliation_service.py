@@ -239,6 +239,11 @@ class ForecastReconciliationService:
             if existing:
                 if existing["status"] in {"auto_matched", "confirmed", "to_review", "ignored", "cancelled"}:
                     return False
+                manual = conn.execute(
+                    "SELECT manually_edited FROM forecast_occurrences WHERE id = ?", (existing["id"],)
+                ).fetchone()
+                if manual and int(manual[0] or 0):
+                    return False
                 conn.execute(
                     """
                     UPDATE forecast_occurrences
@@ -1364,6 +1369,193 @@ class ForecastReconciliationService:
         # Compatibility alias. UI R7.2 exposes this as “Annuler rapprochement”.
         self.cancel_match(occurrence_id)
 
+    # ------------------------------------------------------------------
+    # Occurrences de récurrence : modifier / décaler une par une
+    # ------------------------------------------------------------------
+    EDITABLE_STATUSES = {"planned", "overdue", "to_review"}
+
+    def _editable_occurrences(self, conn, occurrence_ids: list[int]) -> tuple[list, str | None]:
+        placeholders = ",".join("?" for _ in occurrence_ids)
+        rows = list(
+            conn.execute(
+                f"""
+                SELECT o.*,
+                       (SELECT COUNT(*) FROM forecast_reconciliation_links l
+                        WHERE l.occurrence_id = o.id AND l.deleted_at IS NULL) AS active_links
+                FROM forecast_occurrences o
+                WHERE o.id IN ({placeholders}) AND o.deleted_at IS NULL
+                ORDER BY o.id
+                """,
+                occurrence_ids,
+            )
+        )
+        if len(rows) != len(occurrence_ids):
+            return [], "Une occurrence sélectionnée n’existe plus. Actualise la liste."
+        for row in rows:
+            label = str(row["expected_label"] or "Occurrence")
+            if row["source_type"] != "recurring":
+                return [], f"« {label} » ne provient pas d’une récurrence."
+            if row["actual_transaction_id"] is not None or int(row["active_links"] or 0) > 0:
+                return [], f"« {label} » est déjà rapprochée : annule d’abord le rapprochement."
+            if row["status"] not in self.EDITABLE_STATUSES:
+                return [], f"« {label} » ne peut plus être modifiée (statut actuel : {self.status_label(row['status'])})."
+        return rows, None
+
+    def _write_occurrence_change(
+        self,
+        conn,
+        row,
+        *,
+        new_date: date,
+        amount: float,
+        label: str,
+        category: str,
+        reference: date,
+        event: str,
+        message: str,
+    ) -> None:
+        occurrence_id = int(row["id"])
+        previous_date = str(row["expected_date"])
+        original_date = str(row["original_expected_date"] or previous_date)
+        conn.execute(
+            """
+            UPDATE forecast_reconciliation_proposals
+            SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+            WHERE occurrence_id = ? AND deleted_at IS NULL AND status = 'to_review'
+            """,
+            (occurrence_id,),
+        )
+        conn.execute(
+            """
+            UPDATE forecast_occurrences
+            SET original_expected_date = ?, expected_date = ?,
+                rescheduled_at = CASE WHEN ? != ? THEN CURRENT_TIMESTAMP ELSE rescheduled_at END,
+                expected_amount = ?, expected_label = ?, expected_category = ?,
+                direction = ?, status = ?, manually_edited = 1,
+                actual_transaction_id = NULL, actual_date = NULL, actual_amount = NULL,
+                amount_delta = NULL, match_confidence = NULL, match_reason = NULL, match_type = NULL,
+                matched_amount = 0, remaining_amount = ABS(?), overage_amount = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                original_date,
+                new_date.isoformat(),
+                new_date.isoformat(),
+                previous_date,
+                amount,
+                label,
+                category,
+                "credit" if amount >= 0 else "debit",
+                "overdue" if new_date < reference else "planned",
+                amount,
+                occurrence_id,
+            ),
+        )
+        self.db.audit_event(
+            conn,
+            event,
+            "forecast_occurrence",
+            str(occurrence_id),
+            message,
+            {
+                "previous_date": previous_date,
+                "new_date": new_date.isoformat(),
+                "previous_amount": float(row["expected_amount"] or 0),
+                "new_amount": amount,
+                "previous_label": row["expected_label"],
+                "new_label": label,
+            },
+        )
+
+    def update_occurrence(
+        self,
+        occurrence_id: int,
+        *,
+        expected_date,
+        amount,
+        label: str,
+        category: str,
+        reference_date: str | date | None = None,
+    ) -> tuple[bool, str]:
+        """Modifie UNE occurrence (date, montant, libellé, catégorie) sans toucher à la règle."""
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        try:
+            new_date = _parse_date(expected_date)
+        except (TypeError, ValueError):
+            return False, "La date est invalide."
+        try:
+            new_amount = round(float(amount), 2)
+        except (TypeError, ValueError):
+            return False, "Le montant est invalide."
+        if new_amount == 0:
+            return False, "Le montant ne peut pas être nul."
+        clean_label = " ".join(str(label or "").split())
+        if not clean_label:
+            return False, "Le libellé est obligatoire."
+        clean_category = " ".join(str(category or "").split()) or "Prévisionnel"
+        with self.db.connect() as conn:
+            rows, error = self._editable_occurrences(conn, [int(occurrence_id)])
+            if error:
+                return False, error
+            self._write_occurrence_change(
+                conn,
+                rows[0],
+                new_date=new_date,
+                amount=new_amount,
+                label=clean_label,
+                category=clean_category,
+                reference=reference,
+                event="occurrence_updated",
+                message="Occurrence modifiée.",
+            )
+            from app.services.reconciliation import reevaluate_for_occurrences
+
+            reevaluate_for_occurrences(
+                conn, [int(occurrence_id)], self.db.reconciliation_rules(conn), reason="Occurrence modifiée"
+            )
+        return True, "Occurrence modifiée. La règle de récurrence n’a pas changé."
+
+    def shift_occurrences(
+        self,
+        occurrence_ids: list[int],
+        target_date,
+        reference_date: str | date | None = None,
+    ) -> tuple[int, str]:
+        """Décale une ou plusieurs occurrences non réalisées à la date choisie (passée ou future)."""
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        try:
+            target = _parse_date(target_date)
+        except (TypeError, ValueError):
+            return 0, "La nouvelle date est invalide."
+        try:
+            ids = sorted({int(value) for value in occurrence_ids if int(value) > 0})
+        except (TypeError, ValueError):
+            return 0, "La sélection contient une occurrence invalide."
+        if not ids:
+            return 0, "Sélectionne au moins une occurrence à décaler."
+        with self.db.connect() as conn:
+            rows, error = self._editable_occurrences(conn, ids)
+            if error:
+                return 0, error
+            for row in rows:
+                self._write_occurrence_change(
+                    conn,
+                    row,
+                    new_date=target,
+                    amount=float(row["expected_amount"] or 0),
+                    label=str(row["expected_label"] or "Occurrence"),
+                    category=str(row["expected_category"] or "Prévisionnel"),
+                    reference=reference,
+                    event="occurrence_rescheduled",
+                    message="Occurrence décalée.",
+                )
+            from app.services.reconciliation import reevaluate_for_occurrences
+
+            reevaluate_for_occurrences(conn, ids, self.db.reconciliation_rules(conn), reason="Occurrence décalée")
+        plural = "s" if len(ids) > 1 else ""
+        return len(ids), f"{len(ids)} occurrence{plural} décalée{plural} au {target.strftime('%d/%m/%Y')}."
+
     def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[bool, str]:
         with self.db.connect() as conn:
             row = conn.execute("SELECT status FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL", (occurrence_id,)).fetchone()
@@ -1408,11 +1600,11 @@ class ForecastReconciliationService:
                 "SELECT expected_date, status, ignored_reason FROM forecast_occurrences WHERE id = ? AND deleted_at IS NULL",
                 (occurrence_id,),
             ).fetchone()
-            if not row or row["status"] != "ignored":
-                return False, "Cette occurrence n’est pas au statut Ignorée."
+            if not row or row["status"] not in {"ignored", "cancelled"}:
+                return False, "Cette occurrence n’est ni Ignorée ni Supprimée."
             status = "overdue" if _parse_date(row["expected_date"]) < reference else "planned"
             conn.execute(
-                "UPDATE forecast_occurrences SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE forecast_occurrences SET status = ?, cancelled_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (status, occurrence_id),
             )
             self.db.audit_event(

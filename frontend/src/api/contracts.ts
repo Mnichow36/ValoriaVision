@@ -911,3 +911,39 @@ export interface AuthSession {
   token: string;
   expiresIn: number;
 }
+
+export interface RecurrenceOccurrence {
+  id: number;
+  recurrenceId: number | null;
+  date: string;
+  originalDate: string;
+  shifted: boolean;
+  edited: boolean;
+  label: string;
+  category: string;
+  amount: number;
+  direction: string;
+  accountId: number | null;
+  accountName: string;
+  frequency: string;
+  status: string;
+  statusLabel: string;
+  reconciled: boolean;
+  canEdit: boolean;
+  canShift: boolean;
+  canDelete: boolean;
+  canRestore: boolean;
+}
+
+export interface RecurrenceOccurrencesSnapshot {
+  referenceDate: string;
+  items: RecurrenceOccurrence[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface RecurrenceOccurrenceActionResult {
+  success: boolean;
+  message: string;
+  updatedCount?: number;
+}

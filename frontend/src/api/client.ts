@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -572,5 +572,44 @@ export function confirmManualReconciliation(
       transaction_id: payload.transactionId,
       include_overage: payload.includeOverage,
     },
+  });
+}
+
+export function getRecurrenceOccurrences(token: string, signal?: AbortSignal): Promise<RecurrenceOccurrencesSnapshot> {
+  return request<RecurrenceOccurrencesSnapshot>("/api/v1/recurrences/occurrences", { token, signal });
+}
+
+export function updateRecurrenceOccurrence(
+  token: string,
+  occurrenceId: number,
+  payload: { date: string; amount: number; label: string; category: string },
+): Promise<RecurrenceOccurrenceActionResult> {
+  return request<RecurrenceOccurrenceActionResult>(`/api/v1/recurrences/occurrences/${occurrenceId}`, {
+    method: "PUT",
+    token,
+    body: payload,
+  });
+}
+
+export function shiftRecurrenceOccurrences(token: string, occurrenceIds: number[], targetDate: string): Promise<RecurrenceOccurrenceActionResult> {
+  return request<RecurrenceOccurrenceActionResult>("/api/v1/recurrences/occurrences/shift", {
+    method: "POST",
+    token,
+    body: { occurrence_ids: occurrenceIds, target_date: targetDate },
+  });
+}
+
+export function deleteRecurrenceOccurrences(token: string, occurrenceIds: number[]): Promise<RecurrenceOccurrenceActionResult> {
+  return request<RecurrenceOccurrenceActionResult>("/api/v1/recurrences/occurrences/delete", {
+    method: "POST",
+    token,
+    body: { occurrence_ids: occurrenceIds },
+  });
+}
+
+export function restoreRecurrenceOccurrence(token: string, occurrenceId: number): Promise<RecurrenceOccurrenceActionResult> {
+  return request<RecurrenceOccurrenceActionResult>(`/api/v1/recurrences/occurrences/${occurrenceId}/restore`, {
+    method: "POST",
+    token,
   });
 }

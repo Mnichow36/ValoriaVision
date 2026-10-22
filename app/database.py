@@ -985,6 +985,8 @@ class Database:
         })
         self.ensure_columns(conn, "forecast_occurrences", {
             "match_type": "TEXT",
+            # 1 = occurrence modifiée à la main : la régénération ne l'écrase plus.
+            "manually_edited": "INTEGER NOT NULL DEFAULT 0",
         })
         # R7.2: the ambiguous status planned_confirmed is not accepted.
         # If an occurrence has no real transaction, it returns to planned/overdue.
