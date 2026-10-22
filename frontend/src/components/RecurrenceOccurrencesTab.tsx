@@ -54,7 +54,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState("");
   const [accountId, setAccountId] = useState("all");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState("todo");
   const [period, setPeriod] = useState("all");
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "date", direction: "asc" });
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -177,8 +177,8 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
             {accounts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
           <select aria-label="Filtrer par statut" onChange={(event) => setStatus(event.target.value)} value={status}>
-            <option value="all">Tous les statuts</option>
             <option value="todo">À traiter (prévues, en retard)</option>
+            <option value="all">Tous les statuts (rapprochées comprises)</option>
             <option value="planned">Prévues</option>
             <option value="overdue">En retard</option>
             <option value="done">Rapprochées</option>
