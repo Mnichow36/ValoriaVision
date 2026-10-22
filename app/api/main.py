@@ -750,6 +750,17 @@ def create_app(database: Database | None = None) -> FastAPI:
             RecurrenceOccurrencesService(active_database).shift(payload.occurrence_ids, payload.target_date)
         )
 
+    @app.post("/api/v1/recurrences/occurrences/postpone")
+    def postpone_recurrence_occurrences(
+        payload: OccurrenceIdsPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return _occurrence_action(RecurrenceOccurrencesService(active_database).postpone(payload.occurrence_ids))
+
     @app.post("/api/v1/recurrences/occurrences/delete")
     def delete_recurrence_occurrences(
         payload: OccurrenceIdsPayload,

@@ -613,3 +613,11 @@ export function restoreRecurrenceOccurrence(token: string, occurrenceId: number)
     token,
   });
 }
+
+export function postponeRecurrenceOccurrences(token: string, occurrenceIds: number[]): Promise<RecurrenceOccurrenceActionResult> {
+  return request<RecurrenceOccurrenceActionResult>("/api/v1/recurrences/occurrences/postpone", {
+    method: "POST",
+    token,
+    body: { occurrence_ids: occurrenceIds },
+  });
+}

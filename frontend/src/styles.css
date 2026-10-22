@@ -2495,3 +2495,9 @@ button { cursor: pointer; }
 .transaction-progress { height: 6px; margin-top: 0; }
 .transactions-journal .transactions-table-wrap { max-height: max(300px, calc(100vh - 420px)); }
 .workspace-content { padding-bottom: 20px; }
+
+.occurrence-overdue-chip { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 999px; color: #dc2626; cursor: pointer; font-size: 12px; font-weight: 800; padding: 5px 11px; }
+.occurrence-overdue-chip:hover { background: #ffe4e6; }
+.transaction-filters--occurrences .occurrence-overdue-chip { grid-column: 1 / -1; justify-self: start; }
+.drawer-choice { display: grid; gap: 8px; margin: 0 0 14px; }
+.drawer-choice label { align-items: center; display: flex; font-size: 13px; font-weight: 700; gap: 8px; }

@@ -135,6 +135,12 @@ class RecurrenceOccurrencesService:
         )
         return self._result(count > 0, message, updatedCount=int(count))
 
+    def postpone(self, occurrence_ids: list[int]) -> dict[str, Any]:
+        count, message = self.engine_factory(self.database).postpone_to_next_occurrences(
+            occurrence_ids, reference_date=self._today()
+        )
+        return self._result(count > 0, message, updatedCount=int(count))
+
     def delete(self, occurrence_ids: list[int]) -> dict[str, Any]:
         engine = self.engine_factory(self.database)
         ids = list(dict.fromkeys(int(v) for v in occurrence_ids))

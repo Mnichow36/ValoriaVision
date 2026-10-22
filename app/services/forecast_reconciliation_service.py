@@ -1490,6 +1490,11 @@ class ForecastReconciliationService:
             return False, "Le montant est invalide."
         if new_amount == 0:
             return False, "Le montant ne peut pas être nul."
+        if new_date < reference:
+            return False, (
+                "Aucune prévision ne peut être antérieure à aujourd’hui : "
+                f"choisis une date à partir du {reference.strftime('%d/%m/%Y')} ou utilise « Décaler »."
+            )
         clean_label = " ".join(str(label or "").split())
         if not clean_label:
             return False, "Le libellé est obligatoire."
@@ -1534,6 +1539,11 @@ class ForecastReconciliationService:
             return 0, "La sélection contient une occurrence invalide."
         if not ids:
             return 0, "Sélectionne au moins une occurrence à décaler."
+        if target <= reference:
+            return 0, (
+                "Une prévision ne peut pas être placée avant demain : "
+                f"choisis une date à partir du {(reference + timedelta(days=1)).strftime('%d/%m/%Y')}."
+            )
         with self.db.connect() as conn:
             rows, error = self._editable_occurrences(conn, ids)
             if error:
@@ -1555,6 +1565,56 @@ class ForecastReconciliationService:
             reevaluate_for_occurrences(conn, ids, self.db.reconciliation_rules(conn), reason="Occurrence décalée")
         plural = "s" if len(ids) > 1 else ""
         return len(ids), f"{len(ids)} occurrence{plural} décalée{plural} au {target.strftime('%d/%m/%Y')}."
+
+    def postpone_to_next_occurrences(
+        self,
+        occurrence_ids: list[int],
+        reference_date: str | date | None = None,
+    ) -> tuple[int, str]:
+        """Reporte chaque occurrence sur la prochaine échéance de sa règle (strictement après aujourd'hui)."""
+        reference = _parse_date(reference_date) if reference_date else date.today()
+        try:
+            ids = sorted({int(value) for value in occurrence_ids if int(value) > 0})
+        except (TypeError, ValueError):
+            return 0, "La sélection contient une occurrence invalide."
+        if not ids:
+            return 0, "Sélectionne au moins une occurrence à reporter."
+        with self.db.connect() as conn:
+            rows, error = self._editable_occurrences(conn, ids)
+            if error:
+                return 0, error
+            targets: dict[int, date] = {}
+            for row in rows:
+                rule = conn.execute(
+                    "SELECT frequency FROM recurring_items WHERE id = ?", (row["source_id"],)
+                ).fetchone()
+                frequency = str(rule["frequency"]) if rule else ""
+                label = str(row["expected_label"] or "Occurrence")
+                if not rule or frequency in {"Ponctuel", "Une fois", "Ponctuel / une seule fois"}:
+                    return 0, f"« {label} » n’a pas d’échéance suivante : choisis une date avec « Décaler »."
+                current = _parse_date(row["expected_date"])
+                for _ in range(1200):
+                    current = self.db.add_period(current, frequency)
+                    if current > reference:
+                        break
+                targets[int(row["id"])] = current
+            for row in rows:
+                self._write_occurrence_change(
+                    conn,
+                    row,
+                    new_date=targets[int(row["id"])],
+                    amount=float(row["expected_amount"] or 0),
+                    label=str(row["expected_label"] or "Occurrence"),
+                    category=str(row["expected_category"] or "Prévisionnel"),
+                    reference=reference,
+                    event="occurrence_postponed",
+                    message="Occurrence reportée sur l’échéance suivante.",
+                )
+            from app.services.reconciliation import reevaluate_for_occurrences
+
+            reevaluate_for_occurrences(conn, ids, self.db.reconciliation_rules(conn), reason="Occurrence reportée")
+        plural = "s" if len(ids) > 1 else ""
+        return len(ids), f"{len(ids)} occurrence{plural} reportée{plural} sur l’échéance suivante."
 
     def ignore_occurrence(self, occurrence_id: int, reason: str = "") -> tuple[bool, str]:
         with self.db.connect() as conn:

@@ -71,6 +71,30 @@ class RecurrenceOccurrencesTest(unittest.TestCase):
         restored = next(i for i in self.service.snapshot()["items"] if i["id"] == item["id"])
         self.assertIn(restored["status"], {"planned", "overdue"})
 
+    def test_no_forecast_can_be_dated_before_today(self):
+        past = next(i for i in self.service.snapshot()["items"] if i["status"] == "overdue" and i["canShift"])
+        result = self.service.update(past["id"], {"date": past["date"], "amount": -10, "label": "x", "category": ""})
+        self.assertFalse(result["success"])
+        self.assertIn("antérieure", result["message"])
+        refused = self.service.shift([past["id"]], date.today().isoformat())
+        self.assertFalse(refused["success"])
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        self.assertTrue(self.service.shift([past["id"]], tomorrow)["success"])
+        moved = next(i for i in self.service.snapshot()["items"] if i["id"] == past["id"])
+        self.assertEqual(moved["date"], tomorrow)
+        self.assertEqual(moved["originalDate"], past["date"])
+
+    def test_postpone_moves_overdue_occurrences_to_the_next_cadence_date(self):
+        overdue = [i for i in self.service.snapshot()["items"] if i["status"] == "overdue" and i["canShift"] and i["frequency"] == "Mensuel"][:2]
+        self.assertTrue(overdue)
+        result = self.service.postpone([i["id"] for i in overdue])
+        self.assertTrue(result["success"], result)
+        after = {i["id"]: i for i in self.service.snapshot()["items"]}
+        for item in overdue:
+            self.assertGreater(after[item["id"]]["date"], date.today().isoformat())
+            self.assertLessEqual(after[item["id"]]["date"], (date.today() + timedelta(days=31)).isoformat())
+            self.assertNotEqual(after[item["id"]]["status"], "overdue")
+
     def test_reconciled_occurrence_cannot_be_edited_shifted_or_deleted(self):
         _, tx_id, occurrence_id = make_pair(self.database)
         ForecastReconciliationService(self.database).confirm_manual_match(occurrence_id, tx_id)

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   deleteRecurrenceOccurrences,
   getRecurrenceOccurrences,
+  postponeRecurrenceOccurrences,
   restoreRecurrenceOccurrence,
   shiftRecurrenceOccurrences,
   updateRecurrenceOccurrence,
@@ -14,7 +15,7 @@ import { SideDrawer } from "./SideDrawer";
 type SortKey = "date" | "label" | "account" | "category" | "status" | "amount";
 type Drawer =
   | { kind: "edit"; item: RecurrenceOccurrence }
-  | { kind: "shift"; items: RecurrenceOccurrence[] }
+  | { kind: "shift"; items: RecurrenceOccurrence[]; mode: "date" | "next" }
   | { kind: "delete"; items: RecurrenceOccurrence[] };
 
 const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", currencyDisplay: "code", minimumFractionDigits: 2 });
@@ -144,7 +145,8 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
       y: event.clientY,
       items: [
         { label: "Modifier l’occurrence…", disabled: !item.canEdit, hint: item.canEdit ? undefined : "Non modifiable", onSelect: () => setDrawer({ kind: "edit", item }) },
-        { label: `Décaler${plural}…`, disabled: !item.canShift, onSelect: () => setDrawer({ kind: "shift", items: group }) },
+        { label: `Décaler${plural} à une date…`, disabled: !item.canShift, onSelect: () => setDrawer({ kind: "shift", items: group, mode: "date" }) },
+        { label: `Reporter${plural} sur l’échéance suivante…`, disabled: !item.canShift, onSelect: () => setDrawer({ kind: "shift", items: group, mode: "next" }) },
         ...(item.canRestore ? [{ label: "Rétablir", onSelect: () => void restore(item) }] : []),
         { label: `Supprimer${plural}…`, danger: true, disabled: !item.canDelete, onSelect: () => setDrawer({ kind: "delete", items: group }) },
       ],
@@ -188,13 +190,19 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
             <option value="90">3 prochains mois</option>
             <option value="180">6 prochains mois</option>
           </select>
+          {(snapshot.counts.overdue ?? 0) > 0 && (
+            <button className="occurrence-overdue-chip" onClick={() => { setStatus("overdue"); setPeriod("all"); }} title="Afficher les prévisions antérieures à aujourd’hui" type="button">
+              {snapshot.counts.overdue} prévision{(snapshot.counts.overdue ?? 0) > 1 ? "s" : ""} antérieure{(snapshot.counts.overdue ?? 0) > 1 ? "s" : ""} à aujourd’hui à décaler ou reporter
+            </button>
+          )}
           <span className="transaction-count">{visible.length} occurrence{visible.length > 1 ? "s" : ""} · <span className="positive">{signed(totalIn)}</span> · <span className="negative">{signed(-totalOut)}</span></span>
         </div>
 
         {selectedItems.length > 0 && (
           <div className="transaction-bulkbar">
             <strong>{selectedItems.length} sélectionnée{selectedItems.length > 1 ? "s" : ""}</strong>
-            <button className="secondary-button" onClick={() => setDrawer({ kind: "shift", items: selectedItems })} type="button">Décaler…</button>
+            <button className="secondary-button" onClick={() => setDrawer({ kind: "shift", items: selectedItems, mode: "date" })} type="button">Décaler à une date…</button>
+            <button className="secondary-button" onClick={() => setDrawer({ kind: "shift", items: selectedItems, mode: "next" })} type="button">Reporter sur l’échéance suivante…</button>
             <button className="danger-button" onClick={() => setDrawer({ kind: "delete", items: selectedItems })} type="button">Supprimer…</button>
             <button aria-label="Désélectionner" className="transaction-bulk-clear" onClick={() => setSelectedIds([])} type="button">×</button>
           </div>
@@ -241,14 +249,14 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
       </article>
 
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
-      {drawer?.kind === "edit" && <EditDrawer categories={categories} item={drawer.item} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
-      {drawer?.kind === "shift" && <ShiftDrawer items={drawer.items} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
+      {drawer?.kind === "edit" && <EditDrawer categories={categories} referenceDate={snapshot.referenceDate} item={drawer.item} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
+      {drawer?.kind === "shift" && <ShiftDrawer items={drawer.items} mode={drawer.mode} referenceDate={snapshot.referenceDate} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
       {drawer?.kind === "delete" && <DeleteDrawer items={drawer.items} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
     </div>
   );
 }
 
-function EditDrawer({ categories, item, onClose, onDone, token }: { categories: string[]; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
+function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }: { categories: string[]; referenceDate: string; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
   const [date, setDate] = useState(item.date);
   const [label, setLabel] = useState(item.label);
   const [category, setCategory] = useState(item.category);
@@ -279,7 +287,7 @@ function EditDrawer({ categories, item, onClose, onDone, token }: { categories: 
       title="Modifier cette occurrence"
     >
       <p className="drawer-help">Seule cette occurrence change. La règle de récurrence « {item.label} » et les autres échéances restent identiques.</p>
-      <label className="account-field"><span>Date</span><input onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
+      <label className="account-field"><span>Date</span><input min={referenceDate} onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
       <label className="account-field"><span>Libellé</span><input onChange={(event) => setLabel(event.target.value)} value={label} /></label>
       <label className="account-field"><span>Catégorie</span><input list="occurrence-categories" onChange={(event) => setCategory(event.target.value)} value={category} /><datalist id="occurrence-categories">{categories.map((name) => <option key={name} value={name} />)}</datalist></label>
       <label className="account-field"><span>Type</span><select onChange={(event) => setKind(event.target.value)} value={kind}><option value="debit">Dépense</option><option value="credit">Recette</option></select></label>
@@ -290,18 +298,21 @@ function EditDrawer({ categories, item, onClose, onDone, token }: { categories: 
   );
 }
 
-function ShiftDrawer({ items, onClose, onDone, token }: { items: RecurrenceOccurrence[]; onClose: () => void; onDone: (message: string) => void; token: string }) {
-  const [target, setTarget] = useState(items.length === 1 ? items[0].date : "");
+function ShiftDrawer({ items, mode: initialMode, onClose, onDone, referenceDate, token }: { items: RecurrenceOccurrence[]; mode: "date" | "next"; onClose: () => void; onDone: (message: string) => void; referenceDate: string; token: string }) {
+  const tomorrow = addDays(referenceDate, 1);
+  const [mode, setMode] = useState(initialMode);
+  const [target, setTarget] = useState(tomorrow);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const single = items.length === 1 ? items[0] : undefined;
 
   async function save() {
-    if (!target) { setError("Choisis la nouvelle date."); return; }
+    if (mode === "date" && (!target || target < tomorrow)) { setError(`La nouvelle date doit être à partir du ${formatDate(tomorrow)} : aucune prévision ne peut être antérieure à demain.`); return; }
     setBusy(true);
     setError(undefined);
     try {
-      onDone((await shiftRecurrenceOccurrences(token, items.map((item) => item.id), target)).message);
+      const ids = items.map((item) => item.id);
+      onDone((mode === "date" ? await shiftRecurrenceOccurrences(token, ids, target) : await postponeRecurrenceOccurrences(token, ids)).message);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : "Le décalage a échoué.");
       setBusy(false);
@@ -311,16 +322,24 @@ function ShiftDrawer({ items, onClose, onDone, token }: { items: RecurrenceOccur
   return (
     <SideDrawer
       eyebrow="Occurrence de récurrence"
-      footer={(<><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} onClick={() => void save()} type="button">{busy ? "Décalage…" : "Décaler"}</button></>)}
+      footer={(<><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} onClick={() => void save()} type="button">{busy ? "Traitement…" : mode === "date" ? "Décaler" : "Reporter"}</button></>)}
       onClose={onClose}
       title={items.length > 1 ? `Décaler ${items.length} occurrences` : "Décaler cette occurrence"}
     >
-      <p className="drawer-help">{single ? `« ${single.label} » prévue le ${formatDate(single.date)}.` : "Toutes les occurrences sélectionnées seront déplacées à la même date."} La règle de récurrence n’est pas modifiée.</p>
-      <label className="account-field"><span>Nouvelle date</span><input onChange={(event) => setTarget(event.target.value)} type="date" value={target} /></label>
-      {single && (
-        <div className="drawer-quick">
-          {[1, 3, 7, 14].map((days) => <button className="secondary-button" key={days} onClick={() => setTarget(addDays(single.date, days))} type="button">+ {days} j</button>)}
-        </div>
+      <p className="drawer-help">{single ? `« ${single.label} » prévue le ${formatDate(single.date)}.` : "Toutes les occurrences sélectionnées sont traitées ensemble."} Aucune prévision ne peut être antérieure à aujourd’hui : une prévision en retard doit être décalée. La règle de récurrence n’est pas modifiée.</p>
+      <div className="drawer-choice" role="radiogroup" aria-label="Mode de décalage">
+        <label><input checked={mode === "date"} name="shift-mode" onChange={() => setMode("date")} type="radio" /><span>Décaler à une date</span></label>
+        <label><input checked={mode === "next"} name="shift-mode" onChange={() => setMode("next")} type="radio" /><span>Reporter sur l’échéance suivante de la récurrence</span></label>
+      </div>
+      {mode === "date" ? (
+        <>
+          <label className="account-field"><span>Nouvelle date</span><input min={tomorrow} onChange={(event) => setTarget(event.target.value)} type="date" value={target} /></label>
+          <div className="drawer-quick">
+            {[1, 3, 7, 14].map((days) => <button className="secondary-button" key={days} onClick={() => setTarget(addDays(referenceDate, days))} type="button">{days === 1 ? "Demain (J+1)" : `J+${days}`}</button>)}
+          </div>
+        </>
+      ) : (
+        <p className="drawer-help">Chaque occurrence est déplacée sur la première date de sa récurrence postérieure à aujourd’hui (mensuelle, hebdomadaire…). Sa date d’origine reste affichée.</p>
       )}
       {items.length > 1 && <ul className="drawer-list">{items.map((item) => <li key={item.id}>{formatDate(item.date)} · {item.label}</li>)}</ul>}
       {error && <p className="account-form-error" role="alert">{error}</p>}
