@@ -5,6 +5,8 @@ import math
 import re
 from typing import Any, Callable
 
+from app.services.transactions_read_service import reconciliation_badge
+
 
 def _field(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
@@ -38,6 +40,8 @@ class AccountsReadService:
         self.now_provider = now_provider
 
     def snapshot(self) -> dict[str, Any]:
+        links_provider = getattr(self.database, "active_reconciliation_by_transaction", None)
+        self._reconciliation_links = dict(links_provider()) if callable(links_provider) else {}
         accounts = [self._account(row) for row in self.database.list_accounts()]
         active_accounts = [account for account in accounts if account["status"] == "Actif"]
         return {
@@ -275,11 +279,17 @@ class AccountsReadService:
             "movementTotal": _number(_field(row, "post_reference_movements", 0)),
             "currentBalance": _number(_field(row, "calculated_balance", initial_balance)),
             "currentDate": str(_field(row, "calculated_date", initial_date) or ""),
-            "transactions": [self._transaction(item) for item in transactions[:12]],
+            "transactions": [
+                self._transaction(
+                    item,
+                    getattr(self, "_reconciliation_links", {}).get(int(_field(item, "id", 0) or 0), []),
+                )
+                for item in transactions[:12]
+            ],
         }
 
     @staticmethod
-    def _transaction(row: Any) -> dict[str, Any]:
+    def _transaction(row: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return {
             "id": int(_field(row, "id", 0) or 0),
             "date": str(_field(row, "tx_date", "") or ""),
@@ -287,4 +297,5 @@ class AccountsReadService:
             "category": str(_field(row, "category", "") or "À catégoriser"),
             "amount": _number(_field(row, "amount", 0)),
             "status": str(_field(row, "status", "") or ""),
+            "reconciliation": reconciliation_badge(links),
         }

@@ -50,6 +50,42 @@ export interface DashboardSnapshot {
   alerts: DashboardAlert[];
 }
 
+export interface ReconciliationBadge {
+  reconciled: boolean;
+  label: string;
+  matchType: string;
+  occurrenceId: number | null;
+}
+
+export interface ReconciliationLinkSummary {
+  linkId: number;
+  transactionId: number;
+  occurrenceId: number;
+  label: string;
+  sourceType: string;
+  appliedAmount: number;
+  matchType: string;
+}
+
+export interface ReconciliationHistoryItem extends ReconciliationLinkSummary {
+  occurrenceLabel: string;
+  occurrenceDate: string;
+  occurrenceAmount: number;
+  recurrenceName: string;
+  transactionLabel: string;
+  transactionDate: string;
+  transactionAmount: number;
+  confidence: number;
+  reason: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  active: boolean;
+}
+
+export interface ReconciliationHistory {
+  items: ReconciliationHistoryItem[];
+}
+
 export interface AccountTransaction {
   id: number;
   date: string;
@@ -57,6 +93,7 @@ export interface AccountTransaction {
   category: string;
   amount: number;
   status: string;
+  reconciliation?: ReconciliationBadge;
 }
 
 export interface AccountOverview {
@@ -132,6 +169,7 @@ export interface TransactionRow {
   type: string;
   source: string;
   importBatchId: number | null;
+  reconciliation?: ReconciliationBadge;
 }
 
 export interface TransactionEditPayload {
@@ -565,6 +603,8 @@ export interface ReconciliationTransaction {
   linkedStatusLabel: string | null;
   linkedOccurrenceId: number | null;
   proposalOccurrenceId: number | null;
+  reconciled: boolean;
+  links: ReconciliationLinkSummary[];
 }
 
 export interface ReconciliationOccurrence {
@@ -584,6 +624,10 @@ export interface ReconciliationOccurrence {
   overageAmount: number;
   matchConfidence: number | null;
   matchReason: string;
+  displayStatus: string;
+  matchMode: string;
+  reconciled: boolean;
+  links: ReconciliationLinkSummary[];
 }
 
 export interface ReconciliationSuggestion {
@@ -602,6 +646,12 @@ export interface ReconciliationSnapshot {
   filters: {
     accountId: number | null;
     status: string;
+  };
+  view: {
+    transactionsTitle: string;
+    transactionsSubtitle: string;
+    occurrencesTitle: string;
+    occurrencesSubtitle: string;
   };
   accounts: ReconciliationAccount[];
   statusOptions: ReconciliationStatusOption[];

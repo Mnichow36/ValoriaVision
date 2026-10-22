@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { bulkUpdateTransactions, createTransactionCategorizationRule, deleteRecurrence, getForecast, getTransactions, updateTransaction } from "../api/client";
 import type { ForecastSnapshot, RecurrenceActionResult, RecurrenceItem, TransactionActionResult, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
+import { ReconciledPill } from "./ReconciledPill";
 import { RecurrenceEditor } from "./RecurrenceEditor";
 
 interface TransactionsPageProps {
@@ -553,7 +554,7 @@ function TransactionLine({ onEdit, onToggle, selected, transaction }: { onEdit: 
       <td>{shortAccount(transaction)}</td>
       <td><div className="transaction-counterparty"><strong>{transaction.beneficiary || transaction.label}</strong>{hasDistinctBankLabel && <small title={transaction.label}>{transaction.label}</small>}</div></td>
       <td><span className={`transaction-pill transaction-pill--${categoryTone(transaction.category)}`}>{transaction.category}</span></td>
-      <td><span className={`transaction-pill transaction-pill--${statusTone(transaction.status)}`}>{transaction.status}</span></td>
+      <td><span className={`transaction-pill transaction-pill--${statusTone(transaction.status)}`}>{transaction.status}</span> <ReconciledPill badge={transaction.reconciliation} /></td>
       <td className={transaction.amount < 0 ? "transaction-amount transaction-amount--negative" : "transaction-amount transaction-amount--positive"}>{signedMoney(transaction.amount)}</td>
     </tr>
   );

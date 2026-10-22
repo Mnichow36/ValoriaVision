@@ -417,7 +417,9 @@ function HeaderActions({
         <select aria-label="Statut des rapprochements" onChange={(event) => onReconciliationStatusChange(event.target.value)} value={reconciliationStatus}>
           <option value="active">À traiter</option>
           <option value="to_review">À vérifier</option>
-          <option value="partially_matched">Partielles</option>
+          <option value="matched">Rapprochées</option>
+          <option value="amount_gap">Écart de montant</option>
+          <option value="ignored">Ignorées / annulées</option>
           <option value="finalized">Finalisées</option>
           <option value="all">Tous les statuts</option>
         </select>

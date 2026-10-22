@@ -35,6 +35,11 @@ class ReconciliationManualMatchPayload(BaseModel):
     include_overage: bool = False
 
 
+class ReconciliationCancelPayload(BaseModel):
+    occurrence_id: int
+    transaction_id: int | None = None
+
+
 class SettingsGeneralPayload(BaseModel):
     currency: str = "EUR"
     current_month: str = ""
@@ -1079,6 +1084,36 @@ def create_app(database: Database | None = None) -> FastAPI:
                 include_overage=payload.include_overage,
             )
         )
+
+    @app.post("/api/v1/reconciliation/links/cancel")
+    def cancel_reconciliation_link(
+        payload: ReconciliationCancelPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return reconciliation_action(
+            ReconciliationReadService(active_database).cancel_reconciliation(
+                payload.occurrence_id,
+                payload.transaction_id,
+            )
+        )
+
+    @app.get("/api/v1/reconciliation/history")
+    def reconciliation_history(
+        transaction_id: int | None = None,
+        occurrence_id: int | None = None,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        if transaction_id is None and occurrence_id is None:
+            raise HTTPException(status_code=422, detail="Indiquez une transaction ou une prévision.")
+        return ReconciliationReadService(active_database).history(transaction_id, occurrence_id)
 
     return app
 

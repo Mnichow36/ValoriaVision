@@ -2362,3 +2362,57 @@ button { cursor: pointer; }
   .asset-drawer__delete { padding-left: 20px; padding-right: 20px; }
   .asset-drawer footer { margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px; }
 }
+
+/* Menu contextuel (clic droit) */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #d9e1ec;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+.context-menu__item {
+  padding: 9px 12px;
+  text-align: left;
+  font: inherit;
+  color: #1f2a44;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.context-menu__item:hover:not(:disabled) { background: #eef3fb; }
+.context-menu__item:disabled { color: #9aa6b8; cursor: not-allowed; }
+.context-menu__item--danger { color: #b42318; }
+
+/* Pastille « Rapprochée » */
+.reconciled-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #067647;
+  background: #e7f6ee;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.reconciled-pill::before { content: "✓"; font-weight: 700; }
+
+.reconciliation-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #f6f8fc;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+.reconciliation-history__line { display: grid; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid #e3e8f1; }
+.reconciliation-history__line:last-child { border-bottom: 0; padding-bottom: 0; }
+.reconciliation-history__line--cancelled { color: #6b778c; }

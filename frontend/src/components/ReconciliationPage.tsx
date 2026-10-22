@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent } from "react";
 import type { ReactNode } from "react";
 
 import {
+  cancelReconciliation,
   confirmManualReconciliation,
   confirmReconciliationProposal,
   getReconciliation,
+  getReconciliationHistory,
   rejectReconciliationProposal,
 } from "../api/client";
+import { ContextMenu, type ContextMenuItem, type ContextMenuState } from "./ContextMenu";
 import type {
   ReconciliationAccount,
+  ReconciliationHistoryItem,
   ReconciliationOccurrence,
   ReconciliationSnapshot,
   ReconciliationSuggestion,
@@ -42,6 +47,8 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
   const [includeOverage, setIncludeOverage] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ kind: "success" | "error"; text: string }>();
+  const [menu, setMenu] = useState<ContextMenuState>();
+  const [history, setHistory] = useState<{ title: string; items: ReconciliationHistoryItem[] }>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -93,7 +100,13 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
     setActionFeedback(undefined);
   }
 
-  async function runAction(action: "confirm" | "reject") {
+  async function runAction(
+    action: "confirm" | "reject",
+    pair: { transaction?: ReconciliationTransaction; occurrence?: ReconciliationOccurrence; suggestion?: ReconciliationSuggestion } = {},
+  ) {
+    const selectedTransaction = pair.transaction;
+    const selectedOccurrence = pair.occurrence;
+    const selectedSuggestion = pair.suggestion;
     if (!selectedTransaction || !selectedOccurrence) return;
     setActionBusy(true);
     setActionFeedback(undefined);
@@ -124,6 +137,69 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
     }
   }
 
+  async function cancelLink(occurrenceId: number, transactionId?: number) {
+    setActionBusy(true);
+    setActionFeedback(undefined);
+    try {
+      const result = await cancelReconciliation(token, { occurrenceId, transactionId });
+      setActionFeedback({ kind: result.success ? "success" : "error", text: result.message });
+      setHistory(undefined);
+      setLocalRefreshKey((key) => key + 1);
+    } catch (cause: unknown) {
+      setActionFeedback({
+        kind: "error",
+        text: cause instanceof Error ? cause.message : "L’annulation du rapprochement a échoué.",
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function showHistory(title: string, filter: { transactionId?: number; occurrenceId?: number }) {
+    try {
+      const result = await getReconciliationHistory(token, filter);
+      setHistory({ title, items: result.items });
+    } catch (cause: unknown) {
+      setActionFeedback({
+        kind: "error",
+        text: cause instanceof Error ? cause.message : "L’historique ne peut pas être chargé.",
+      });
+    }
+  }
+
+  function openTransactionMenu(event: MouseEvent, transaction: ReconciliationTransaction) {
+    event.preventDefault();
+    selectTransaction(transaction);
+    const link = transaction.links[0];
+    const proposal = snapshot?.suggestions.find((row) => row.transactionId === transaction.id && row.proposalId);
+    const hasProposal = Boolean(proposal);
+    const proposalOccurrence = snapshot?.occurrences.find((row) => row.id === proposal?.occurrenceId);
+    const pair = { transaction, occurrence: proposalOccurrence, suggestion: proposal };
+    const items: ContextMenuItem[] = transaction.reconciled && link
+      ? [
+          { label: "Annuler le rapprochement", danger: true, onSelect: () => void cancelLink(link.occurrenceId, transaction.id) },
+          { label: "Voir l’historique", onSelect: () => void showHistory(transaction.beneficiary || transaction.label, { transactionId: transaction.id }) },
+        ]
+      : [
+          { label: "Valider le rapprochement", disabled: !hasProposal, hint: hasProposal ? undefined : "Aucune proposition pour cette transaction", onSelect: () => void runAction("confirm", pair) },
+          { label: "Ignorer la proposition", disabled: !hasProposal, hint: hasProposal ? undefined : "Aucune proposition pour cette transaction", onSelect: () => void runAction("reject", pair) },
+          { label: "Voir l’historique", onSelect: () => void showHistory(transaction.beneficiary || transaction.label, { transactionId: transaction.id }) },
+        ];
+    setMenu({ x: event.clientX, y: event.clientY, items });
+  }
+
+  function openOccurrenceMenu(event: MouseEvent, occurrence: ReconciliationOccurrence) {
+    event.preventDefault();
+    selectOccurrence(occurrence);
+    const link = occurrence.links[0];
+    const items: ContextMenuItem[] = [];
+    if (occurrence.reconciled && link) {
+      items.push({ label: "Annuler le rapprochement", danger: true, onSelect: () => void cancelLink(occurrence.id, link.transactionId) });
+    }
+    items.push({ label: "Voir l’historique", onSelect: () => void showHistory(occurrence.label, { occurrenceId: occurrence.id }) });
+    setMenu({ x: event.clientX, y: event.clientY, items });
+  }
+
   if (error) {
     return (
       <section className="error-state">
@@ -142,16 +218,17 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
     <div className="reconciliation-page">
       <section className="reconciliation-kpis" aria-label="Indicateurs de rapprochement">
         <ReconciliationKpi detail="Issues des imports et saisies" label="Transactions non rapprochées" tone="blue" value={snapshot.summary.unmatchedTransactions} />
-        <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} partielles`} label="Prévisions ouvertes" tone="cyan" value={snapshot.summary.openOccurrences} />
+        <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} écarts de montant`} label="Prévisions ouvertes" tone="cyan" value={snapshot.summary.openOccurrences} />
         <ReconciliationKpi detail={`Score moyen ${snapshot.summary.averageScore} %`} label="Propositions auto" tone="purple" value={snapshot.summary.automaticProposals} />
         <ReconciliationKpi detail="Automatiques + manuelles" label="Rapprochées" tone="green" value={snapshot.summary.matched} />
       </section>
 
       <section className="reconciliation-workbench">
-        <QueuePanel count={snapshot.transactions.length} subtitle="Transactions compatibles avec au moins une prévision." title="Transactions à rapprocher">
+        <QueuePanel count={snapshot.transactions.length} subtitle={snapshot.view.transactionsSubtitle} title={snapshot.view.transactionsTitle}>
           {snapshot.transactions.length > 0 ? snapshot.transactions.map((transaction) => (
             <TransactionCard
               key={transaction.id}
+              onContextMenu={(event) => openTransactionMenu(event, transaction)}
               onSelect={() => selectTransaction(transaction)}
               selected={transaction.id === selectedTransactionId}
               transaction={transaction}
@@ -159,11 +236,12 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
           )) : <EmptyQueue text="Aucune transaction à rapprocher pour ce filtre." />}
         </QueuePanel>
 
-        <QueuePanel count={snapshot.occurrences.length} subtitle="Récurrences et opérations ponctuelles ouvertes." title="Prévisions à traiter">
+        <QueuePanel count={snapshot.occurrences.length} subtitle={snapshot.view.occurrencesSubtitle} title={snapshot.view.occurrencesTitle}>
           {snapshot.occurrences.length > 0 ? snapshot.occurrences.map((occurrence) => (
             <OccurrenceCard
               key={occurrence.id}
               occurrence={occurrence}
+              onContextMenu={(event) => openOccurrenceMenu(event, occurrence)}
               onSelect={() => selectOccurrence(occurrence)}
               selected={occurrence.id === selectedOccurrence?.id}
             />
@@ -176,19 +254,37 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
           includeOverage={includeOverage}
           manualMode={manualMode}
           onIncludeOverageChange={setIncludeOverage}
-          onReject={() => runAction("reject")}
+          onReject={() => runAction("reject", { transaction: selectedTransaction, occurrence: selectedOccurrence, suggestion: selectedSuggestion })}
           onToggleManual={() => {
             setManualMode((current) => !current);
             setIncludeOverage(false);
             setActionFeedback(undefined);
           }}
-          onValidate={() => runAction("confirm")}
+          onValidate={() => runAction("confirm", { transaction: selectedTransaction, occurrence: selectedOccurrence, suggestion: selectedSuggestion })}
           occurrence={selectedOccurrence}
           rules={snapshot.rules}
           suggestion={selectedSuggestion}
           transaction={selectedTransaction}
         />
       </section>
+
+      {history && (
+        <section className="card reconciliation-history" aria-label="Historique des rapprochements">
+          <div className="reconciliation-heading">
+            <div><h2>Historique · {history.title}</h2><p>Les liens annulés restent consultables pour la traçabilité.</p></div>
+            <button className="secondary-button" onClick={() => setHistory(undefined)} type="button">Fermer</button>
+          </div>
+          {history.items.length === 0 && <EmptyQueue text="Aucun rapprochement enregistré." />}
+          {history.items.map((item) => (
+            <div className={item.active ? "reconciliation-history__line" : "reconciliation-history__line reconciliation-history__line--cancelled"} key={item.linkId}>
+              <strong>{item.transactionLabel} ↔ {item.recurrenceName || item.occurrenceLabel}</strong>
+              <span>{formatDate(item.transactionDate)} · {signedMoney(item.transactionAmount)} affecté {money.format(Math.abs(item.appliedAmount))} · {item.matchType === "manual" || item.matchType === "manual_overage" ? "manuel" : "automatique"}</span>
+              <small>{item.active ? "Rapprochement actif" : `Annulé le ${item.cancelledAt ?? ""}`} · créé le {item.createdAt}</small>
+            </div>
+          ))}
+        </section>
+      )}
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
     </div>
   );
 }
@@ -215,26 +311,26 @@ function QueuePanel({ children, count, subtitle, title }: { children: ReactNode;
   );
 }
 
-function TransactionCard({ onSelect, selected, transaction }: { onSelect: () => void; selected: boolean; transaction: ReconciliationTransaction }) {
+function TransactionCard({ onContextMenu, onSelect, selected, transaction }: { onContextMenu: (event: MouseEvent) => void; onSelect: () => void; selected: boolean; transaction: ReconciliationTransaction }) {
   const displayName = transaction.beneficiary || transaction.label;
   const hasDistinctBankLabel = Boolean(transaction.beneficiary)
     && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
   return (
-    <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} type="button">
+    <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} onContextMenu={onContextMenu} type="button">
       <div className="reconciliation-item__top"><strong>{displayName}</strong><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b></div>
       {hasDistinctBankLabel && <small className="reconciliation-item__bank-label" title={transaction.label}>{transaction.label}</small>}
       <div className="reconciliation-item__meta"><span>{formatDate(transaction.date)}</span><span>{transaction.accountName}</span></div>
-      <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span><small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small></div>
+      <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span>{transaction.reconciled ? <span className="reconciled-pill" title={`Rapprochée avec « ${transaction.links[0]?.label ?? ""} »`}>Rapprochée</span> : <small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small>}</div>
     </button>
   );
 }
 
-function OccurrenceCard({ occurrence, onSelect, selected }: { occurrence: ReconciliationOccurrence; onSelect: () => void; selected: boolean }) {
+function OccurrenceCard({ occurrence, onContextMenu, onSelect, selected }: { occurrence: ReconciliationOccurrence; onContextMenu: (event: MouseEvent) => void; onSelect: () => void; selected: boolean }) {
   return (
-    <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} type="button">
+    <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} onContextMenu={onContextMenu} type="button">
       <div className="reconciliation-item__top"><strong>{occurrence.label}</strong><b className={occurrence.amount >= 0 ? "positive" : "negative"}>{signedMoney(occurrence.amount)}</b></div>
       <div className="reconciliation-item__meta"><span>{formatDate(occurrence.date)}</span><span>{occurrence.accountName}</span></div>
-      <div className="reconciliation-item__footer"><span className={`reconciliation-status reconciliation-status--${statusTone(occurrence.status)}`}>{occurrence.statusLabel}</span><small>{money.format(occurrence.remainingAmount)} restants</small></div>
+      <div className="reconciliation-item__footer"><span className={`reconciliation-status reconciliation-status--${statusTone(occurrence.displayStatus)}`}>{occurrence.statusLabel}</span><small>{money.format(occurrence.remainingAmount)} restants</small></div>
     </button>
   );
 }
@@ -356,8 +452,8 @@ function decisionLabel(decision: ReconciliationSuggestion["decision"], rules: Re
 
 function statusTone(status: string): string {
   if (status === "overdue") return "danger";
-  if (status === "to_review" || status === "partially_matched") return "warning";
-  if (status === "auto_matched" || status === "confirmed") return "success";
+  if (status === "to_review" || status === "amount_gap") return "warning";
+  if (status === "matched") return "success";
   return "muted";
 }
 

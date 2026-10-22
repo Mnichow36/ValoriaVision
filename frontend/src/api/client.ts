@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -501,6 +501,27 @@ export function rejectReconciliationProposal(token: string, proposalId: number):
     method: "POST",
     token,
   });
+}
+
+export function cancelReconciliation(
+  token: string,
+  payload: { occurrenceId: number; transactionId?: number },
+): Promise<ReconciliationActionResult> {
+  return request<ReconciliationActionResult>("/api/v1/reconciliation/links/cancel", {
+    method: "POST",
+    token,
+    body: { occurrence_id: payload.occurrenceId, transaction_id: payload.transactionId ?? null },
+  });
+}
+
+export function getReconciliationHistory(
+  token: string,
+  filter: { transactionId?: number; occurrenceId?: number },
+): Promise<ReconciliationHistory> {
+  const params = new URLSearchParams();
+  if (filter.transactionId !== undefined) params.set("transaction_id", String(filter.transactionId));
+  if (filter.occurrenceId !== undefined) params.set("occurrence_id", String(filter.occurrenceId));
+  return request<ReconciliationHistory>(`/api/v1/reconciliation/history?${params.toString()}`, { token });
 }
 
 export function confirmManualReconciliation(

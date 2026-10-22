@@ -30,6 +30,21 @@ def _integer(value: Any) -> int:
         return 0
 
 
+def reconciliation_badge(links: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Pastille « Rapprochée » : indique le lien actif avec la prévision/récurrence."""
+
+    links = links or []
+    if not links:
+        return {"reconciled": False, "label": "", "matchType": "", "occurrenceId": None}
+    first = links[0]
+    return {
+        "reconciled": True,
+        "label": first.get("recurrence_name") or first.get("occurrence_label") or "",
+        "matchType": first.get("match_type") or "",
+        "occurrenceId": first.get("occurrence_id"),
+    }
+
+
 def _is_uncategorized(row: Any) -> bool:
     category = str(_field(row, "category", "") or "").strip().lower()
     status = str(_field(row, "status", "") or "").strip().lower()
@@ -56,7 +71,12 @@ class TransactionsReadService:
 
     def snapshot(self) -> dict[str, Any]:
         raw_transactions = list(self.database.list_transactions())
-        transactions = [self._transaction(row) for row in raw_transactions]
+        links_provider = getattr(self.database, "active_reconciliation_by_transaction", None)
+        links = dict(links_provider()) if callable(links_provider) else {}
+        transactions = [
+            self._transaction(row, links.get(_integer(_field(row, "id", 0)), []))
+            for row in raw_transactions
+        ]
         accounts = [self._account(row) for row in self.database.list_accounts()]
         categories = [self._category(row) for row in self.database.list_categories()]
         recent_imports = list(self.database.list_recent_import_batches(1))
@@ -224,7 +244,7 @@ class TransactionsReadService:
         }
 
     @staticmethod
-    def _transaction(row: Any) -> dict[str, Any]:
+    def _transaction(row: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         label = str(_field(row, "label", "Mouvement") or "Mouvement")
         beneficiary = str(_field(row, "beneficiary", "") or "").strip()
         if not beneficiary:
@@ -244,6 +264,7 @@ class TransactionsReadService:
             "type": str(_field(row, "tx_type", "") or ""),
             "source": str(_field(row, "source", "") or ""),
             "importBatchId": _integer(_field(row, "import_batch_id", 0)) or None,
+            "reconciliation": reconciliation_badge(links),
         }
 
     @staticmethod

@@ -1593,6 +1593,75 @@ class Database:
                     transactions_by_account[int(row["account_id"])].append(row)
         return summarize_accounts_at_date(accounts, transactions_by_account, target_date)
 
+    _LINK_SELECT = """
+        SELECT l.id AS link_id, l.transaction_id, l.occurrence_id, l.applied_amount,
+               l.match_type, l.confidence, l.reason, l.created_at, l.deleted_at,
+               o.expected_label, o.expected_date, o.expected_amount,
+               o.source_type, o.source_id, r.name AS recurrence_name,
+               t.tx_date, t.label AS tx_label, t.amount AS tx_amount
+        FROM forecast_reconciliation_links l
+        JOIN forecast_occurrences o ON o.id = l.occurrence_id
+        JOIN transactions t ON t.id = l.transaction_id
+        LEFT JOIN recurring_items r ON o.source_type = 'recurring' AND r.id = o.source_id
+    """
+
+    @staticmethod
+    def _link_dict(row) -> dict:
+        return {
+            "link_id": int(row["link_id"]),
+            "transaction_id": int(row["transaction_id"]),
+            "occurrence_id": int(row["occurrence_id"]),
+            "applied_amount": float(row["applied_amount"] or 0),
+            "match_type": str(row["match_type"] or ""),
+            "confidence": row["confidence"],
+            "reason": str(row["reason"] or ""),
+            "created_at": str(row["created_at"] or ""),
+            "cancelled_at": str(row["deleted_at"] or ""),
+            "active": row["deleted_at"] is None,
+            "occurrence_label": str(row["expected_label"] or ""),
+            "occurrence_date": str(row["expected_date"] or ""),
+            "occurrence_amount": float(row["expected_amount"] or 0),
+            "source_type": str(row["source_type"] or ""),
+            "source_id": row["source_id"],
+            "recurrence_name": str(row["recurrence_name"] or ""),
+            "transaction_date": str(row["tx_date"] or ""),
+            "transaction_label": str(row["tx_label"] or ""),
+            "transaction_amount": float(row["tx_amount"] or 0),
+        }
+
+    def reconciliation_links(
+        self,
+        *,
+        include_cancelled: bool = False,
+        transaction_id: int | None = None,
+        occurrence_id: int | None = None,
+    ) -> list[dict]:
+        """Links between realized transactions and forecast occurrences.
+
+        A cancelled link is never erased: it keeps its dates, so that the
+        history between a transaction and a recurrence/forecast stays readable.
+        """
+        conditions = []
+        params: list = []
+        if not include_cancelled:
+            conditions.append("l.deleted_at IS NULL")
+        if transaction_id is not None:
+            conditions.append("l.transaction_id = ?")
+            params.append(int(transaction_id))
+        if occurrence_id is not None:
+            conditions.append("l.occurrence_id = ?")
+            params.append(int(occurrence_id))
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        with self.connect() as conn:
+            rows = list(conn.execute(self._LINK_SELECT + where + " ORDER BY l.id DESC", params))
+        return [self._link_dict(row) for row in rows]
+
+    def active_reconciliation_by_transaction(self) -> dict[int, list[dict]]:
+        grouped: dict[int, list[dict]] = {}
+        for link in reversed(self.reconciliation_links()):
+            grouped.setdefault(link["transaction_id"], []).append(link)
+        return grouped
+
     def budget_months(self) -> list[str]:
         with self.connect() as conn:
             rows = list(conn.execute(

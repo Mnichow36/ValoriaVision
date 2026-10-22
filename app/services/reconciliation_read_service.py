@@ -4,16 +4,40 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 
+# Cycle de statuts validé le 22/10/2026 : Prévue, En retard, Rapprochée,
+# Écart de montant, Ignorée. « Confirmé » n'existe plus côté utilisateur.
 STATUS_LABELS = {
     "planned": "Prévue",
     "to_review": "À vérifier",
-    "partially_matched": "Partiellement rapprochée",
-    "auto_matched": "Rapprochée automatiquement",
-    "confirmed": "Rapprochée manuellement",
+    "partially_matched": "Écart de montant",
+    "auto_matched": "Rapprochée",
+    "confirmed": "Rapprochée",
     "overdue": "En retard",
     "ignored": "Ignorée",
     "cancelled": "Annulée",
 }
+DISPLAY_LABELS = {
+    "planned": "Prévue",
+    "overdue": "En retard",
+    "to_review": "À vérifier",
+    "matched": "Rapprochée",
+    "amount_gap": "Écart de montant",
+    "ignored": "Ignorée",
+    "cancelled": "Annulée",
+}
+ACTIVE_STATUSES = {"planned", "overdue", "to_review", "partially_matched"}
+FINAL_STATUSES = {"auto_matched", "confirmed", "ignored", "cancelled"}
+ACTIVE_FILTERS = {None, "", "active", "all_active"}
+
+
+def display_status(status: str, remaining: float = 0.0, overage: float = 0.0) -> str:
+    """Statut affiché à l'utilisateur, dérivé du statut du moteur et des montants."""
+
+    if status in {"auto_matched", "confirmed"}:
+        return "amount_gap" if remaining > 0.005 or overage > 0.005 else "matched"
+    if status == "partially_matched":
+        return "amount_gap"
+    return status
 
 
 def _field(row: Any, key: str, default: Any = None) -> Any:
@@ -59,31 +83,79 @@ class ReconciliationReadService:
 
     def snapshot(self, account_id: int | None = None, status: str = "active") -> dict[str, Any]:
         engine = self.engine_factory(self.database)
-        dataset = engine.build_reconciliation_dataset(
-            account_id=account_id,
-            status=status or "active",
-            limit=150,
-        )
-        transactions = list(dataset.get("transactions") or [])
-        occurrences = list(dataset.get("occurrences") or [])
-        proposals = list(dataset.get("proposals") or [])
-        mapped_transactions = [self._transaction(row) for row in transactions]
-        mapped_occurrences = [self._occurrence(row, engine) for row in occurrences]
-        mapped_suggestions = self._suggestions(engine, transactions, proposals)
-        summary = dataset.get("summary") or {}
+        requested = status or "active"
+        links_by_transaction = self._active_links_by_transaction()
+        links_by_occurrence: dict[int, list[dict[str, Any]]] = {}
+        for links in links_by_transaction.values():
+            for link in links:
+                links_by_occurrence.setdefault(link["occurrence_id"], []).append(link)
+
+        # Les compteurs et les propositions viennent TOUJOURS de la vue « à traiter »,
+        # quel que soit le filtre choisi : un filtre ne change jamais un compteur (CDC P2).
+        active_dataset = engine.build_reconciliation_dataset(account_id=account_id, status="active", limit=None)
+        summary = active_dataset.get("summary") or {}
+        proposals = list(active_dataset.get("proposals") or [])
+        active_transactions = list(active_dataset.get("transactions") or [])
+
+        if requested in ACTIVE_FILTERS:
+            transactions = active_transactions
+            occurrences = list(active_dataset.get("occurrences") or [])
+        elif requested == "to_review":
+            review = engine.build_reconciliation_dataset(account_id=account_id, status="to_review", limit=None)
+            transactions = list(review.get("transactions") or [])
+            occurrences = list(review.get("occurrences") or [])
+        else:
+            everything = engine.build_reconciliation_dataset(account_id=account_id, status="all", limit=None)
+            occurrences = [
+                row for row in everything.get("occurrences") or []
+                if self._occurrence_in_filter(row, requested)
+            ]
+            transactions = self._transactions_in_filter(
+                list(everything.get("transactions") or []),
+                occurrences,
+                links_by_transaction,
+                requested,
+            )
+
+        shown_transactions = transactions[:150]
+        shown_occurrences = occurrences[:150]
+        mapped_transactions = [
+            self._transaction(row, links_by_transaction.get(int(_field(row, "id", 0) or 0), []))
+            for row in shown_transactions
+        ]
+        mapped_occurrences = [
+            self._occurrence(row, engine, links_by_occurrence.get(int(_field(row, "id", 0) or 0), []))
+            for row in shown_occurrences
+        ]
+        mapped_suggestions = self._suggestions(engine, active_transactions[:150], proposals)
         average_score = (
             round(sum(item["score"] for item in mapped_suggestions) / len(mapped_suggestions))
             if mapped_suggestions
             else 0
         )
         rules = engine.rules_config()
+        is_active_view = requested in ACTIVE_FILTERS or requested == "to_review"
 
         return {
             "generatedAt": self.now_provider().isoformat(),
             "currency": "EUR",
             "filters": {
                 "accountId": account_id,
-                "status": status or "active",
+                "status": requested,
+            },
+            "view": {
+                "transactionsTitle": "Transactions à rapprocher" if is_active_view else "Transactions rapprochées",
+                "transactionsSubtitle": (
+                    "Transactions compatibles avec au moins une prévision."
+                    if is_active_view
+                    else "Transactions liées à une prévision ou à une récurrence."
+                ),
+                "occurrencesTitle": "Prévisions à traiter" if is_active_view else "Prévisions du filtre choisi",
+                "occurrencesSubtitle": (
+                    "Récurrences et opérations ponctuelles ouvertes."
+                    if is_active_view
+                    else "Statut affiché = statut filtré ; les liens annulés restent dans l’historique."
+                ),
             },
             "accounts": [
                 {
@@ -97,7 +169,9 @@ class ReconciliationReadService:
             "statusOptions": [
                 {"id": "active", "label": "À traiter"},
                 {"id": "to_review", "label": "À vérifier"},
-                {"id": "partially_matched", "label": "Partielles"},
+                {"id": "matched", "label": "Rapprochées"},
+                {"id": "amount_gap", "label": "Écart de montant"},
+                {"id": "ignored", "label": "Ignorées / annulées"},
                 {"id": "finalized", "label": "Finalisées"},
                 {"id": "all", "label": "Tous les statuts"},
             ],
@@ -107,7 +181,7 @@ class ReconciliationReadService:
                 "dateToleranceDays": int(rules.get("date_tolerance_days") or 5),
             },
             "summary": {
-                "unmatchedTransactions": len(mapped_transactions),
+                "unmatchedTransactions": len(active_transactions),
                 "openOccurrences": int(summary.get("active") or 0),
                 "automaticProposals": len(mapped_suggestions),
                 "averageScore": average_score,
@@ -118,6 +192,101 @@ class ReconciliationReadService:
             "transactions": mapped_transactions,
             "occurrences": mapped_occurrences,
             "suggestions": mapped_suggestions,
+        }
+
+    @staticmethod
+    def _occurrence_in_filter(row: Any, requested: str) -> bool:
+        raw = str(_field(row, "status", "planned") or "planned")
+        shown = display_status(
+            raw,
+            _number(_field(row, "remaining_amount", 0)),
+            _number(_field(row, "overage_amount", 0)),
+        )
+        if requested == "all":
+            return True
+        if requested == "finalized":
+            return raw in FINAL_STATUSES
+        if requested == "matched":
+            return shown == "matched"
+        if requested in {"amount_gap", "partially_matched"}:
+            return shown == "amount_gap"
+        if requested == "ignored":
+            return raw in {"ignored", "cancelled"}
+        return raw == requested
+
+    @staticmethod
+    def _transactions_in_filter(
+        transactions: list[Any],
+        occurrences: list[Any],
+        links_by_transaction: dict[int, list[dict[str, Any]]],
+        requested: str,
+    ) -> list[Any]:
+        if requested == "all":
+            return transactions
+        if requested == "ignored":
+            return []
+        allowed = {int(_field(row, "id", 0) or 0) for row in occurrences}
+        return [
+            row for row in transactions
+            if any(
+                link["occurrence_id"] in allowed
+                for link in links_by_transaction.get(int(_field(row, "id", 0) or 0), [])
+            )
+        ]
+
+    def _active_links_by_transaction(self) -> dict[int, list[dict[str, Any]]]:
+        provider = getattr(self.database, "active_reconciliation_by_transaction", None)
+        return dict(provider()) if callable(provider) else {}
+
+    def cancel_reconciliation(self, occurrence_id: int, transaction_id: int | None = None) -> dict[str, Any]:
+        """Annule un rapprochement sans jamais effacer la trace du lien."""
+
+        engine = self.engine_factory(self.database)
+        if transaction_id is not None:
+            result = engine.cancel_reconciliation_link(int(occurrence_id), int(transaction_id))
+        else:
+            result = engine.cancel_match(int(occurrence_id))
+        return self._action_result(result)
+
+    def history(self, transaction_id: int | None = None, occurrence_id: int | None = None) -> dict[str, Any]:
+        """Historique des liens (actifs et annulés) d'une transaction ou d'une prévision."""
+
+        provider = getattr(self.database, "reconciliation_links", None)
+        links = (
+            provider(include_cancelled=True, transaction_id=transaction_id, occurrence_id=occurrence_id)
+            if callable(provider)
+            else []
+        )
+        return {"items": [self._history_item(link) for link in links]}
+
+    @staticmethod
+    def _link_summary(link: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "linkId": link["link_id"],
+            "transactionId": link["transaction_id"],
+            "occurrenceId": link["occurrence_id"],
+            "label": link["recurrence_name"] or link["occurrence_label"],
+            "sourceType": link["source_type"],
+            "appliedAmount": _number(link["applied_amount"]),
+            "matchType": link["match_type"],
+        }
+
+    @classmethod
+    def _history_item(cls, link: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **cls._link_summary(link),
+            "occurrenceLabel": link["occurrence_label"],
+            "occurrenceDate": link["occurrence_date"],
+            "occurrenceAmount": _number(link["occurrence_amount"]),
+            "recurrenceName": link["recurrence_name"],
+            "transactionLabel": link["transaction_label"],
+            "transactionDate": link["transaction_date"],
+            "transactionAmount": _number(link["transaction_amount"]),
+            "confidence": _integer(link["confidence"]),
+            "reason": link["reason"],
+            "createdAt": link["created_at"],
+            "cancelledAt": link["cancelled_at"],
+            "active": bool(link["active"]),
         }
 
     def reschedulable_occurrences(self, account_id: int | None = None) -> dict[str, Any]:
@@ -208,8 +377,9 @@ class ReconciliationReadService:
         changed, message = result
         return {"success": bool(changed), "message": str(message or "")}
 
-    @staticmethod
-    def _transaction(row: Any) -> dict[str, Any]:
+    @classmethod
+    def _transaction(cls, row: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        links = links or []
         amount = _number(_field(row, "amount", 0))
         allocated = _number(_field(row, "allocated_amount", 0))
         linked_status = str(_field(row, "linked_status", "") or "")
@@ -228,13 +398,17 @@ class ReconciliationReadService:
             "linkedStatusLabel": STATUS_LABELS.get(linked_status, linked_status) if linked_status else None,
             "linkedOccurrenceId": _integer(_field(row, "linked_occurrence_id")),
             "proposalOccurrenceId": _integer(_field(row, "proposal_occurrence_id")),
+            "reconciled": bool(links),
+            "links": [cls._link_summary(link) for link in links],
         }
 
-    @staticmethod
-    def _occurrence(row: Any, engine: Any) -> dict[str, Any]:
+    @classmethod
+    def _occurrence(cls, row: Any, engine: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        links = links or []
         status = str(_field(row, "status", "planned") or "planned")
         expected_amount = _number(_field(row, "expected_amount", 0))
         remaining = _field(row, "remaining_amount")
+        shown = display_status(status, _number(remaining or 0), _number(_field(row, "overage_amount", 0)))
         return {
             "id": int(_field(row, "id", 0) or 0),
             "date": str(_field(row, "expected_date", "") or ""),
@@ -246,7 +420,11 @@ class ReconciliationReadService:
             "accountName": str(_field(row, "account_name", "Tous les comptes") or "Tous les comptes"),
             "bank": str(_field(row, "bank", "") or ""),
             "status": status,
-            "statusLabel": str(engine.status_label(status) or STATUS_LABELS.get(status, status)),
+            "displayStatus": shown,
+            "statusLabel": DISPLAY_LABELS.get(shown, STATUS_LABELS.get(status, status)),
+            "matchMode": str(_field(row, "match_type", "") or ""),
+            "reconciled": bool(links),
+            "links": [cls._link_summary(link) for link in links],
             "matchedAmount": _number(_field(row, "matched_amount", 0)),
             "remainingAmount": _number(abs(expected_amount) if remaining is None else remaining),
             "overageAmount": _number(_field(row, "overage_amount", 0)),

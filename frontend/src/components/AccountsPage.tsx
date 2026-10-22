@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { ReconciledPill } from "./ReconciledPill";
 import { createAccount, deleteAccount, getAccounts, updateAccount, updateAccountReference, updateAccountStatus } from "../api/client";
 import type { AccountActionResult, AccountOverview, AccountPayload, AccountsSnapshot } from "../api/contracts";
 
@@ -265,7 +266,7 @@ function TransactionsTable({ account }: { account: AccountOverview }) {
           {account.transactions.map((transaction) => (
             <tr key={transaction.id}>
               <td>{formatDate(transaction.date, false)}</td>
-              <td><strong>{transaction.label}</strong><small>{transaction.status || "Enregistrée"}</small></td>
+              <td><strong>{transaction.label}</strong><small>{transaction.status || "Enregistrée"}</small> <ReconciledPill badge={transaction.reconciliation} /></td>
               <td><span className={`category-chip ${transaction.category === "À catégoriser" ? "category-chip--warning" : ""}`}>{transaction.category}</span></td>
               <td className={transaction.amount < 0 ? "amount amount--negative" : "amount amount--positive"}>{signedMoney(transaction.amount)}</td>
             </tr>
