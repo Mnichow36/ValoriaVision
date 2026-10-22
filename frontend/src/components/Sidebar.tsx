@@ -5,7 +5,6 @@ const entries = [
   ["forecast", "Prévisionnel"],
   ["budgets", "Budgets"],
   ["assets", "Patrimoine"],
-  ["reconciliation", "Rapprochements"],
   ["settings", "Paramètres"],
 ] as const;
 
@@ -78,8 +77,6 @@ function MenuIcon({ id }: { id: NavigationId }) {
       return <svg {...common}><circle cx="12" cy="12" fill="none" r="7" stroke="currentColor" strokeWidth="2.2" /><path d="M12 5a7 7 0 0 1 7 7h-7V5Z" fill="currentColor" /><path d="m12 12-4 6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>;
     case "assets":
       return <svg {...common} fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8"><path d="M12 3 21 12 12 21 3 12Z" /><path d="M7.5 12h9M12 7.5v9" strokeWidth="2" /></svg>;
-    case "reconciliation":
-      return <svg {...common} fill="none" stroke="currentColor" strokeWidth="2.4"><circle cx="9" cy="10" r="4" /><circle cx="15" cy="14" r="4" /><path d="M11.5 12h1" /></svg>;
     case "settings":
       return <svg {...common} fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5" /></svg>;
   }

@@ -1,13 +1,14 @@
 import { type FormEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { bulkUpdateTransactions, cancelReconciliation, createTransaction, createTransactionCategorizationRule, getTransactions, updateTransaction } from "../api/client";
-import type { TransactionActionResult, TransactionCreatePayload, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
+import type { ReconciliationAccount, TransactionActionResult, TransactionCreatePayload, TransactionEditPayload, TransactionRow, TransactionsSnapshot } from "../api/contracts";
 import { BankImportPage } from "./BankImportPage";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { SideDrawer } from "./SideDrawer";
 import { ReconciledPill } from "./ReconciledPill";
 import { RecurrenceOccurrencesTab } from "./RecurrenceOccurrencesTab";
 import { RecurrenceRulesTab } from "./RecurrenceRulesTab";
+import { ReconciliationPage } from "./ReconciliationPage";
 
 interface TransactionsPageProps {
   createRequestKey: number;
@@ -16,12 +17,14 @@ interface TransactionsPageProps {
   onNavigateSettings: () => void;
   onViewChange: (view: TransactionsView) => void;
   preferredImportAccountId?: number;
+  reconciliationBadge?: number;
+  reconciliationRefreshKey?: number;
   ruleCreateRequestKey: number;
   token: string;
   view: TransactionsView;
 }
 
-export type TransactionsView = "journal" | "recurrences" | "rules" | "import" | "history";
+export type TransactionsView = "journal" | "reconciliation" | "recurrences" | "rules" | "import" | "history";
 
 const currencyFormatter = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -36,7 +39,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, ruleCreateRequestKey, token, view }: TransactionsPageProps) {
+export function TransactionsPage({ createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, reconciliationBadge = 0, reconciliationRefreshKey = 0, ruleCreateRequestKey, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -52,6 +55,11 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   const [creating, setCreating] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>();
   const [deleting, setDeleting] = useState<TransactionRow[]>();
+  const [reconAccountId, setReconAccountId] = useState("all");
+  const [reconAccounts, setReconAccounts] = useState<ReconciliationAccount[]>([]);
+  const [reconStatus, setReconStatus] = useState("active");
+  const [reconRulesKey, setReconRulesKey] = useState(0);
+  const [reconRefresh, setReconRefresh] = useState(0);
 
   useEffect(() => {
     if (createRequestKey > 0) setCreating(true);
@@ -237,10 +245,45 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
     );
   }
 
+  if (view === "reconciliation") {
+    return (
+      <>
+        <div className="reconciliation-toolbar">
+          <TransactionsTabs badge={reconciliationBadge} onViewChange={onViewChange} view={view} />
+          <div className="header-actions reconciliation-toolbar__filters">
+            <select aria-label="Compte des rapprochements" onChange={(event) => setReconAccountId(event.target.value)} value={reconAccountId}>
+              <option value="all">Tous les comptes</option>
+              {reconAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
+            </select>
+            <select aria-label="Statut des rapprochements" onChange={(event) => setReconStatus(event.target.value)} value={reconStatus}>
+              <option value="active">À traiter</option>
+              <option value="to_review">À vérifier</option>
+              <option value="matched">Rapprochées</option>
+              <option value="amount_gap">Écart de montant</option>
+              <option value="ignored">Ignorées / annulées</option>
+              <option value="finalized">Finalisées</option>
+              <option value="all">Tous les statuts</option>
+            </select>
+            <button className="secondary-button" onClick={() => setReconRulesKey((key) => key + 1)} type="button">Écarts</button>
+            <button onClick={() => setReconRefresh((key) => key + 1)} type="button">Actualiser</button>
+          </div>
+        </div>
+        <ReconciliationPage
+          accountId={reconAccountId}
+          onAccountsChange={setReconAccounts}
+          refreshKey={reconciliationRefreshKey + reconRefresh}
+          rulesRequestKey={reconRulesKey}
+          status={reconStatus}
+          token={token}
+        />
+      </>
+    );
+  }
+
   if (view === "recurrences" || view === "rules") {
     return (
       <>
-        <TransactionsTabs onViewChange={onViewChange} view={view} />
+        <TransactionsTabs badge={reconciliationBadge} onViewChange={onViewChange} view={view} />
         {view === "recurrences"
           ? <RecurrenceOccurrencesTab onDataChanged={onDataChanged} token={token} />
           : <RecurrenceRulesTab createRequestKey={ruleCreateRequestKey} onDataChanged={onDataChanged} token={token} />}
@@ -251,7 +294,7 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   return (
     <div className="transactions-page">
       <div className="transactions-topbar">
-        <TransactionsTabs onViewChange={onViewChange} view={view} />
+        <TransactionsTabs badge={reconciliationBadge} onViewChange={onViewChange} view={view} />
         <section className="transaction-insights" aria-label="Indicateurs du journal">
         <InsightCard
           badge={`${snapshot.recentImport ? snapshot.recentImport.duplicateCount + snapshot.recentImport.errorCount : 0} rejet`}
@@ -401,15 +444,16 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
 
 const TRANSACTION_TABS: { view: TransactionsView; label: string }[] = [
   { view: "journal", label: "Opérations" },
+  { view: "reconciliation", label: "Rapprochements" },
   { view: "recurrences", label: "Récurrences" },
   { view: "rules", label: "Règles de récurrence" },
 ];
 
-function TransactionsTabs({ onViewChange, view }: { onViewChange: (view: TransactionsView) => void; view: TransactionsView }) {
+function TransactionsTabs({ badge = 0, onViewChange, view }: { badge?: number; onViewChange: (view: TransactionsView) => void; view: TransactionsView }) {
   return (
     <nav aria-label="Sections des transactions" className="transactions-tabs" role="tablist">
       {TRANSACTION_TABS.map((tab) => (
-        <button aria-selected={view === tab.view} className={view === tab.view ? "transactions-tab transactions-tab--active" : "transactions-tab"} key={tab.view} onClick={() => onViewChange(tab.view)} role="tab" type="button">{tab.label}</button>
+        <button aria-selected={view === tab.view} className={view === tab.view ? "transactions-tab transactions-tab--active" : "transactions-tab"} key={tab.view} onClick={() => onViewChange(tab.view)} role="tab" type="button">{tab.label}{tab.view === "reconciliation" && badge > 0 && <span aria-label={`${badge} à traiter`} className="transactions-tab__badge">{badge}</span>}</button>
       ))}
     </nav>
   );

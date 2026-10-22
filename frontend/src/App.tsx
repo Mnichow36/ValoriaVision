@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
-import type { ReconciliationAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
 import { AssetsPage } from "./components/AssetsPage";
 import { AuthScreen } from "./components/AuthScreen";
@@ -11,7 +10,6 @@ import { BudgetsPage } from "./components/BudgetsPage";
 import { Sidebar } from "./components/Sidebar";
 import type { NavigationId } from "./components/Sidebar";
 import { ForecastPage } from "./components/ForecastPage";
-import { ReconciliationPage } from "./components/ReconciliationPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 import type { TransactionsView } from "./components/TransactionsPage";
@@ -60,10 +58,6 @@ const modules: Record<NavigationId, ModuleDefinition> = {
     title: "Patrimoine",
     description: "Lire le patrimoine net, les familles d’actifs et leur évolution.",
   },
-  reconciliation: {
-    title: "Rapprochements",
-    description: "Associer les transactions réelles aux prévisions attendues.",
-  },
   settings: {
     title: "Paramètres",
     description: "Centraliser les règles, catégories, sauvegardes et préférences.",
@@ -83,11 +77,7 @@ export function App() {
   const [dashboardMonth, setDashboardMonth] = useState("");
   const [budgetMonth, setBudgetMonth] = useState("");
   const [budgetMonths, setBudgetMonths] = useState<string[]>([]);
-  const [reconciliationAccountId, setReconciliationAccountId] = useState("all");
-  const [reconciliationAccounts, setReconciliationAccounts] = useState<ReconciliationAccount[]>([]);
-  const [reconciliationStatus, setReconciliationStatus] = useState("active");
   const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
-  const [reconciliationRulesRequestKey, setReconciliationRulesRequestKey] = useState(0);
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
   const [recurrenceRuleRequestKey, setRecurrenceRuleRequestKey] = useState(0);
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
@@ -127,6 +117,17 @@ export function App() {
     const token = state.token;
     setState({ status: "locked", configured: true, busy: false });
     await closeSession(token).catch(() => undefined);
+  }
+
+  // « reconciliation » n'est plus un module : c'est un onglet de Transactions.
+  function navigate(destination: NavigationId | "reconciliation") {
+    if (destination === "reconciliation") {
+      setTransactionsView("reconciliation");
+      setActiveModule("transactions");
+      return;
+    }
+    if (destination === "transactions" && ["import", "history"].includes(transactionsView)) setTransactionsView("journal");
+    setActiveModule(destination);
   }
 
   function openBankImport(accountId?: number) {
@@ -171,7 +172,9 @@ export function App() {
   }
 
   const module = activeModule === "transactions"
-    ? transactionsView === "recurrences" || transactionsView === "rules"
+    ? transactionsView === "reconciliation"
+      ? { title: "Transactions", description: "Associer les transactions réelles aux prévisions attendues." }
+      : transactionsView === "recurrences" || transactionsView === "rules"
       ? modules.transactions
       : transactionsView !== "journal"
         ? {
@@ -185,7 +188,7 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar active={activeModule} onLock={lock} onNavigate={setActiveModule} />
+      <Sidebar active={activeModule} onLock={lock} onNavigate={navigate} />
       <main className="workspace">
         <header className="module-header">
           <div>
@@ -215,19 +218,12 @@ export function App() {
             onOpenTransactionImport={() => openBankImport()}
             onCreateTransaction={() => setTransactionCreateRequestKey((key) => key + 1)}
             onCreateRecurrenceRule={() => setRecurrenceRuleRequestKey((key) => key + 1)}
-            onReconciliationAccountChange={setReconciliationAccountId}
-            onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
-            onReconciliationRules={() => setReconciliationRulesRequestKey((key) => key + 1)}
-            onReconciliationStatusChange={setReconciliationStatus}
-            reconciliationAccountId={reconciliationAccountId}
-            reconciliationAccounts={reconciliationAccounts}
-            reconciliationStatus={reconciliationStatus}
             transactionView={transactionsView}
             onTransactionViewChange={setTransactionsView}
           />
         </header>
         <div className="workspace-content">
-          {activeModule === "dashboard" && <Dashboard onImport={() => openBankImport()} onNavigate={setActiveModule} snapshot={state.snapshot} />}
+          {activeModule === "dashboard" && <Dashboard onImport={() => openBankImport()} onNavigate={navigate} snapshot={state.snapshot} />}
           {activeModule === "accounts" && (
             <AccountsPage
               editorRequestKey={accountEditorRequestKey}
@@ -247,6 +243,8 @@ export function App() {
               }}
               onNavigateSettings={() => setActiveModule("settings")}
               onViewChange={setTransactionsView}
+              reconciliationBadge={state.snapshot.quality?.reconciliationPending ?? 0}
+              reconciliationRefreshKey={reconciliationRefreshKey}
               preferredImportAccountId={preferredImportAccountId}
               ruleCreateRequestKey={recurrenceRuleRequestKey}
               token={state.token}
@@ -274,18 +272,8 @@ export function App() {
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
           {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
-          {activeModule === "reconciliation" && (
-            <ReconciliationPage
-              accountId={reconciliationAccountId}
-              onAccountsChange={setReconciliationAccounts}
-              refreshKey={reconciliationRefreshKey}
-              rulesRequestKey={reconciliationRulesRequestKey}
-              status={reconciliationStatus}
-              token={state.token}
-            />
-          )}
-          {activeModule === "settings" && <SettingsPage onNavigate={setActiveModule} token={state.token} />}
-          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "reconciliation" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={navigate} token={state.token} />}
+          {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
@@ -315,13 +303,6 @@ function HeaderActions({
   onOpenTransactionImport,
   onCreateTransaction,
   onCreateRecurrenceRule,
-  onReconciliationAccountChange,
-  onReconciliationRefresh,
-  onReconciliationRules,
-  onReconciliationStatusChange,
-  reconciliationAccountId,
-  reconciliationAccounts,
-  reconciliationStatus,
   transactionView,
   onTransactionViewChange,
 }: {
@@ -347,13 +328,6 @@ function HeaderActions({
   onOpenTransactionImport: () => void;
   onCreateTransaction: () => void;
   onCreateRecurrenceRule: () => void;
-  onReconciliationAccountChange: (value: string) => void;
-  onReconciliationRefresh: () => void;
-  onReconciliationRules: () => void;
-  onReconciliationStatusChange: (value: string) => void;
-  reconciliationAccountId: string;
-  reconciliationAccounts: ReconciliationAccount[];
-  reconciliationStatus: string;
   transactionView: TransactionsView;
   onTransactionViewChange: (view: TransactionsView) => void;
 }) {
@@ -398,6 +372,13 @@ function HeaderActions({
         <div className="header-actions">
           <button className="secondary-button" onClick={() => onTransactionViewChange("journal")} type="button">Transactions</button>
           <button onClick={onOpenTransactionImport} type="button">Nouvel import</button>
+        </div>
+      );
+    }
+    if (transactionView === "reconciliation") {
+      return (
+        <div className="header-actions">
+          <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
         </div>
       );
     }
@@ -449,27 +430,6 @@ function HeaderActions({
       </div>
     );
   }
-  if (activeModule === "reconciliation") {
-    return (
-      <div className="header-actions">
-        <select aria-label="Compte des rapprochements" onChange={(event) => onReconciliationAccountChange(event.target.value)} value={reconciliationAccountId}>
-          <option value="all">Tous les comptes</option>
-          {reconciliationAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} - ` : ""}{account.name}</option>)}
-        </select>
-        <select aria-label="Statut des rapprochements" onChange={(event) => onReconciliationStatusChange(event.target.value)} value={reconciliationStatus}>
-          <option value="active">À traiter</option>
-          <option value="to_review">À vérifier</option>
-          <option value="matched">Rapprochées</option>
-          <option value="amount_gap">Écart de montant</option>
-          <option value="ignored">Ignorées / annulées</option>
-          <option value="finalized">Finalisées</option>
-          <option value="all">Tous les statuts</option>
-        </select>
-        <button className="secondary-button" onClick={onReconciliationRules} type="button">Écarts</button>
-        <button onClick={onReconciliationRefresh} type="button">Actualiser</button>
-      </div>
-    );
-  }
   if (activeModule === "settings") {
     return <div className="header-actions"><button form="settings-active-form" type="submit">Sauvegarder</button></div>;
   }
@@ -505,7 +465,7 @@ function groupSlices(items: { label: string; value: number }[], palette: string[
   return slices.map((item, index) => ({ ...item, color: palette[index % palette.length] }));
 }
 
-function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; onNavigate: (module: NavigationId) => void; snapshot: DashboardSnapshot }) {
+function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; onNavigate: (module: NavigationId | "reconciliation") => void; snapshot: DashboardSnapshot }) {
   const kpis = new Map(snapshot.kpis.map((kpi) => [kpi.id, kpi]));
   const cash = kpis.get("cash")?.value ?? 0;
   const netWorth = kpis.get("net-worth")?.value ?? 0;

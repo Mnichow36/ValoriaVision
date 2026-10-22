@@ -86,7 +86,7 @@ const emptyRule = (): RuleForm => ({
   confidence: 100,
 });
 
-export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: NavigationId) => void; token: string }) {
+export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
