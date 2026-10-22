@@ -2417,22 +2417,16 @@ button { cursor: pointer; }
 .reconciliation-history__line:last-child { border-bottom: 0; padding-bottom: 0; }
 .reconciliation-history__line--cancelled { color: #6b778c; }
 
-/* Réglage des écarts de dates et de montants */
-.reconciliation-rules { display: grid; gap: 12px; justify-items: end; }
-.rules-toggle { background: transparent; border: 0; color: #52627d; cursor: pointer; font-size: 12px; font-weight: 700; padding: 2px 4px; }
-.rules-toggle:hover { color: #2563eb; text-decoration: underline; }
-.rules-body { justify-self: stretch; padding: 18px; }
-.rules-save { background: #2563eb; border: 0; border-radius: 9px; color: #fff; cursor: pointer; font-size: 12px; font-weight: 800; min-height: 38px; padding: 8px 18px; }
-.rules-save:disabled { opacity: .65; }
-.rules-body { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.rules-group { display: grid; gap: 10px; align-content: start; }
-.rules-group h3 { margin: 0; font-size: 0.95rem; }
-.rules-group p { margin: 0; color: #6b778c; font-size: 0.8rem; }
-.rules-field { display: grid; gap: 3px; font-size: 0.85rem; }
-.rules-field div { display: flex; align-items: center; gap: 8px; }
-.rules-field input { width: 90px; padding: 6px 8px; border: 1px solid #d9e1ec; border-radius: 8px; font: inherit; }
-.rules-field small { color: #8794a8; }
-.rules-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+/* Volet latéral générique + réglage des écarts */
+.side-drawer__body { display: grid; flex: 1; gap: 8px; align-content: start; overflow-y: auto; padding: 24px 30px; }
+.side-drawer__intro { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
+.account-editor .side-drawer__footer { background: #fff; border-top: 1px solid var(--border); bottom: 0; display: flex; gap: 10px; justify-content: flex-end; padding: 18px 30px; position: sticky; margin: 0; }
+.rules-group { display: grid; gap: 14px; margin-bottom: 18px; }
+.rules-group h3 { font-size: 15px; margin: 0; }
+.rules-group p { color: #6b778c; font-size: 12px; line-height: 1.5; margin: 0; }
+.rules-input { align-items: center; display: flex; gap: 8px; }
+.rules-input input { max-width: 120px; }
+.rules-input b { color: #52627d; font-size: 12px; }
 
 /* Écran Rapprochements — rendu cible R8.0 */
 .reconciliation-kpi__mark--orange { background: #f59e0b; }

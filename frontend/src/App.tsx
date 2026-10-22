@@ -85,6 +85,7 @@ export function App() {
   const [reconciliationAccounts, setReconciliationAccounts] = useState<ReconciliationAccount[]>([]);
   const [reconciliationStatus, setReconciliationStatus] = useState("active");
   const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0);
+  const [reconciliationRulesRequestKey, setReconciliationRulesRequestKey] = useState(0);
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
@@ -199,6 +200,7 @@ export function App() {
             onOpenTransactionImport={() => openBankImport()}
             onReconciliationAccountChange={setReconciliationAccountId}
             onReconciliationRefresh={() => setReconciliationRefreshKey((key) => key + 1)}
+            onReconciliationRules={() => setReconciliationRulesRequestKey((key) => key + 1)}
             onReconciliationStatusChange={setReconciliationStatus}
             reconciliationAccountId={reconciliationAccountId}
             reconciliationAccounts={reconciliationAccounts}
@@ -254,6 +256,7 @@ export function App() {
               accountId={reconciliationAccountId}
               onAccountsChange={setReconciliationAccounts}
               refreshKey={reconciliationRefreshKey}
+              rulesRequestKey={reconciliationRulesRequestKey}
               status={reconciliationStatus}
               token={state.token}
             />
@@ -285,6 +288,7 @@ function HeaderActions({
   onOpenTransactionImport,
   onReconciliationAccountChange,
   onReconciliationRefresh,
+  onReconciliationRules,
   onReconciliationStatusChange,
   reconciliationAccountId,
   reconciliationAccounts,
@@ -310,6 +314,7 @@ function HeaderActions({
   onOpenTransactionImport: () => void;
   onReconciliationAccountChange: (value: string) => void;
   onReconciliationRefresh: () => void;
+  onReconciliationRules: () => void;
   onReconciliationStatusChange: (value: string) => void;
   reconciliationAccountId: string;
   reconciliationAccounts: ReconciliationAccount[];
@@ -423,6 +428,7 @@ function HeaderActions({
           <option value="finalized">Finalisées</option>
           <option value="all">Tous les statuts</option>
         </select>
+        <button className="secondary-button" onClick={onReconciliationRules} type="button">Écarts</button>
         <button onClick={onReconciliationRefresh} type="button">Actualiser</button>
       </div>
     );

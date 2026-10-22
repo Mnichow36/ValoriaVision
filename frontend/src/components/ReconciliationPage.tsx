@@ -12,6 +12,7 @@ import {
   updateReconciliationRules,
 } from "../api/client";
 import { ContextMenu, type ContextMenuItem, type ContextMenuState } from "./ContextMenu";
+import { SideDrawer } from "./SideDrawer";
 import type {
   ReconciliationAccount,
   ReconciliationHistoryItem,
@@ -25,6 +26,7 @@ interface ReconciliationPageProps {
   accountId: string;
   onAccountsChange: (accounts: ReconciliationAccount[]) => void;
   refreshKey: number;
+  rulesRequestKey: number;
   status: string;
   token: string;
 }
@@ -38,7 +40,7 @@ const money = new Intl.NumberFormat("fr-FR", {
 
 const shortDate = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, status, token }: ReconciliationPageProps) {
+export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, rulesRequestKey, status, token }: ReconciliationPageProps) {
   const [snapshot, setSnapshot] = useState<ReconciliationSnapshot>();
   const [selectedTransactionId, setSelectedTransactionId] = useState<number>();
   const [selectedOccurrenceId, setSelectedOccurrenceId] = useState<number>();
@@ -49,6 +51,11 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
   const [actionBusy, setActionBusy] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ kind: "success" | "error"; text: string }>();
   const [menu, setMenu] = useState<ContextMenuState>();
+  const [rulesOpen, setRulesOpen] = useState(false);
+
+  useEffect(() => {
+    if (rulesRequestKey > 0) setRulesOpen(true);
+  }, [rulesRequestKey]);
   const [history, setHistory] = useState<{ title: string; items: ReconciliationHistoryItem[] }>();
 
   useEffect(() => {
@@ -64,9 +71,8 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
         const suggestion = data.suggestions.find((row) => row.transactionId === transactionId);
         const manualId = data.transactions.find((row) => row.id === transactionId)?.manualCandidate?.occurrenceId;
         setSelectedTransactionId(transactionId);
-        setSelectedOccurrenceId((current) => data.occurrences.some((row) => row.id === current)
-          ? current
-          : suggestion?.occurrenceId ?? manualId ?? data.occurrences[0]?.id);
+        const chosenTransaction = data.transactions.find((row) => row.id === transactionId);
+        setSelectedOccurrenceId(suggestion?.occurrenceId ?? manualId ?? closestOccurrenceId(chosenTransaction, data.occurrences));
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
@@ -89,7 +95,7 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
   function selectTransaction(transaction: ReconciliationTransaction) {
     setSelectedTransactionId(transaction.id);
     const suggestion = snapshot?.suggestions.find((row) => row.transactionId === transaction.id);
-    setSelectedOccurrenceId(suggestion?.occurrenceId ?? transaction.manualCandidate?.occurrenceId ?? snapshot?.occurrences[0]?.id);
+    setSelectedOccurrenceId(suggestion?.occurrenceId ?? transaction.manualCandidate?.occurrenceId ?? closestOccurrenceId(transaction, snapshot?.occurrences ?? []));
     setManualMode(false);
     setIncludeOverage(false);
     setActionFeedback(undefined);
@@ -218,12 +224,6 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
 
   return (
     <div className="reconciliation-page">
-      <RulesPanel
-        onSaved={() => setLocalRefreshKey((key) => key + 1)}
-        rules={snapshot.rules}
-        token={token}
-      />
-
       <section className="reconciliation-kpis" aria-label="Indicateurs de rapprochement">
         <ReconciliationKpi detail="Issues des imports et saisies" detailTone={snapshot.summary.unmatchedTransactions > 0 ? "danger" : "success"} label="Transactions non rapprochées" tone="orange" value={snapshot.summary.unmatchedTransactions} />
         <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} écarts de montant`} detailTone="success" label="Prévisions ouvertes" tone="blue" value={snapshot.summary.openOccurrences} />
@@ -278,28 +278,32 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
       </section>
 
       {history && (
-        <section className="card reconciliation-history" aria-label="Historique des rapprochements">
-          <div className="reconciliation-heading">
-            <div><h2>Historique · {history.title}</h2><p>Les liens annulés restent consultables pour la traçabilité.</p></div>
-            <button className="secondary-button" onClick={() => setHistory(undefined)} type="button">Fermer</button>
-          </div>
+        <SideDrawer eyebrow="Rapprochements" onClose={() => setHistory(undefined)} title={`Historique · ${history.title}`}>
+          <p className="side-drawer__intro">Les liens annulés restent consultables pour la traçabilité.</p>
           {history.items.length === 0 && <EmptyQueue text="Aucun rapprochement enregistré." />}
           {history.items.map((item) => (
             <div className={item.active ? "reconciliation-history__line" : "reconciliation-history__line reconciliation-history__line--cancelled"} key={item.linkId}>
               <strong>{item.transactionLabel} ↔ {item.recurrenceName || item.occurrenceLabel}</strong>
-              <span>{formatDate(item.transactionDate)} · {signedMoney(item.transactionAmount)} affecté {money.format(Math.abs(item.appliedAmount))} · {item.matchType === "manual" || item.matchType === "manual_overage" ? "manuel" : "automatique"}</span>
+              <span>{formatDate(item.transactionDate)} · {signedMoney(item.transactionAmount)} · affecté {money.format(Math.abs(item.appliedAmount))} · {item.matchType === "manual" || item.matchType === "manual_overage" ? "manuel" : "automatique"}</span>
               <small>{item.active ? "Rapprochement actif" : `Annulé le ${item.cancelledAt ?? ""}`} · créé le {item.createdAt}</small>
             </div>
           ))}
-        </section>
+        </SideDrawer>
+      )}
+      {rulesOpen && snapshot && (
+        <RulesDrawer
+          onClose={() => setRulesOpen(false)}
+          onSaved={() => { setRulesOpen(false); setLocalRefreshKey((key) => key + 1); }}
+          rules={snapshot.rules}
+          token={token}
+        />
       )}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
     </div>
   );
 }
 
-function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: ReconciliationSnapshot["rules"]; token: string }) {
-  const [open, setOpen] = useState(false);
+function RulesDrawer({ onClose, onSaved, rules, token }: { onClose: () => void; onSaved: () => void; rules: ReconciliationSnapshot["rules"]; token: string }) {
   const [draft, setDraft] = useState({
     dateToleranceDays: String(rules.dateToleranceDays),
     amountToleranceAbs: String(rules.amountToleranceAbs),
@@ -308,23 +312,13 @@ function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: Rec
     manualAmountTolerancePercent: String(rules.manualAmountTolerancePercent),
   });
   const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string }>();
-
-  useEffect(() => {
-    setDraft({
-      dateToleranceDays: String(rules.dateToleranceDays),
-      amountToleranceAbs: String(rules.amountToleranceAbs),
-      amountTolerancePercent: String(rules.amountTolerancePercent),
-      manualWindowDays: String(rules.manualWindowDays),
-      manualAmountTolerancePercent: String(rules.manualAmountTolerancePercent),
-    });
-  }, [rules]);
+  const [error, setError] = useState<string>();
 
   function field(key: keyof typeof draft, label: string, unit: string, hint: string) {
     return (
-      <label className="rules-field">
+      <label className="account-field">
         <span>{label}</span>
-        <div><input inputMode="decimal" onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} value={draft[key]} /><b>{unit}</b></div>
+        <div className="rules-input"><input inputMode="decimal" onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} value={draft[key]} /><b>{unit}</b></div>
         <small>{hint}</small>
       </label>
     );
@@ -332,50 +326,51 @@ function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: Rec
 
   async function save() {
     setBusy(true);
-    setFeedback(undefined);
+    setError(undefined);
     try {
       const toNumber = (value: string) => Number(value.replace(",", "."));
-      const result = await updateReconciliationRules(token, {
+      await updateReconciliationRules(token, {
         dateToleranceDays: toNumber(draft.dateToleranceDays),
         amountToleranceAbs: toNumber(draft.amountToleranceAbs),
         amountTolerancePercent: toNumber(draft.amountTolerancePercent),
         manualWindowDays: toNumber(draft.manualWindowDays),
         manualAmountTolerancePercent: toNumber(draft.manualAmountTolerancePercent),
       });
-      setFeedback({ kind: "success", text: result.message });
       onSaved();
     } catch (cause: unknown) {
-      setFeedback({ kind: "error", text: cause instanceof Error ? cause.message : "Les règles n’ont pas pu être enregistrées." });
+      setError(cause instanceof Error ? cause.message : "Les règles n’ont pas pu être enregistrées.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section className="reconciliation-rules">
-      <button aria-expanded={open} className="rules-toggle" onClick={() => setOpen((value) => !value)} type="button">
-        ⚙ Écarts de dates et de montants · {rules.dateToleranceDays} j / {rules.amountTolerancePercent} % auto · {rules.manualWindowDays} j / {rules.manualAmountTolerancePercent} % manuel
-      </button>
-      {open && (
-        <div className="card rules-body">
-          <div className="rules-group">
-            <h3>Rapprochement automatique</h3>
-            <p>Au-delà de ces écarts, le moteur ne propose aucune correspondance automatique.</p>
-            {field("dateToleranceDays", "Écart de date maximum", "jours", "0 à 60")}
-            {field("amountToleranceAbs", "Écart de montant minimum toléré", "€", "Toujours toléré, même sur un petit montant")}
-            {field("amountTolerancePercent", "Écart de montant en pourcentage", "%", "0 à 100, appliqué au montant prévu")}
-          </div>
-          <div className="rules-group">
-            <h3>Proposition manuelle</h3>
-            <p>Pour les opérations qui arrivent plus tôt ou plus tard que prévu (retraite, salaire…). Elles sont listées avec la pastille « Écart de date ».</p>
-            {field("manualWindowDays", "Fenêtre de date", "jours", "0 à 180, au moins égale à l’écart automatique")}
-            {field("manualAmountTolerancePercent", "Écart de montant", "%", "0 à 100")}
-          </div>
-          {feedback && <p className={`reconciliation-feedback reconciliation-feedback--${feedback.kind}`} role="status">{feedback.text}</p>}
-          <div className="rules-actions"><button className="rules-save" disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer les écarts"}</button></div>
-        </div>
+    <SideDrawer
+      eyebrow="Rapprochements"
+      footer={(
+        <>
+          <button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button>
+          <button disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer les écarts"}</button>
+        </>
       )}
-    </section>
+      onClose={onClose}
+      title="Écarts de dates et de montants"
+    >
+      <section className="rules-group">
+        <h3>Rapprochement automatique</h3>
+        <p>Au-delà de ces écarts, le moteur ne propose aucune correspondance automatique.</p>
+        {field("dateToleranceDays", "Écart de date maximum", "jours", "0 à 60")}
+        {field("amountToleranceAbs", "Écart de montant minimum toléré", "€", "Toujours toléré, même sur un petit montant")}
+        {field("amountTolerancePercent", "Écart de montant en pourcentage", "%", "0 à 100, appliqué au montant prévu")}
+      </section>
+      <section className="rules-group">
+        <h3>Proposition manuelle</h3>
+        <p>Pour les opérations qui arrivent plus tôt ou plus tard que prévu (retraite, salaire…). Elles sont listées avec la pastille « Écart de date ».</p>
+        {field("manualWindowDays", "Fenêtre de date", "jours", "0 à 180, au moins égale à l’écart automatique")}
+        {field("manualAmountTolerancePercent", "Écart de montant", "%", "0 à 100")}
+      </section>
+      {error && <p className="account-form-error" role="alert">{error}</p>}
+    </SideDrawer>
   );
 }
 
@@ -433,6 +428,15 @@ function OccurrenceCard({ occurrence, onContextMenu, onSelect, selected }: { occ
       {Math.abs(occurrence.remainingAmount - Math.abs(occurrence.amount)) > 0.005 && <small className="reconciliation-item__hint">{money.format(occurrence.remainingAmount)} restants</small>}
     </button>
   );
+}
+
+/** Présélection par défaut : prévision de même sens dont le montant est le plus proche. */
+function closestOccurrenceId(transaction: ReconciliationTransaction | undefined, occurrences: ReconciliationOccurrence[]): number | undefined {
+  if (!transaction) return occurrences[0]?.id;
+  const sameDirection = occurrences.filter((row) => Math.sign(row.amount) === Math.sign(transaction.amount) && row.accountId === transaction.accountId);
+  const pool = sameDirection.length > 0 ? sameDirection : occurrences;
+  const gap = (row: ReconciliationOccurrence) => Math.abs(Math.abs(row.amount) - Math.abs(transaction.amount));
+  return [...pool].sort((a, b) => gap(a) - gap(b))[0]?.id;
 }
 
 function suggestionTone(suggestion?: ReconciliationSuggestion): string {
@@ -530,7 +534,7 @@ function ProposalPanel({
       <div className="reconciliation-actions">
         <button disabled={actionBusy || !suggestion?.proposalId} onClick={onReject} title={suggestion?.proposalId ? "Rejeter cette proposition sans supprimer les données" : "Aucune proposition enregistrée à rejeter"} type="button">Ignorer</button>
         <button aria-pressed={manualMode} className={manualMode ? "reconciliation-actions__manual-active" : ""} disabled={actionBusy} onClick={onToggleManual} type="button">{manualMode ? "Quitter le mode manuel" : "Mode manuel"}</button>
-        <button className="reconciliation-actions__primary" disabled={actionBusy} onClick={onValidate} type="button">{actionBusy ? "Traitement…" : manualMode || !suggestion?.proposalId ? "Confirmer l’affectation" : "Valider le rapprochement"}</button>
+        <button className="reconciliation-actions__primary" disabled={actionBusy} onClick={onValidate} type="button">{actionBusy ? "Traitement…" : manualMode ? "Confirmer l’affectation" : "Valider le rapprochement"}</button>
       </div>
     </aside>
   );
