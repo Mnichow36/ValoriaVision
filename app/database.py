@@ -749,7 +749,23 @@ class Database:
             "external_source": "TEXT",
             "created_at": "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
             "updated_at": "TEXT",
+            "initial_amount": "REAL",
+            "mode": "TEXT NOT NULL DEFAULT 'Fixe'",
         })
+        conn.execute("UPDATE budgets SET initial_amount = planned_amount WHERE initial_amount IS NULL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_revisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                from_month TEXT NOT NULL,
+                to_month TEXT NOT NULL,
+                old_amount REAL NOT NULL DEFAULT 0,
+                new_amount REAL NOT NULL DEFAULT 0,
+                reason TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         self.populate_uuid(conn, "budgets")
         self.seed_default_budgets(conn)
 
@@ -773,10 +789,10 @@ class Database:
         ]
         conn.executemany(
             """
-            INSERT OR IGNORE INTO budgets(month, category, planned_amount, alert_threshold, notes, uuid)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO budgets(month, category, planned_amount, initial_amount, alert_threshold, notes, uuid)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [(current_month, category, amount, threshold, notes, str(uuid4())) for category, amount, threshold, notes in defaults],
+            [(current_month, category, amount, amount, threshold, notes, str(uuid4())) for category, amount, threshold, notes in defaults],
         )
 
     def apply_scenarios_foundation(self, conn: sqlite3.Connection) -> None:
@@ -1697,15 +1713,22 @@ class Database:
         previous = conn.execute("SELECT month FROM budgets WHERE month < ? GROUP BY month ORDER BY month DESC LIMIT 1", (month,)).fetchone()
         if previous:
             rows = list(conn.execute(
-                "SELECT category, planned_amount, alert_threshold, notes FROM budgets WHERE month = ? AND deleted_at IS NULL",
+                "SELECT category, planned_amount, initial_amount, alert_threshold, notes, mode, status FROM budgets WHERE month = ? AND deleted_at IS NULL",
                 (previous["month"],),
             ))
             conn.executemany(
                 """
-                INSERT OR IGNORE INTO budgets(month, category, planned_amount, alert_threshold, notes, uuid)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO budgets(month, category, planned_amount, initial_amount, alert_threshold, notes, mode, status, uuid)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [(month, row["category"], row["planned_amount"], row["alert_threshold"], row["notes"], str(uuid4())) for row in rows],
+                [
+                    (
+                        month, row["category"], row["planned_amount"],
+                        row["initial_amount"] if row["initial_amount"] is not None else row["planned_amount"],
+                        row["alert_threshold"], row["notes"], row["mode"] or "Fixe", row["status"] or "Actif", str(uuid4()),
+                    )
+                    for row in rows
+                ],
             )
         else:
             self.seed_default_budgets(conn)
@@ -1714,8 +1737,8 @@ class Database:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO budgets(month, category, planned_amount, alert_threshold, notes, uuid, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO budgets(month, category, planned_amount, initial_amount, alert_threshold, notes, uuid, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(month, category) DO UPDATE SET
                     planned_amount = excluded.planned_amount,
                     alert_threshold = excluded.alert_threshold,
@@ -1724,7 +1747,7 @@ class Database:
                     deleted_at = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (month, category, float(planned_amount or 0), float(alert_threshold or 100), notes or "", str(uuid4())),
+                (month, category, float(planned_amount or 0), float(planned_amount or 0), float(alert_threshold or 100), notes or "", str(uuid4())),
             )
         self.seal_database_to_encrypted_vault()
 
@@ -1732,6 +1755,250 @@ class Database:
         with self.connect() as conn:
             conn.execute("UPDATE budgets SET deleted_at = CURRENT_TIMESTAMP, status = 'Supprimé', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (budget_id,))
         self.seal_database_to_encrypted_vault()
+
+    # ------------------------------------------------------------------
+    # Budgets V2 : vue annuelle, révisions et paramétrage
+    # ------------------------------------------------------------------
+    BUDGET_MODES = ("Fixe", "Annuel réparti", "Saisonnier")
+    BUDGET_SCOPES = ("month", "from", "year")
+
+    def budget_default_threshold(self) -> float:
+        try:
+            return float(self.get_setting("budget.default_alert_threshold", "80") or 80)
+        except ValueError:
+            return 80.0
+
+    def set_budget_default_threshold(self, value: float) -> float:
+        value = float(value)
+        if not 1 <= value <= 200:
+            raise ValueError("Le seuil d'alerte doit être compris entre 1 et 200 %.")
+        self.set_setting("budget.default_alert_threshold", str(value))
+        return value
+
+    @staticmethod
+    def _valid_budget_month(month: str) -> str:
+        text = str(month or "")
+        if len(text) != 7 or text[4] != "-" or not text[:4].isdigit() or not text[5:].isdigit() or not 1 <= int(text[5:]) <= 12:
+            raise ValueError("Le mois doit avoir la forme AAAA-MM.")
+        return text
+
+    def _budget_scope_months(self, scope: str, month: str) -> list[str]:
+        if scope not in self.BUDGET_SCOPES:
+            raise ValueError("Portée de révision inconnue.")
+        year = month[:4]
+        if scope == "month":
+            return [month]
+        first = int(month[5:]) if scope == "from" else 1
+        return [f"{year}-{number:02d}" for number in range(first, 13)]
+
+    @staticmethod
+    def _next_month(month: str) -> str:
+        year, number = int(month[:4]), int(month[5:])
+        return f"{year + 1}-01" if number == 12 else f"{year}-{number + 1:02d}"
+
+    def _materialize_budget_month(self, conn: sqlite3.Connection, month: str) -> bool:
+        """Create the month by renewing the nearest earlier one. False if nothing to renew."""
+        count = conn.execute("SELECT COUNT(*) AS c FROM budgets WHERE month = ?", (month,)).fetchone()["c"]
+        if count:
+            return True
+        if not conn.execute("SELECT 1 FROM budgets WHERE month < ? LIMIT 1", (month,)).fetchone():
+            return False
+        self.ensure_budget_month(conn, month)
+        return True
+
+    def _budget_row(self, conn: sqlite3.Connection, month: str, category: str):
+        return conn.execute("SELECT * FROM budgets WHERE month = ? AND category = ?", (month, category)).fetchone()
+
+    def _revise_budget_conn(self, conn: sqlite3.Connection, category: str, new_amount: float, scope: str, month: str, reason: str) -> dict:
+        months = self._budget_scope_months(scope, month)
+        self._materialize_budget_month(conn, month)
+        current = self._budget_row(conn, month, category)
+        old_amount = float(current["planned_amount"] or 0) if current and current["deleted_at"] is None else 0.0
+        if scope == "month":
+            # Le mois suivant doit être figé AVANT, sinon il recopierait le montant révisé.
+            self._materialize_budget_month(conn, self._next_month(month))
+        threshold = self.budget_default_threshold()
+        touched: list[str] = []
+        for target in months:
+            if not self._materialize_budget_month(conn, target):
+                continue
+            row = self._budget_row(conn, target, category)
+            if row:
+                conn.execute(
+                    "UPDATE budgets SET planned_amount = ?, status = 'Actif', deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (new_amount, row["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO budgets(month, category, planned_amount, initial_amount, alert_threshold, notes, uuid) VALUES (?, ?, ?, ?, ?, '', ?)",
+                    (target, category, new_amount, new_amount, threshold, str(uuid4())),
+                )
+            touched.append(target)
+        if not touched:
+            raise ValueError("Aucun mois de budget à réviser pour cette période.")
+        conn.execute(
+            "INSERT INTO budget_revisions(category, scope, from_month, to_month, old_amount, new_amount, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (category, scope, touched[0], touched[-1], old_amount, new_amount, (reason or "").strip()),
+        )
+        return {"category": category, "months": touched, "oldAmount": round(old_amount, 2), "newAmount": round(new_amount, 2)}
+
+    def revise_budget(self, category: str, new_amount: float, scope: str, month: str, reason: str = "") -> dict:
+        category = str(category or "").strip()
+        if not category:
+            raise ValueError("La catégorie est obligatoire.")
+        month = self._valid_budget_month(month)
+        amount = round(float(new_amount), 2)
+        if amount < 0:
+            raise ValueError("Le budget ne peut pas être négatif.")
+        with self.connect() as conn:
+            result = self._revise_budget_conn(conn, category, amount, scope, month, reason)
+        self.seal_database_to_encrypted_vault()
+        return result
+
+    def save_budget_category(
+        self,
+        category: str,
+        month: str,
+        planned_amount: float | None = None,
+        alert_threshold: float | None = None,
+        mode: str | None = None,
+        notes: str | None = None,
+        active: bool | None = None,
+    ) -> dict:
+        """Create or update a budgeted category from `month` onward."""
+        category = str(category or "").strip()
+        if not category:
+            raise ValueError("La catégorie est obligatoire.")
+        month = self._valid_budget_month(month)
+        if mode is not None and mode not in self.BUDGET_MODES:
+            raise ValueError("Mode de budget inconnu.")
+        if alert_threshold is not None and not 1 <= float(alert_threshold) <= 200:
+            raise ValueError("Le seuil d'alerte doit être compris entre 1 et 200 %.")
+        if planned_amount is not None and float(planned_amount) < 0:
+            raise ValueError("Le budget ne peut pas être négatif.")
+        created = False
+        with self.connect() as conn:
+            self._materialize_budget_month(conn, month)
+            row = self._budget_row(conn, month, category)
+            if row is None or row["deleted_at"] is not None:
+                amount = round(float(planned_amount or 0), 2)
+                threshold = float(alert_threshold) if alert_threshold is not None else self.budget_default_threshold()
+                months = {item["month"] for item in conn.execute("SELECT DISTINCT month FROM budgets WHERE month >= ?", (month,))} | {month}
+                for target in sorted(months):
+                    existing = self._budget_row(conn, target, category)
+                    values = (amount, amount, threshold, notes or "", mode or "Fixe", "Inactif" if active is False else "Actif")
+                    if existing:
+                        conn.execute(
+                            "UPDATE budgets SET planned_amount = ?, initial_amount = ?, alert_threshold = ?, notes = ?, mode = ?, status = ?, deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            values + (existing["id"],),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO budgets(month, category, planned_amount, initial_amount, alert_threshold, notes, mode, status, uuid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (target, category) + values + (str(uuid4()),),
+                        )
+                created = True
+            else:
+                sets, params = [], []
+                if alert_threshold is not None:
+                    sets.append("alert_threshold = ?"); params.append(float(alert_threshold))
+                if mode is not None:
+                    sets.append("mode = ?"); params.append(mode)
+                if notes is not None:
+                    sets.append("notes = ?"); params.append(notes)
+                if active is not None:
+                    sets.append("status = ?"); params.append("Actif" if active else "Inactif")
+                if sets:
+                    conn.execute(
+                        f"UPDATE budgets SET {', '.join(sets)}, updated_at = CURRENT_TIMESTAMP WHERE category = ? AND month >= ? AND deleted_at IS NULL",
+                        params + [category, month],
+                    )
+                if planned_amount is not None and round(float(planned_amount), 2) != round(float(row["planned_amount"] or 0), 2):
+                    self._revise_budget_conn(conn, category, round(float(planned_amount), 2), "from", month, "Paramétrage de la catégorie")
+        self.seal_database_to_encrypted_vault()
+        return {"category": category, "created": created}
+
+    def remove_budget_category(self, category: str, month: str) -> int:
+        category = str(category or "").strip()
+        month = self._valid_budget_month(month)
+        with self.connect() as conn:
+            self._materialize_budget_month(conn, month)
+            cursor = conn.execute(
+                "UPDATE budgets SET deleted_at = CURRENT_TIMESTAMP, status = 'Supprimé', updated_at = CURRENT_TIMESTAMP WHERE category = ? AND month >= ? AND deleted_at IS NULL",
+                (category, month),
+            )
+            removed = cursor.rowcount
+        self.seal_database_to_encrypted_vault()
+        return removed
+
+    def list_budget_revisions(self, year: str | None = None) -> list[dict]:
+        with self.connect() as conn:
+            rows = list(conn.execute("SELECT * FROM budget_revisions ORDER BY id"))
+        revisions = [dict(row) for row in rows]
+        if year:
+            revisions = [row for row in revisions if str(row["from_month"])[:4] == str(year) or str(row["to_month"])[:4] == str(year)]
+        return revisions
+
+    def budget_year_matrix(self, year: int) -> dict:
+        """Monthly planned / initial / realized amounts per category for a calendar year."""
+        year = int(year)
+        with self.connect() as conn:
+            budget_rows = list(conn.execute("SELECT * FROM budgets ORDER BY month"))
+            tx_rows = list(conn.execute(
+                "SELECT SUBSTR(tx_date, 1, 7) AS month, COALESCE(category, 'À catégoriser') AS category, amount FROM transactions WHERE tx_date LIKE ?",
+                (f"{year}-%",),
+            ))
+        by_category: dict[str, list] = {}
+        for row in budget_rows:
+            by_category.setdefault(row["category"], []).append(row)
+        start = budget_rows[0]["month"] if budget_rows else None
+        months = [f"{year}-{number:02d}" for number in range(1, 13)]
+
+        def effective(category: str, month: str):
+            latest = None
+            for row in by_category.get(category, []):
+                if row["month"] <= month:
+                    latest = row
+                else:
+                    break
+            if latest is None or latest["deleted_at"] is not None or latest["status"] in ("Supprimé", "Fusionné"):
+                return None
+            return latest
+
+        realized: dict[str, list[float]] = {}
+        for tx in tx_rows:
+            category = tx["category"] or "À catégoriser"
+            amount = float(tx["amount"] or 0)
+            if not is_current_expense(category, amount):
+                continue
+            slot = realized.setdefault(category, [0.0] * 12)
+            slot[int(tx["month"][5:7]) - 1] += abs(amount)
+
+        categories: dict[str, dict] = {}
+        for category in sorted(set(by_category) | set(realized)):
+            planned, initial, actual, active, raw, flagged = [], [], [], [], [], []
+            meta = None
+            for index, month in enumerate(months):
+                row = effective(category, month) if start and month >= start else None
+                inactive = bool(row is not None and row["status"] == "Inactif")
+                planned.append(0.0 if row is None or inactive else round(float(row["planned_amount"] or 0), 2))
+                initial.append(0.0 if row is None or inactive else round(float(row["initial_amount"] if row["initial_amount"] is not None else row["planned_amount"] or 0), 2))
+                actual.append(0.0 if inactive else round(realized.get(category, [0.0] * 12)[index], 2))
+                active.append(row is not None and not inactive)
+                flagged.append(inactive)
+                raw.append(round(float(row["planned_amount"] or 0), 2) if row is not None else 0.0)
+                if row is not None:
+                    meta = row
+            if not any(planned) and not any(actual) and not any(active) and not any(flagged):
+                continue
+            categories[category] = {
+                "planned": planned, "initial": initial, "actual": actual,
+                "active": active, "inactive": flagged, "rawPlanned": raw,
+                "alertThreshold": float(meta["alert_threshold"] or 100) if meta is not None else self.budget_default_threshold(),
+                "mode": (meta["mode"] if meta is not None else None) or "Fixe",
+                "notes": (meta["notes"] if meta is not None else "") or "",
+            }
+        return {"year": year, "start": start, "categories": categories}
 
     def budget_realized_by_category(self, month: str) -> dict[str, float]:
         with self.connect() as conn:
@@ -1760,6 +2027,9 @@ class Database:
                 (month,),
             ))
         realized = self.budget_realized_by_category(month)
+        inactive = {row["category"] for row in budgets if row["status"] == "Inactif"}
+        budgets = [row for row in budgets if row["category"] not in inactive]
+        realized = {name: value for name, value in realized.items() if name not in inactive}
         categories = sorted(set([row["category"] for row in budgets]) | set(realized.keys()))
 
         rows = []

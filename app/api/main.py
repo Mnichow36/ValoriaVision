@@ -26,6 +26,33 @@ from app.services.settings_read_service import SettingsReadService
 from app.services.transactions_read_service import TransactionsReadService
 
 
+class BudgetRevisionPayload(BaseModel):
+    category: str
+    month: str
+    scope: str = "from"
+    new_amount: float
+    reason: str = ""
+
+
+class BudgetCategoryPayload(BaseModel):
+    category: str
+    month: str
+    planned_amount: float | None = None
+    alert_threshold: float | None = None
+    mode: str | None = None
+    notes: str | None = None
+    active: bool | None = None
+
+
+class BudgetCategoryRemovePayload(BaseModel):
+    category: str
+    month: str
+
+
+class BudgetRulesPayload(BaseModel):
+    default_alert_threshold: float
+
+
 class PasswordPayload(BaseModel):
     password: SecretStr
 
@@ -1016,6 +1043,62 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return BudgetsReadService(active_database).snapshot(month)
+
+    def _budget_write(action):
+        try:
+            return action()
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/v1/budgets/revise")
+    def revise_budget(
+        payload: BudgetRevisionPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        result = _budget_write(lambda: active_database.revise_budget(payload.category, payload.new_amount, payload.scope, payload.month, payload.reason))
+        return {"success": True, "message": "Budget révisé.", **result}
+
+    @app.post("/api/v1/budgets/category")
+    def save_budget_category(
+        payload: BudgetCategoryPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        result = _budget_write(lambda: active_database.save_budget_category(
+            payload.category, payload.month, payload.planned_amount, payload.alert_threshold, payload.mode, payload.notes, payload.active,
+        ))
+        return {"success": True, "message": "Catégorie budgétée enregistrée.", **result}
+
+    @app.post("/api/v1/budgets/category/remove")
+    def remove_budget_category(
+        payload: BudgetCategoryRemovePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        removed = _budget_write(lambda: active_database.remove_budget_category(payload.category, payload.month))
+        return {"success": True, "message": "Catégorie retirée du budget.", "removed": removed}
+
+    @app.post("/api/v1/budgets/rules")
+    def save_budget_rules(
+        payload: BudgetRulesPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        value = _budget_write(lambda: active_database.set_budget_default_threshold(payload.default_alert_threshold))
+        return {"success": True, "message": "Règles du budget enregistrées.", "defaultAlertThreshold": value}
 
     @app.get("/api/v1/assets")
     def assets(

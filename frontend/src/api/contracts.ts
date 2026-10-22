@@ -597,7 +597,101 @@ export interface BudgetCategoryRow {
   transactions: BudgetTransaction[];
 }
 
+export interface BudgetRevision {
+  id: number;
+  scope: "month" | "from" | "year";
+  fromMonth: string;
+  toMonth: string;
+  oldAmount: number;
+  newAmount: number;
+  reason: string;
+  createdAt: string;
+}
+
+export interface BudgetTrackingPoint {
+  day: number;
+  budget: number;
+  actual: number | null;
+}
+
+export interface BudgetWatchItem {
+  category: string;
+  planned: number;
+  actual: number;
+  usage: number;
+  status: string;
+  monthsOver: number;
+  suggestRevision: boolean;
+}
+
+export interface BudgetTracking {
+  daysInMonth: number;
+  elapsedDays: number;
+  daysLeft: number;
+  perDay: number | null;
+  projection: number | null;
+  projectionGap: number | null;
+  projectionMethod: string;
+  curve: BudgetTrackingPoint[];
+  watch: BudgetWatchItem[];
+  watchOthers: number;
+}
+
+export interface BudgetAnnualCategory {
+  category: string;
+  planned: number[];
+  initial: number[];
+  actual: number[];
+  annual: number;
+  initialAnnual: number;
+  cumul: number;
+  initialCumul: number;
+  realized: number;
+  gap: number;
+  usage: number;
+  projectedYear: number;
+  monthsOver: number;
+  suggestRevision: boolean;
+  revisionCount: number;
+  revisions: BudgetRevision[];
+}
+
+export interface BudgetAnnual {
+  year: number;
+  elapsedMonths: number;
+  currentMonth: string;
+  categories: BudgetAnnualCategory[];
+  totals: { annual: number; initialAnnual: number; cumul: number; initialCumul: number; realized: number; projectedYear: number; gap: number };
+}
+
+export interface BudgetSettingsCategory {
+  category: string;
+  active: boolean;
+  amount: number;
+  initialAmount: number;
+  mode: string;
+  alertThreshold: number;
+  notes: string;
+  lastRevision: string | null;
+  revisions: BudgetRevision[];
+}
+
+export interface BudgetSettings {
+  defaultAlertThreshold: number;
+  modes: string[];
+  categories: BudgetSettingsCategory[];
+  available: string[];
+}
+
+export interface BudgetActionResult {
+  success: boolean;
+  message: string;
+}
+
 export interface BudgetsSnapshot {
+  tracking: BudgetTracking;
+  annual: BudgetAnnual;
+  settings: BudgetSettings;
   generatedAt: string;
   currency: string;
   month: string;

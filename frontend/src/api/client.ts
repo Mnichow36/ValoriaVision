@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -423,6 +423,44 @@ export function getBudgets(token: string, month: string, signal?: AbortSignal): 
   const encoded = query.toString();
   const suffix = encoded ? `?${encoded}` : "";
   return request<BudgetsSnapshot>(`/api/v1/budgets${suffix}`, { token, signal });
+}
+
+export function reviseBudget(
+  token: string,
+  payload: { category: string; month: string; scope: "month" | "from" | "year"; newAmount: number; reason: string },
+): Promise<BudgetActionResult> {
+  return request<BudgetActionResult>("/api/v1/budgets/revise", {
+    method: "POST",
+    token,
+    body: { category: payload.category, month: payload.month, scope: payload.scope, new_amount: payload.newAmount, reason: payload.reason },
+  });
+}
+
+export function saveBudgetCategory(
+  token: string,
+  payload: { category: string; month: string; plannedAmount?: number; alertThreshold?: number; mode?: string; notes?: string; active?: boolean },
+): Promise<BudgetActionResult> {
+  return request<BudgetActionResult>("/api/v1/budgets/category", {
+    method: "POST",
+    token,
+    body: {
+      category: payload.category,
+      month: payload.month,
+      planned_amount: payload.plannedAmount ?? null,
+      alert_threshold: payload.alertThreshold ?? null,
+      mode: payload.mode ?? null,
+      notes: payload.notes ?? null,
+      active: payload.active ?? null,
+    },
+  });
+}
+
+export function removeBudgetCategory(token: string, category: string, month: string): Promise<BudgetActionResult> {
+  return request<BudgetActionResult>("/api/v1/budgets/category/remove", { method: "POST", token, body: { category, month } });
+}
+
+export function saveBudgetRules(token: string, defaultAlertThreshold: number): Promise<BudgetActionResult> {
+  return request<BudgetActionResult>("/api/v1/budgets/rules", { method: "POST", token, body: { default_alert_threshold: defaultAlertThreshold } });
 }
 
 export function getAssets(token: string, signal?: AbortSignal): Promise<AssetsSnapshot> {

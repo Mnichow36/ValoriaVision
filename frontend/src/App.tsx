@@ -54,7 +54,7 @@ const modules: Record<NavigationId, ModuleDefinition> = {
   },
   budgets: {
     title: "Budgets",
-    description: "Comparer le prévu, le réalisé et les écarts par catégorie.",
+    description: "Suivre le budget, le comparer au réalisé, le réviser.",
   },
   assets: {
     title: "Patrimoine",
@@ -410,7 +410,6 @@ function HeaderActions({
           {!budgetMonth && <option value="">Mois courant</option>}
           {budgetMonths.map((month) => <option key={month} value={month}>{formatBudgetMonth(month)}</option>)}
         </select>
-        <button aria-disabled="true" className="header-action-disabled" title="Création de budget prévue dans l’incrément d’édition" type="button">Nouveau budget</button>
       </div>
     );
   }
