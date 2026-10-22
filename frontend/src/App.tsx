@@ -482,11 +482,11 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
   const filtered = snapshot.filters?.accountId != null;
   const expenseSlices = groupSlices(
     expenseRows.map((row) => ({ label: row.label, value: row.value })),
-    ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626", "#7c3aed", "#64748b"],
+    ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626", "#7c3aed", "var(--s-64748b)"],
   );
   const assetSlices = groupSlices(
     snapshot.assets.filter((item) => item.value > 0).map((item) => ({ label: item.label, value: item.value })),
-    ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b", "#64748b"],
+    ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b", "var(--s-64748b)"],
   );
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
   const quality = snapshot.quality;

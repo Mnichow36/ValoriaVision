@@ -166,11 +166,11 @@ export function InteractiveLineChart({
             <stop offset="100%" stopColor={series[0]?.color ?? "#2563eb"} stopOpacity=".02" />
           </linearGradient>
           <pattern height="7" id={inflowPatternId} patternUnits="userSpaceOnUse" width="7">
-            <rect fill="#dcfce7" height="7" width="7" />
+            <rect fill="var(--s-dcfce7)" height="7" width="7" />
             <path d="M-1 6 L6 -1 M2 9 L9 2" fill="none" stroke="#16a34a" strokeWidth="2" />
           </pattern>
           <pattern height="7" id={outflowPatternId} patternUnits="userSpaceOnUse" width="7">
-            <rect fill="#fee2e2" height="7" width="7" />
+            <rect fill="var(--s-fee2e2)" height="7" width="7" />
             <path d="M-1 6 L6 -1 M2 9 L9 2" fill="none" stroke="#dc2626" strokeWidth="2" />
           </pattern>
         </defs>

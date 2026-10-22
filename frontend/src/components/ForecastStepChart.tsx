@@ -117,18 +117,18 @@ export function ForecastStepChart({ comparison, onPointSelect, points, reference
         </linearGradient>
       </defs>
 
-      {thresholdVisible && <rect fill="#fee2e2" height={Math.max(0, PLOT_BOTTOM - y(threshold))} opacity="0.55" width={W - LEFT - RIGHT} x={LEFT} y={y(threshold)} />}
+      {thresholdVisible && <rect fill="var(--s-fee2e2)" height={Math.max(0, PLOT_BOTTOM - y(threshold))} opacity="0.55" width={W - LEFT - RIGHT} x={LEFT} y={y(threshold)} />}
       {ticks.map((tick) => (
         <g key={tick}>
-          <line stroke="#e3e9f3" x1={LEFT} x2={W - RIGHT} y1={y(tick)} y2={y(tick)} />
-          <text fill="#52627d" fontSize="12" fontWeight="600" textAnchor="end" x={LEFT - 8} y={y(tick) + 4}>{money.format(tick)}</text>
+          <line stroke="var(--s-e3e9f3)" x1={LEFT} x2={W - RIGHT} y1={y(tick)} y2={y(tick)} />
+          <text fill="var(--t-52627d)" fontSize="12" fontWeight="600" textAnchor="end" x={LEFT - 8} y={y(tick) + 4}>{money.format(tick)}</text>
         </g>
       ))}
 
       {thresholdVisible && (
         <g>
           <line stroke="#dc2626" strokeDasharray="6 5" strokeWidth="2" x1={LEFT} x2={W - RIGHT} y1={y(threshold)} y2={y(threshold)} />
-          <text fill="#b91c1c" fontSize="12" fontWeight="700" textAnchor="end" x={W - RIGHT - 4} y={y(threshold) + 16}>Seuil de sécurité {money.format(threshold)} EUR</text>
+          <text fill="var(--t-b91c1c)" fontSize="12" fontWeight="700" textAnchor="end" x={W - RIGHT - 4} y={y(threshold) + 16}>Seuil de sécurité {money.format(threshold)} EUR</text>
         </g>
       )}
 
@@ -138,7 +138,7 @@ export function ForecastStepChart({ comparison, onPointSelect, points, reference
       )}
       <path d={stepPath(points)} fill="none" stroke="#2563eb" strokeLinejoin="round" strokeWidth="3" />
 
-      <line stroke="#0f1b3a" strokeWidth="1.5" x1={x(todayIndex)} x2={x(todayIndex)} y1={TOP - 8} y2={FLOW_MID + FLOW_HALF + 6} />
+      <line stroke="var(--t-0f1b3a)" strokeWidth="1.5" x1={x(todayIndex)} x2={x(todayIndex)} y1={TOP - 8} y2={FLOW_MID + FLOW_HALF + 6} />
       <rect fill="#0f1b3a" height="22" rx="11" width="128" x={x(todayIndex) + 6} y={TOP - 30} />
       <text fill="#fff" fontSize="12" fontWeight="700" textAnchor="middle" x={x(todayIndex) + 70} y={TOP - 15}>Aujourd’hui {formatShort(referenceDate)}</text>
 
@@ -149,9 +149,9 @@ export function ForecastStepChart({ comparison, onPointSelect, points, reference
         <text fill="#cfe0ff" fontSize="12" x={Math.min(W - RIGHT - 178, x(low) + 10) + 10} y={y(points[low].balance) + 42}>{moneyFull.format(points[low].balance)}</text>
       </g>
       <circle cx={x(last)} cy={y(points[last].balance)} fill="#fff" r="6" stroke="#2563eb" strokeWidth="3" />
-      <text fill="#1d4ed8" fontSize="13" fontWeight="800" textAnchor="end" x={x(last) - 8} y={y(points[last].balance) - 12}>{moneyFull.format(points[last].balance)}</text>
+      <text fill="var(--t-1d4ed8)" fontSize="13" fontWeight="800" textAnchor="end" x={x(last) - 8} y={y(points[last].balance) - 12}>{moneyFull.format(points[last].balance)}</text>
 
-      <line stroke="#cdd7e6" x1={LEFT} x2={W - RIGHT} y1={FLOW_MID} y2={FLOW_MID} />
+      <line stroke="var(--s-cdd7e6)" x1={LEFT} x2={W - RIGHT} y1={FLOW_MID} y2={FLOW_MID} />
       {points.map((point, index) => {
         const barWidth = Math.max(2, Math.min(12, ((W - LEFT - RIGHT) / Math.max(1, count)) * 0.6));
         const inflow = ((point.inflow ?? 0) / maxFlow) * FLOW_HALF;
@@ -163,21 +163,21 @@ export function ForecastStepChart({ comparison, onPointSelect, points, reference
           </g>
         );
       })}
-      <text fill="#166534" fontSize="11" fontWeight="700" textAnchor="end" x={LEFT - 8} y={FLOW_MID - FLOW_HALF + 8}>+ {money.format(maxFlow)}</text>
-      <text fill="#b91c1c" fontSize="11" fontWeight="700" textAnchor="end" x={LEFT - 8} y={FLOW_MID + FLOW_HALF}>− {money.format(maxFlow)}</text>
+      <text fill="var(--t-166534)" fontSize="11" fontWeight="700" textAnchor="end" x={LEFT - 8} y={FLOW_MID - FLOW_HALF + 8}>+ {money.format(maxFlow)}</text>
+      <text fill="var(--t-b91c1c)" fontSize="11" fontWeight="700" textAnchor="end" x={LEFT - 8} y={FLOW_MID + FLOW_HALF}>− {money.format(maxFlow)}</text>
 
       {tickIndexes.map((index, position) => (
-        <text fill="#52627d" fontSize="12" fontWeight="600" key={index} textAnchor={position === 0 ? "start" : position === tickIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={H - 10}>{formatShort(points[index].date)}</text>
+        <text fill="var(--t-52627d)" fontSize="12" fontWeight="600" key={index} textAnchor={position === 0 ? "start" : position === tickIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={H - 10}>{formatShort(points[index].date)}</text>
       ))}
 
       {hovered && hover !== undefined && (
         <g pointerEvents="none">
           <line stroke="#2563eb" strokeDasharray="3 3" x1={x(hover)} x2={x(hover)} y1={TOP - 8} y2={FLOW_MID + FLOW_HALF + 6} />
-          <rect fill="#fff" height={52 + Math.min(3, hovered.events.length) * 16} rx="8" stroke="#cdd7e6" width="238" x={tooltipX} y={TOP + 6} />
-          <text fill="#0f1b3a" fontSize="12" fontWeight="800" x={tooltipX + 10} y={TOP + 24}>{formatShort(hovered.date)} · {moneyFull.format(hovered.balance)}</text>
-          <text fill="#52627d" fontSize="11" x={tooltipX + 10} y={TOP + 40}>{hovered.events.length ? `${hovered.events.length} opération${hovered.events.length > 1 ? "s" : ""} (clic : détail)` : "Aucune opération"}</text>
+          <rect fill="#fff" height={52 + Math.min(3, hovered.events.length) * 16} rx="8" stroke="var(--s-cdd7e6)" width="238" x={tooltipX} y={TOP + 6} />
+          <text fill="var(--t-0f1b3a)" fontSize="12" fontWeight="800" x={tooltipX + 10} y={TOP + 24}>{formatShort(hovered.date)} · {moneyFull.format(hovered.balance)}</text>
+          <text fill="var(--t-52627d)" fontSize="11" x={tooltipX + 10} y={TOP + 40}>{hovered.events.length ? `${hovered.events.length} opération${hovered.events.length > 1 ? "s" : ""} (clic : détail)` : "Aucune opération"}</text>
           {hovered.events.slice(0, 3).map((event, index) => (
-            <text fill={event.amount >= 0 ? "#15803d" : "#b91c1c"} fontSize="11" fontWeight="600" key={`${event.name}-${index}`} x={tooltipX + 10} y={TOP + 56 + index * 16}>{event.name.slice(0, 22)} · {event.amount >= 0 ? "+" : "−"} {money.format(Math.abs(event.amount))}</text>
+            <text fill={event.amount >= 0 ? "var(--t-15803d)" : "var(--t-b91c1c)"} fontSize="11" fontWeight="600" key={`${event.name}-${index}`} x={tooltipX + 10} y={TOP + 56 + index * 16}>{event.name.slice(0, 22)} · {event.amount >= 0 ? "+" : "−"} {money.format(Math.abs(event.amount))}</text>
           ))}
         </g>
       )}

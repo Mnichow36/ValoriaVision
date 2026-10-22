@@ -33,8 +33,8 @@ function MiniSeries({ color, label, points }: { color: string; label: string; po
   const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
   return (
     <svg aria-label={label} className="pat-mini" role="img" viewBox="0 0 400 120">
-      <line stroke="#e3e9f3" x1="0" x2="400" y1="30" y2="30" />
-      <line stroke="#e3e9f3" x1="0" x2="400" y1="80" y2="80" />
+      <line stroke="var(--s-e3e9f3)" x1="0" x2="400" y1="30" y2="30" />
+      <line stroke="var(--s-e3e9f3)" x1="0" x2="400" y1="80" y2="80" />
       <path d={`${line} L398 116 L2 116 Z`} fill={color} opacity="0.12" />
       <path d={line} fill="none" stroke={color} strokeLinejoin="round" strokeWidth="2.4" />
       <circle cx={x(points.length - 1)} cy={y(points[points.length - 1].value)} fill="#fff" r="4.5" stroke={color} strokeWidth="2.4" />

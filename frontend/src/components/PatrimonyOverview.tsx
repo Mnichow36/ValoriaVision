@@ -278,8 +278,8 @@ function EvolutionChart({ label, points }: { label: string; points: { date: stri
       <svg aria-label={`${label} : de ${money.format(points[0].value)} à ${money.format(last.value)}`} className="pat-chart" height={height} role="img" viewBox={`0 0 ${width} ${height}`} width={width}>
         {grid.map((value) => (
           <g key={value}>
-            <line stroke="#e3e9f3" x1={left} x2={right} y1={y(value)} y2={y(value)} />
-            <text fill="#52627d" fontSize="11" textAnchor="end" x={left - 8} y={y(value) + 4}>{compact(value)}</text>
+            <line stroke="var(--s-e3e9f3)" x1={left} x2={right} y1={y(value)} y2={y(value)} />
+            <text fill="var(--t-52627d)" fontSize="11" textAnchor="end" x={left - 8} y={y(value) + 4}>{compact(value)}</text>
           </g>
         ))}
         <path d={area} fill="#2563eb" opacity="0.1" />
@@ -289,9 +289,9 @@ function EvolutionChart({ label, points }: { label: string; points: { date: stri
             <title>{`${formatDay(point.date)} : ${money.format(point.value)}`}</title>
           </circle>
         ))}
-        <text fill="#1d4ed8" fontSize="12" fontWeight="700" textAnchor="end" x={right - 10} y={Math.max(y(last.value) - 12, 14)}>{money.format(last.value)}</text>
+        <text fill="var(--t-1d4ed8)" fontSize="12" fontWeight="700" textAnchor="end" x={right - 10} y={Math.max(y(last.value) - 12, 14)}>{money.format(last.value)}</text>
         {labelIndexes.map((index, position) => (
-          <text fill="#52627d" fontSize="11" key={index} textAnchor={position === 0 ? "start" : position === labelIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={height - 6}>{month(points[index].date)}</text>
+          <text fill="var(--t-52627d)" fontSize="11" key={index} textAnchor={position === 0 ? "start" : position === labelIndexes.length - 1 ? "end" : "middle"} x={x(index)} y={height - 6}>{month(points[index].date)}</text>
         ))}
       </svg>
     </div>

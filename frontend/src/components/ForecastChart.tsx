@@ -24,8 +24,8 @@ export function ForecastChart({ points }: { points: ForecastPoint[] }) {
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Projection de trésorerie">
         <defs>
           <linearGradient id="forecastFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#5c78ff" stopOpacity="0.24" />
-            <stop offset="100%" stopColor="#5c78ff" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--s-5c78ff)" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="var(--s-5c78ff)" stopOpacity="0" />
           </linearGradient>
         </defs>
         {[0.2, 0.5, 0.8].map((ratio) => (

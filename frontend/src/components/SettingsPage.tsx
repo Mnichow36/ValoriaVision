@@ -20,6 +20,7 @@ import type {
   SettingsSnapshot,
 } from "../api/contracts";
 import type { NavigationId } from "./Sidebar";
+import { ThemeSwitch } from "./ThemeSwitch";
 
 type SettingsTab = "general" | "categories" | "rules" | "balances" | "security";
 
@@ -298,6 +299,7 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
               <label>Langue<select disabled value={snapshot.general.locale}><option value="fr">Français</option></select></label>
               <label>Mois de travail<input onChange={(event) => setCurrentMonth(event.target.value)} pattern="\d{4}-(0[1-9]|1[0-2])" placeholder="AAAA-MM" value={currentMonth} /></label>
             </div>
+            <div className="settings-theme-row"><div><strong>Apparence</strong><small>Clair, sombre, ou selon le réglage de ton système. Mémorisé sur ce poste.</small></div><ThemeSwitch variant="settings" /></div>
             <button className="settings-primary" disabled={busy} type="submit">Enregistrer les préférences</button>
           </article>
           <article className="card settings-summary-card">

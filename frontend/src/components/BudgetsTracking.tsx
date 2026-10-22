@@ -131,21 +131,21 @@ function RhythmChart({ snapshot }: { snapshot: BudgetsSnapshot }) {
       <svg aria-label="Budget cumulé et réalisé cumulé du mois" className="bgt-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
         {ticks.map((tick) => (
           <g key={tick}>
-            <line stroke="#e3e9f3" x1={left} x2={right} y1={y(tick)} y2={y(tick)} />
-            <text fill="#52627d" fontSize="11" textAnchor="end" x={left - 8} y={y(tick) + 4}>{formatMoney(Math.round(tick / 50) * 50)}</text>
+            <line stroke="var(--s-e3e9f3)" x1={left} x2={right} y1={y(tick)} y2={y(tick)} />
+            <text fill="var(--t-52627d)" fontSize="11" textAnchor="end" x={left - 8} y={y(tick) + 4}>{formatMoney(Math.round(tick / 50) * 50)}</text>
           </g>
         ))}
-        {dayTicks.map((day) => <text fill="#52627d" fontSize="11" key={day} textAnchor="middle" x={x(day)} y={height - 8}>{day}</text>)}
-        <path d={budgetPath} fill="none" stroke="#94a3b8" strokeDasharray="6 5" strokeWidth="2" />
+        {dayTicks.map((day) => <text fill="var(--t-52627d)" fontSize="11" key={day} textAnchor="middle" x={x(day)} y={height - 8}>{day}</text>)}
+        <path d={budgetPath} fill="none" stroke="var(--s-94a3b8)" strokeDasharray="6 5" strokeWidth="2" />
         {actualPath && <path d={actualPath} fill="none" stroke="#2563eb" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />}
         {showProjection && last && (
           <path d={`M${x(last.day)} ${y(last.actual ?? 0)} L${x(days)} ${y(tracking.projection ?? 0)}`} fill="none" stroke="#dc2626" strokeDasharray="6 4" strokeWidth="2.4" />
         )}
         {last && (
           <g>
-            <line stroke="#0f1b3a" strokeWidth="1.2" x1={x(last.day)} x2={x(last.day)} y1={top} y2={bottom} />
+            <line stroke="var(--t-0f1b3a)" strokeWidth="1.2" x1={x(last.day)} x2={x(last.day)} y1={top} y2={bottom} />
             <circle cx={x(last.day)} cy={y(last.actual ?? 0)} fill="#fff" r="5" stroke="#2563eb" strokeWidth="3" />
-            <text fill="#0f1b3a" fontSize="11" fontWeight="700" x={Math.min(x(last.day) + 8, right - 80)} y={top + 10}>{tracking.elapsedDays < days ? "Aujourd’hui" : "Fin de mois"}</text>
+            <text fill="var(--t-0f1b3a)" fontSize="11" fontWeight="700" x={Math.min(x(last.day) + 8, right - 80)} y={top + 10}>{tracking.elapsedDays < days ? "Aujourd’hui" : "Fin de mois"}</text>
           </g>
         )}
       </svg>

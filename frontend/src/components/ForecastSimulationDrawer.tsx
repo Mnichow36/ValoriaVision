@@ -201,7 +201,7 @@ function SimulationChart({ result }: { result: ForecastSimulationResult }) {
     <svg aria-label="Comparaison du solde avec et sans l’opération simulée" className="sim-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
       {result.threshold > 0 && (
         <>
-          <rect fill="#fee2e2" height={Math.max(0, height - y(result.threshold))} opacity="0.6" width={width} x="0" y={y(result.threshold)} />
+          <rect fill="var(--s-fee2e2)" height={Math.max(0, height - y(result.threshold))} opacity="0.6" width={width} x="0" y={y(result.threshold)} />
           <line stroke="#dc2626" strokeDasharray="5 4" strokeWidth="1.5" x1="0" x2={width} y1={y(result.threshold)} y2={y(result.threshold)} />
         </>
       )}

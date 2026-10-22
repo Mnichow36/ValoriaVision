@@ -1,3 +1,5 @@
+import { ThemeSwitch } from "./ThemeSwitch";
+
 const entries = [
   ["dashboard", "Tableau de bord"],
   ["accounts", "Comptes"],
@@ -42,6 +44,8 @@ export function Sidebar({ active, onNavigate, onLock }: SidebarProps) {
           </button>
         ))}
       </nav>
+
+      <ThemeSwitch variant="sidebar" />
 
       <div className="local-card">
         <strong>Données locales</strong>
