@@ -61,10 +61,11 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
           ? selectedTransactionId
           : data.transactions[0]?.id;
         const suggestion = data.suggestions.find((row) => row.transactionId === transactionId);
+        const manualId = data.transactions.find((row) => row.id === transactionId)?.manualCandidate?.occurrenceId;
         setSelectedTransactionId(transactionId);
         setSelectedOccurrenceId((current) => data.occurrences.some((row) => row.id === current)
           ? current
-          : suggestion?.occurrenceId ?? data.occurrences[0]?.id);
+          : suggestion?.occurrenceId ?? manualId ?? data.occurrences[0]?.id);
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
@@ -87,7 +88,7 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
   function selectTransaction(transaction: ReconciliationTransaction) {
     setSelectedTransactionId(transaction.id);
     const suggestion = snapshot?.suggestions.find((row) => row.transactionId === transaction.id);
-    setSelectedOccurrenceId(suggestion?.occurrenceId ?? snapshot?.occurrences[0]?.id);
+    setSelectedOccurrenceId(suggestion?.occurrenceId ?? transaction.manualCandidate?.occurrenceId ?? snapshot?.occurrences[0]?.id);
     setManualMode(false);
     setIncludeOverage(false);
     setActionFeedback(undefined);
@@ -320,7 +321,7 @@ function TransactionCard({ onContextMenu, onSelect, selected, transaction }: { o
       <div className="reconciliation-item__top"><strong>{displayName}</strong><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b></div>
       {hasDistinctBankLabel && <small className="reconciliation-item__bank-label" title={transaction.label}>{transaction.label}</small>}
       <div className="reconciliation-item__meta"><span>{formatDate(transaction.date)}</span><span>{transaction.accountName}</span></div>
-      <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span>{transaction.reconciled ? <span className="reconciled-pill" title={`Rapprochée avec « ${transaction.links[0]?.label ?? ""} »`}>Rapprochée</span> : <small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small>}</div>
+      <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span>{!transaction.reconciled && transaction.manualCandidate ? <span className="transaction-pill transaction-pill--warning" title={transaction.manualCandidate.reason}>Écart de date · {transaction.manualCandidate.dayGap} j</span> : transaction.reconciled ? <span className="reconciled-pill" title={`Rapprochée avec « ${transaction.links[0]?.label ?? ""} »`}>Rapprochée</span> : <small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small>}</div>
     </button>
   );
 }
@@ -405,7 +406,7 @@ function ProposalPanel({
           </dl>
         </>
       ) : (
-        <p className="reconciliation-manual-intro">Cette paire n’est pas la proposition prioritaire du moteur. Vérifiez les montants et les comptes avant une affectation manuelle.</p>
+        <p className="reconciliation-manual-intro">{transaction.manualCandidate && transaction.manualCandidate.occurrenceId === occurrence.id ? transaction.manualCandidate.reason : "Cette paire n’est pas la proposition prioritaire du moteur. Vérifiez les montants et les comptes avant une affectation manuelle."}</p>
       )}
       {manualMode && (
         <div className="reconciliation-manual-box">

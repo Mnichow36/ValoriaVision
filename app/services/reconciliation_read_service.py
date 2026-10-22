@@ -97,9 +97,25 @@ class ReconciliationReadService:
         proposals = list(active_dataset.get("proposals") or [])
         active_transactions = list(active_dataset.get("transactions") or [])
 
+        manual_candidates: dict[int, dict[str, Any]] = {}
         if requested in ACTIVE_FILTERS:
-            transactions = active_transactions
             occurrences = list(active_dataset.get("occurrences") or [])
+            # Exhaustivité (CDC P1) : une opération qui a une prévision de même compte,
+            # même sens et même montant, mais à une autre date, ne doit pas disparaître.
+            everything_for_manual = engine.build_reconciliation_dataset(account_id=account_id, status="all", limit=None)
+            manual_candidates = self._manual_date_candidates(
+                engine,
+                list(everything_for_manual.get("transactions") or []),
+                occurrences,
+                {int(_field(row, "id", 0) or 0) for row in active_transactions},
+            )
+            extra = [row for row in everything_for_manual.get("transactions") or []
+                     if int(_field(row, "id", 0) or 0) in manual_candidates]
+            transactions = sorted(
+                active_transactions + extra,
+                key=lambda row: (str(_field(row, "tx_date", "")), int(_field(row, "id", 0) or 0)),
+                reverse=True,
+            )
         elif requested == "to_review":
             review = engine.build_reconciliation_dataset(account_id=account_id, status="to_review", limit=None)
             transactions = list(review.get("transactions") or [])
@@ -120,9 +136,21 @@ class ReconciliationReadService:
         shown_transactions = transactions[:150]
         shown_occurrences = occurrences[:150]
         mapped_transactions = [
-            self._transaction(row, links_by_transaction.get(int(_field(row, "id", 0) or 0), []))
+            self._transaction(
+                row,
+                links_by_transaction.get(int(_field(row, "id", 0) or 0), []),
+                manual_candidates.get(int(_field(row, "id", 0) or 0)),
+            )
             for row in shown_transactions
         ]
+        # Les prévisions proposées pour un rapprochement manuel doivent figurer dans la liste.
+        shown_ids = {int(_field(row, "id", 0) or 0) for row in shown_occurrences}
+        for candidate in manual_candidates.values():
+            if candidate["occurrenceId"] not in shown_ids:
+                match = next((row for row in occurrences if int(_field(row, "id", 0) or 0) == candidate["occurrenceId"]), None)
+                if match is not None:
+                    shown_occurrences.append(match)
+                    shown_ids.add(candidate["occurrenceId"])
         mapped_occurrences = [
             self._occurrence(row, engine, links_by_occurrence.get(int(_field(row, "id", 0) or 0), []))
             for row in shown_occurrences
@@ -181,7 +209,7 @@ class ReconciliationReadService:
                 "dateToleranceDays": int(rules.get("date_tolerance_days") or 5),
             },
             "summary": {
-                "unmatchedTransactions": len(active_transactions),
+                "unmatchedTransactions": len(active_transactions) + len(manual_candidates),
                 "openOccurrences": int(summary.get("active") or 0),
                 "automaticProposals": len(mapped_suggestions),
                 "averageScore": average_score,
@@ -233,6 +261,73 @@ class ReconciliationReadService:
                 for link in links_by_transaction.get(int(_field(row, "id", 0) or 0), [])
             )
         ]
+
+    MANUAL_WINDOW_DAYS = 45
+
+    def _manual_date_candidates(
+        self,
+        engine: Any,
+        transactions: list[Any],
+        occurrences: list[Any],
+        already_listed: set[int],
+    ) -> dict[int, dict[str, Any]]:
+        """Opérations non rapprochées dont une prévision ouverte ne diffère que par la date."""
+
+        rules = engine.rules_config()
+        result: dict[int, dict[str, Any]] = {}
+        for tx in transactions:
+            tx_id = int(_field(tx, "id", 0) or 0)
+            amount = _number(_field(tx, "amount", 0))
+            allocated = _number(_field(tx, "allocated_amount", 0))
+            if tx_id in already_listed or abs(amount) - allocated <= 0.005:
+                continue
+            direction = "credit" if amount >= 0 else "debit"
+            tx_date = self._parse_day(_field(tx, "tx_date", ""))
+            if tx_date is None:
+                continue
+            best: tuple[int, float, Any] | None = None
+            for occ in occurrences:
+                if int(_field(occ, "account_id", 0) or 0) != int(_field(tx, "account_id", 0) or 0):
+                    continue
+                if str(_field(occ, "direction", "")) != direction:
+                    continue
+                expected = abs(_number(_field(occ, "expected_amount", 0)))
+                tolerance = max(
+                    float(rules.get("amount_tolerance_abs", 1.0)),
+                    expected * float(rules.get("amount_tolerance_percent", 2.0)) / 100.0,
+                )
+                if abs(abs(amount) - expected) > tolerance:
+                    continue
+                occ_date = self._parse_day(_field(occ, "expected_date", ""))
+                if occ_date is None:
+                    continue
+                gap = abs((tx_date - occ_date).days)
+                if gap > self.MANUAL_WINDOW_DAYS:
+                    continue
+                key = (gap, abs(abs(amount) - expected))
+                if best is None or key < (best[0], best[1]):
+                    best = (gap, key[1], occ)
+            if best is not None:
+                gap, _, occ = best
+                label = str(_field(occ, "expected_label", "Prévision") or "Prévision")
+                occ_day = str(_field(occ, "expected_date", ""))
+                result[tx_id] = {
+                    "occurrenceId": int(_field(occ, "id", 0) or 0),
+                    "label": label,
+                    "date": occ_day,
+                    "dayGap": gap,
+                    "reason": f"Même montant et même compte que « {label} » prévue le {occ_day}, "
+                              f"mais {gap} jour(s) d’écart : rapprochement manuel proposé.",
+                }
+        return result
+
+    @staticmethod
+    def _parse_day(value: Any):
+        from datetime import date as _date
+        try:
+            return _date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
 
     def _active_links_by_transaction(self) -> dict[int, list[dict[str, Any]]]:
         provider = getattr(self.database, "active_reconciliation_by_transaction", None)
@@ -378,7 +473,12 @@ class ReconciliationReadService:
         return {"success": bool(changed), "message": str(message or "")}
 
     @classmethod
-    def _transaction(cls, row: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def _transaction(
+        cls,
+        row: Any,
+        links: list[dict[str, Any]] | None = None,
+        manual_candidate: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         links = links or []
         amount = _number(_field(row, "amount", 0))
         allocated = _number(_field(row, "allocated_amount", 0))
@@ -394,6 +494,7 @@ class ReconciliationReadService:
             "accountId": int(_field(row, "account_id", 0) or 0),
             "accountName": str(_field(row, "account_name", "Compte") or "Compte"),
             "bank": str(_field(row, "bank", "") or ""),
+            "manualCandidate": manual_candidate,
             "linkedStatus": linked_status or None,
             "linkedStatusLabel": STATUS_LABELS.get(linked_status, linked_status) if linked_status else None,
             "linkedOccurrenceId": _integer(_field(row, "linked_occurrence_id")),

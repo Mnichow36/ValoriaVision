@@ -605,6 +605,13 @@ export interface ReconciliationTransaction {
   proposalOccurrenceId: number | null;
   reconciled: boolean;
   links: ReconciliationLinkSummary[];
+  manualCandidate: {
+    occurrenceId: number;
+    label: string;
+    date: string;
+    dayGap: number;
+    reason: string;
+  } | null;
 }
 
 export interface ReconciliationOccurrence {

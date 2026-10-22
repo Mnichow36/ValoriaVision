@@ -161,6 +161,35 @@ class ReconciliationCancelHistoryTest(unittest.TestCase):
             self.assertEqual(ids[occurrence_id]["statusLabel"], "Écart de montant")
             self.assertNotIn(occurrence_id, [row["id"] for row in service.snapshot(status="matched")["occurrences"]])
 
+    def test_income_received_late_is_listed_for_manual_matching(self):
+        with TemporaryDirectory() as root:
+            database = build_database(root)
+            today = date.today()
+            with database.connect() as conn:
+                account_id = int(conn.execute("SELECT id FROM accounts WHERE status = 'Actif' ORDER BY id LIMIT 1").fetchone()["id"])
+                recurring_id = int(conn.execute("SELECT id FROM recurring_items ORDER BY id LIMIT 1").fetchone()["id"])
+                tx_id = int(conn.execute(
+                    "INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, signature) "
+                    "VALUES (?, ?, 'VIREMENT RETRAITE TEST', 'Revenus', 1690.0, 'Crédit', 'Validée', 'test', ?)",
+                    (account_id, today.isoformat(), str(uuid4())),
+                ).lastrowid)
+                occurrence_id = int(conn.execute(
+                    "INSERT INTO forecast_occurrences(uuid, source_type, source_id, account_id, expected_date, "
+                    "expected_amount, expected_label, expected_category, direction, status) "
+                    "VALUES (?, 'recurring', ?, ?, ?, 1690.0, 'Retraite test', 'Revenus', 'credit', 'planned')",
+                    (str(uuid4()), recurring_id, account_id, (today - timedelta(days=11)).isoformat()),
+                ).lastrowid)
+
+            service = ReconciliationReadService(database)
+            snapshot = service.snapshot()
+            row = next(item for item in snapshot["transactions"] if item["id"] == tx_id)
+            self.assertEqual(row["manualCandidate"]["occurrenceId"], occurrence_id)
+            self.assertEqual(row["manualCandidate"]["dayGap"], 11)
+            self.assertIn(occurrence_id, [item["id"] for item in snapshot["occurrences"]])
+            # Et le rapprochement manuel est bien possible.
+            changed, _ = ForecastReconciliationService(database).confirm_manual_match(occurrence_id, tx_id)
+            self.assertEqual(changed, 1)
+
     def test_cancel_route_requires_a_session_and_reports_errors(self):
         with TemporaryDirectory() as root:
             app = create_app(build_database(root))
