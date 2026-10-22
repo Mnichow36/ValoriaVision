@@ -783,6 +783,48 @@ export interface AssetEvolutionPoint {
   liabilities: number;
 }
 
+export interface AssetSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export interface AssetCategoryInsight {
+  name: string;
+  value: number;
+  weight: number;
+  assetIds: number[];
+  count: number;
+  isCash: boolean;
+  series: AssetSeriesPoint[];
+  change: { amount: number; percent: number | null } | null;
+  volatility: number | null;
+  volatilityReason: string;
+  tri: number | null;
+  triReason: string;
+}
+
+export interface AssetDebtInsight {
+  id: number;
+  name: string;
+  category: string;
+  balance: number;
+  shareOfAssets: number;
+  monthlyPayment: number | null;
+  endDate: string | null;
+  monthsLeft: number | null;
+  rate: number | null;
+  initialAmount: number | null;
+  repaidPercent: number | null;
+  interestLeft: number | null;
+  series: AssetSeriesPoint[];
+}
+
+export interface AssetsHeadline {
+  netWorth: number;
+  change: { amount: number; percent: number | null; fromDate: string; months: number; complete: boolean } | null;
+  annualReturn: { percent: number | null; months: number; reason: string };
+}
+
 export interface AssetsSnapshot {
   generatedAt: string;
   currency: string;
@@ -800,6 +842,9 @@ export interface AssetsSnapshot {
   assets: PatrimonialAsset[];
   liabilities: PatrimonialAsset[];
   leadingAssetId: number | null;
+  headline: AssetsHeadline | null;
+  categories: AssetCategoryInsight[];
+  debts: AssetDebtInsight[];
 }
 
 export interface SettingsCategory {

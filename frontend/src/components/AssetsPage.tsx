@@ -1,6 +1,8 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { createAsset, deleteAsset, getAssets, updateAsset } from "../api/client";
+import { CategoryDrawer, DebtDrawer } from "./PatrimonyDrawers";
+import { PatrimonyOverview } from "./PatrimonyOverview";
 import type { AssetsSnapshot, PatrimonialAsset, PatrimonialAssetActionResult, PatrimonialAssetPayload } from "../api/contracts";
 
 interface AssetsPageProps { editorRequestKey?: number; onDataChanged?: () => void; token: string; }
@@ -22,7 +24,7 @@ const NATURES: NatureDefinition[] = [
   { id: "valuable", kind: "assets", label: "Objets de valeur", category: "Objets de valeur", fields: [{ key: "itemKind", label: "Nature de l’objet" }, { key: "storage", label: "Lieu de conservation" }, { key: "insurance", label: "Assurance" }] },
   { id: "vehicle", kind: "assets", label: "Véhicule de collection", category: "Véhicules", fields: [{ key: "brand", label: "Marque / modèle" }, { key: "year", label: "Année", type: "number" }, { key: "registration", label: "Immatriculation" }] },
   { id: "otherAsset", kind: "assets", label: "Autre actif patrimonial", category: "Autres actifs", fields: [{ key: "holder", label: "Titulaire" }, { key: "reference", label: "Référence ou localisation" }] },
-  { id: "mortgage", kind: "liabilities", label: "Crédit immobilier", category: "Crédit immobilier", fields: [{ key: "lender", label: "Banque prêteuse" }, { key: "monthlyPayment", label: "Mensualité", type: "number" }, { key: "endDate", label: "Date de fin", type: "date" }] },
+  { id: "mortgage", kind: "liabilities", label: "Crédit immobilier", category: "Crédit immobilier", fields: [{ key: "lender", label: "Banque prêteuse" }, { key: "initialAmount", label: "Capital emprunté", type: "number" }, { key: "rate", label: "Taux (%)", type: "number" }, { key: "monthlyPayment", label: "Mensualité", type: "number" }, { key: "endDate", label: "Date de fin", type: "date" }] },
   { id: "consumerLoan", kind: "liabilities", label: "Crédit à la consommation", category: "Crédit à la consommation", fields: [{ key: "lender", label: "Organisme prêteur" }, { key: "monthlyPayment", label: "Mensualité", type: "number" }, { key: "endDate", label: "Date de fin", type: "date" }] },
   { id: "familyDebt", kind: "liabilities", label: "Dette familiale", category: "Dette familiale", fields: [{ key: "creditor", label: "Créancier" }, { key: "repayment", label: "Modalité de remboursement" }] },
   { id: "taxDebt", kind: "liabilities", label: "Dette fiscale", category: "Dette fiscale", fields: [{ key: "creditor", label: "Administration ou créancier" }, { key: "dueDate", label: "Échéance", type: "date" }] },
@@ -31,81 +33,41 @@ const NATURES: NatureDefinition[] = [
 
 export function AssetsPage({ editorRequestKey = 0, onDataChanged, token }: AssetsPageProps) {
   const [snapshot, setSnapshot] = useState<AssetsSnapshot>();
-  const [tab, setTab] = useState<Tab>("assets");
-  const [selectedId, setSelectedId] = useState<number>();
   const [drawer, setDrawer] = useState<DrawerState>();
+  const [categoryName, setCategoryName] = useState<string>();
+  const [debtId, setDebtId] = useState<number>();
   const [error, setError] = useState<string>();
 
-  const load = useCallback(async (selected?: number, selectedTab: Tab = tab) => {
+  const load = useCallback(async () => {
     try {
-      const data = await getAssets(token);
-      const list = selectedTab === "assets" ? data.assets : data.liabilities;
-      setSnapshot(data);
-      setSelectedId(selected ?? list[0]?.id);
+      setSnapshot(await getAssets(token));
       setError(undefined);
     } catch (cause: unknown) { setError(messageFrom(cause)); }
-  }, [tab, token]);
+  }, [token]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (editorRequestKey) setDrawer({ kind: "assets", mode: "create" }); }, [editorRequestKey]);
 
-  const rows = tab === "assets" ? snapshot?.assets ?? [] : snapshot?.liabilities ?? [];
-  const selected = rows.find((item) => item.id === selectedId) ?? rows[0];
-  const maxFamily = useMemo(() => Math.max(...(snapshot?.families.map((family) => family.value) ?? [1]), 1), [snapshot]);
-
-  function changeTab(nextTab: Tab) {
-    if (!snapshot) return;
-    const first = nextTab === "assets" ? snapshot.assets[0] : snapshot.liabilities[0];
-    setTab(nextTab);
-    setSelectedId(first?.id);
-  }
-
-  async function completeChange(result: PatrimonialAssetActionResult, kind: Tab) {
+  async function completeChange(_result: PatrimonialAssetActionResult, _kind: Tab) {
     setDrawer(undefined);
-    await load(result.assetId, kind);
+    setCategoryName(undefined);
+    setDebtId(undefined);
+    await load();
     onDataChanged?.();
   }
 
   if (error) return <section className="error-state"><strong>Le patrimoine ne peut pas être affiché.</strong><p>{error}</p></section>;
   if (!snapshot) return <div className="loading-state"><span aria-hidden="true" />Calcul du patrimoine local…</div>;
 
-  return <section className="assets-studio">
-    <div className="assets-studio__top">
-      <article className="assets-studio-card assets-studio-card--trend"><CardTitle title="Évolution du patrimoine" /><strong>{money.format(snapshot.summary.netWorth)}</strong><small>{signedPercent(snapshot.summary.changePercent)} sur l’historique</small><PatrimonyChart points={snapshot.evolution} /></article>
-      <article className="assets-studio-card"><CardTitle title="Diversification" /><div className="assets-studio-bars">{snapshot.families.slice(0, 5).map((family) => <div key={family.name}><span>{family.name}</span><b>{family.weight.toLocaleString("fr-FR")} %</b><i><em style={{ width: `${family.value / maxFamily * 100}%` }} /></i></div>)}</div></article>
-      <article className="assets-studio-card assets-studio-card--ratio"><CardTitle title="Rapport actifs / passifs" /><div className="assets-studio-figures"><div><span>Actifs</span><strong>{money.format(snapshot.summary.totalAssets)}</strong></div><div><span>Passifs</span><strong>{money.format(snapshot.summary.totalLiabilities)}</strong></div></div><MonthlyRatioChart points={snapshot.evolution} /></article>
-    </div>
+  const category = snapshot.categories.find((item) => item.name === categoryName);
+  const debt = snapshot.debts.find((item) => item.id === debtId);
 
-    <section className="assets-studio__portfolio">
-      <header><div className="assets-studio-tabs"><button className={tab === "assets" ? "active" : ""} onClick={() => changeTab("assets")} type="button">Actifs</button><button className={tab === "liabilities" ? "active" : ""} onClick={() => changeTab("liabilities")} type="button">Passifs</button></div><div className="assets-studio__actions"><span>{rows.length} élément(s)</span><button onClick={() => setDrawer({ kind: tab, mode: "create" })} type="button">Ajouter {tab === "assets" ? "un actif" : "un passif"}</button></div></header>
-      <div className="assets-studio-table-wrap"><table><thead><tr><th>Nom</th><th>Nature</th><th>Valorisation</th><th>Dernière mise à jour</th><th>Part</th></tr></thead><tbody>{rows.length ? rows.map((item) => <AssetRow active={item.id === selected?.id} item={item} key={item.id} onOpen={() => { setSelectedId(item.id); setDrawer({ asset: item, kind: tab, mode: "view" }); }} total={tab === "assets" ? snapshot.summary.totalAssets : snapshot.summary.totalLiabilities} />) : <tr><td colSpan={5}>Aucun élément patrimonial à afficher.</td></tr>}</tbody></table></div>
-    </section>
-
-    {selected && <button className="assets-studio__selection" onClick={() => setDrawer({ asset: selected, kind: tab, mode: "view" })} type="button"><span>{tab === "assets" ? "Actif sélectionné" : "Passif sélectionné"}</span><strong>{selected.name}</strong><p>{selected.type} · {money.format(Math.abs(selected.value))} · valorisé le {formatDate(selected.valuationDate)}</p><b>Ouvrir la fiche</b></button>}
+  return <section className="assets-studio assets-studio--v2">
+    <PatrimonyOverview onOpenCategory={setCategoryName} onOpenDebt={setDebtId} snapshot={snapshot} />
+    {category && !drawer && <CategoryDrawer assets={snapshot.assets} category={category} colorIndex={snapshot.categories.indexOf(category)} onClose={() => setCategoryName(undefined)} onOpenAsset={(asset) => { setCategoryName(undefined); setDrawer({ asset, kind: "assets", mode: "view" }); }} />}
+    {debt && !drawer && <DebtDrawer debt={debt} liability={snapshot.liabilities.find((item) => item.id === debt.id)} onClose={() => setDebtId(undefined)} onOpenAsset={(asset) => { setDebtId(undefined); setDrawer({ asset, kind: "liabilities", mode: "view" }); }} />}
     {drawer && <AssetDrawer asset={drawer.asset} kind={drawer.kind} mode={drawer.mode} onClose={() => setDrawer(undefined)} onCompleted={completeChange} onDelete={() => setDrawer((current) => current && { ...current, mode: "delete" })} onEdit={() => setDrawer((current) => current && { ...current, mode: "edit" })} token={token} />}
   </section>;
-}
-
-function CardTitle({ title }: { title: string }) { return <h2>{title}</h2>; }
-
-function AssetRow({ active, item, onOpen, total }: { active: boolean; item: PatrimonialAsset; onOpen: () => void; total: number }) {
-  const share = total ? Math.abs(item.value) / total * 100 : 0;
-  return <tr className={active ? "active" : ""} onClick={onOpen}><td><button type="button">{item.name}<small>{item.category}</small></button></td><td>{item.type}</td><td>{money.format(Math.abs(item.value))}</td><td>{formatDate(item.valuationDate)}</td><td>{share.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %</td></tr>;
-}
-
-function PatrimonyChart({ points }: { points: AssetsSnapshot["evolution"] }) {
-  const values = points.map((point) => point.net);
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
-  const coordinates = values.map((value, index) => `${index / Math.max(values.length - 1, 1) * 100},${90 - (value - min) / range * 66}`).join(" ");
-  return <div className="assets-patrimony-chart"><div className="assets-chart-key"><i />Patrimoine net</div><svg aria-label="Évolution du patrimoine net" preserveAspectRatio="none" role="img" viewBox="0 0 100 100"><line x1="0" x2="100" y1="90" y2="90" /><line x1="0" x2="100" y1="55" y2="55" /><polyline points={coordinates} /></svg></div>;
-}
-
-function MonthlyRatioChart({ points }: { points: AssetsSnapshot["evolution"] }) {
-  const displayed = points.slice(-6);
-  const maximum = Math.max(...displayed.flatMap((point) => [point.assets, Math.abs(point.liabilities)]), 1);
-  return <div className="assets-ratio-chart"><div className="assets-ratio-key"><i />Actifs <i />Passifs</div><div className="assets-ratio-columns">{displayed.map((point) => <div key={point.date}><div><i style={{ height: `${point.assets / maximum * 100}%` }} /><i style={{ height: `${Math.abs(point.liabilities) / maximum * 100}%` }} /></div><span>{monthLabel(point.date)}</span></div>)}</div></div>;
 }
 
 function AssetDrawer({ asset, kind, mode, onClose, onCompleted, onDelete, onEdit, token }: {

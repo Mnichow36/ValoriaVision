@@ -2727,6 +2727,14 @@ class Database:
         return totals
 
 
+    def asset_value_history(self) -> list[dict]:
+        """Toutes les valorisations stockées (actifs et passifs), triées par date."""
+        with self.connect() as conn:
+            return [
+                {"asset_id": int(row["asset_id"]), "valuation_date": str(row["valuation_date"]), "value": float(row["value"] or 0)}
+                for row in conn.execute("SELECT asset_id, valuation_date, value FROM asset_values ORDER BY valuation_date, id")
+            ]
+
     def patrimonio_evolution(self, mode: str = "net") -> list[dict[str, float | str]]:
         """Return patrimonial evolution based on real asset valuation history.
 

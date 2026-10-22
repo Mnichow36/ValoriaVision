@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import math
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.services.business_rules import is_patrimonial_asset
@@ -21,6 +22,29 @@ def _number(value: Any) -> float:
         return round(float(value or 0), 2)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _add_months(value: date, months: int) -> date:
+    index = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(index, 12)
+    month += 1
+    last_day = (date(year + (month // 12), month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(value.day, last_day))
+
+
+def _parse_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        text = str(value).replace(" ", "").replace(",", ".")
+        return float(text) if text else None
+    except (TypeError, ValueError):
+        return None
 
 
 class AssetsReadService:
@@ -53,8 +77,9 @@ class AssetsReadService:
             total_liabilities = round(abs(sum(row["value"] for row in liabilities)), 2)
             net = round(total_assets - total_liabilities, 2)
             liquidities = 0.0
-        evolution = self._evolution()
-        if callable(breakdown_provider) and evolution:
+        insights = self._insights(active_rows, net, total_assets, total_liabilities, liquidities)
+        evolution = insights["series"] if insights else self._evolution()
+        if insights is None and callable(breakdown_provider) and evolution:
             # The stored valuation history does not contain account liquidity.
             # The latest point always reflects today's consolidated figures.
             evolution[-1] = {
@@ -84,6 +109,208 @@ class AssetsReadService:
             "assets": assets,
             "liabilities": liabilities,
             "leadingAssetId": assets[0]["id"] if assets else None,
+            "headline": insights["headline"] if insights else None,
+            "categories": insights["categories"] if insights else [],
+            "debts": insights["debts"] if insights else [],
+        }
+
+    def _insights(
+        self,
+        active_rows: list[dict[str, Any]],
+        net: float,
+        total_assets: float,
+        total_liabilities: float,
+        liquidities: float,
+    ) -> dict[str, Any] | None:
+        """Historique mensuel (liquidités comprises) et indicateurs : 12 mois, rendement, volatilité, dettes.
+
+        Tout est calculé à partir des valorisations réellement saisies ; ce qui ne peut pas
+        l'être honnêtement (TRI sans versements, rendement sur moins de 3 mois) reste vide.
+        """
+        history_provider = getattr(self.database, "asset_value_history", None)
+        if not callable(history_provider):
+            return None
+        today = self.now_provider().astimezone().date() if self.now_provider().tzinfo else self.now_provider().date()
+        histories: dict[int, list[tuple[date, float]]] = {}
+        for row in history_provider():
+            day = _parse_date(row["valuation_date"])
+            if day is not None:
+                histories.setdefault(int(row["asset_id"]), []).append((day, float(row["value"] or 0)))
+        for row in active_rows:
+            day = _parse_date(row["valuationDate"])
+            points = histories.setdefault(row["id"], [])
+            if day is not None and all(existing_day != day for existing_day, _ in points):
+                points.append((day, row["value"]))
+        for points in histories.values():
+            points.sort(key=lambda item: item[0])
+
+        def value_at(asset_id: int, at: date) -> float | None:
+            current = None
+            for day, value in histories.get(asset_id, []):
+                if day <= at:
+                    current = value
+                else:
+                    break
+            return current
+
+        liquidity_provider = getattr(self.database, "account_summary_at_date", None)
+
+        def liquidity_at(at: date) -> float:
+            if at >= today:
+                return liquidities
+            if not callable(liquidity_provider):
+                return 0.0
+            return _number(liquidity_provider(at.isoformat()).get("liquidites"))
+
+        all_days = [day for points in histories.values() for day, _ in points if any(row["id"] == asset_id for row in active_rows for asset_id in [row["id"]])]
+        account_days = []
+        accounts_provider = getattr(self.database, "list_accounts", None)
+        if callable(accounts_provider):
+            for account in accounts_provider():
+                if _field(account, "status") == "Actif":
+                    day = _parse_date(_field(account, "initial_date") or _field(account, "reference_date"))
+                    if day is not None:
+                        account_days.append(day)
+        # L'historique commence quand toutes les sources existent (valorisations ET comptes) :
+        # sinon l'ouverture d'un compte ressemblerait à une hausse de patrimoine.
+        starts = [min(days) for days in (all_days, account_days) if days]
+        earliest = max(starts) if starts else today
+        sampled = [_add_months(today, -offset) for offset in range(12, -1, -1)]
+        sampled = [day for day in sampled if day >= earliest]
+        if not sampled or sampled[0] > earliest:
+            sampled.insert(0, min(earliest, today))
+        if sampled[-1] != today:
+            sampled.append(today)
+
+        assets_rows = [row for row in active_rows if row["value"] >= 0]
+        debt_rows = [row for row in active_rows if row["value"] < 0]
+
+        series = []
+        for day in sampled:
+            asset_sum = sum(max(value, 0.0) for row in active_rows if (value := value_at(row["id"], day)) is not None and value > 0)
+            debt_sum = sum(abs(value) for row in active_rows if (value := value_at(row["id"], day)) is not None and value < 0)
+            cash = liquidity_at(day)
+            series.append({
+                "date": day.isoformat(),
+                "net": round(asset_sum + max(cash, 0.0) - debt_sum - max(-cash, 0.0), 2),
+                "assets": round(asset_sum + max(cash, 0.0), 2),
+                "liabilities": -round(debt_sum + max(-cash, 0.0), 2),
+            })
+        if series:
+            series[-1] = {"date": today.isoformat(), "net": net, "assets": total_assets, "liabilities": -total_liabilities}
+
+        start_day = sampled[0]
+        span_days = (today - start_day).days
+        first_net = series[0]["net"] if series else 0.0
+        change_amount = round(net - first_net, 2)
+        change = {
+            "amount": change_amount,
+            "percent": round(change_amount / abs(first_net) * 100, 1) if first_net else None,
+            "fromDate": start_day.isoformat(),
+            "months": round(span_days / 30.44, 1),
+            "complete": span_days >= 360,
+        } if span_days >= 28 else None
+
+        def continuing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [row for row in rows if (value_at(row["id"], start_day) or 0) > 0]
+
+        def growth(rows: list[dict[str, Any]]) -> tuple[float, float] | None:
+            kept = continuing(rows)
+            start_total = sum(value_at(row["id"], start_day) or 0 for row in kept)
+            end_total = sum(value_at(row["id"], today) or 0 for row in kept)
+            return (start_total, end_total) if start_total > 0 else None
+
+        annual: dict[str, Any] = {"percent": None, "months": round(span_days / 30.44, 1), "reason": "Historique inférieur à 3 mois."}
+        invested = growth(assets_rows)
+        if invested and span_days >= 90:
+            ratio = invested[1] / invested[0]
+            annual["percent"] = round((ratio ** (365 / span_days) - 1) * 100, 1)
+            annual["reason"] = ""
+
+        categories = []
+        by_category: dict[str, list[dict[str, Any]]] = {}
+        for row in assets_rows:
+            by_category.setdefault(row["category"], []).append(row)
+        for name, rows in by_category.items():
+            value = round(sum(row["value"] for row in rows), 2)
+            category_series = [
+                {"date": day.isoformat(), "value": round(sum(max(value_at(row["id"], day) or 0, 0.0) for row in rows), 2)}
+                for day in sampled
+            ]
+            categories.append(self._category(name, value, total_assets, rows, category_series, growth(rows), histories, start_day, today, False))
+        if liquidities > 0:
+            cash_series = [{"date": day.isoformat(), "value": round(max(liquidity_at(day), 0.0), 2)} for day in sampled]
+            cash_change = round(liquidities - cash_series[0]["value"], 2)
+            categories.append({
+                "name": "Liquidités", "value": round(liquidities, 2),
+                "weight": round(liquidities / total_assets * 100, 1) if total_assets else 0.0,
+                "assetIds": [], "count": 0, "isCash": True, "series": cash_series,
+                "change": {"amount": cash_change, "percent": round(cash_change / cash_series[0]["value"] * 100, 1) if cash_series[0]["value"] else None},
+                "volatility": None, "volatilityReason": "Non applicable aux liquidités.",
+                "tri": None, "triReason": "Non applicable aux liquidités.",
+            })
+        categories.sort(key=lambda item: item["value"], reverse=True)
+
+        debts = []
+        for row in debt_rows:
+            details = row["details"]
+            balance = abs(row["value"])
+            monthly = _float_or_none(details.get("monthlyPayment"))
+            end = _parse_date(details.get("endDate"))
+            months_left = max(0, (end.year - today.year) * 12 + end.month - today.month) if end else None
+            initial = _float_or_none(details.get("initialAmount"))
+            debts.append({
+                "id": row["id"], "name": row["name"], "category": row["category"], "balance": round(balance, 2),
+                "shareOfAssets": round(balance / total_assets * 100, 1) if total_assets else 0.0,
+                "monthlyPayment": monthly, "endDate": end.isoformat() if end else None, "monthsLeft": months_left,
+                "rate": _float_or_none(details.get("rate")), "initialAmount": initial,
+                "repaidPercent": round((initial - balance) / initial * 100, 1) if initial and initial >= balance else None,
+                "interestLeft": round(monthly * months_left - balance, 2) if monthly and months_left and monthly * months_left > balance else None,
+                "series": [{"date": day.isoformat(), "value": round(abs(value_at(row["id"], day) or 0), 2)} for day in sampled],
+            })
+        debts.sort(key=lambda item: item["balance"], reverse=True)
+
+        return {
+            "series": series,
+            "headline": {"netWorth": net, "change": change, "annualReturn": annual},
+            "categories": categories,
+            "debts": debts,
+        }
+
+    @staticmethod
+    def _category(
+        name: str,
+        value: float,
+        total_assets: float,
+        rows: list[dict[str, Any]],
+        series: list[dict[str, Any]],
+        growth: tuple[float, float] | None,
+        histories: dict[int, list[tuple[date, float]]],
+        start_day: date,
+        today: date,
+        is_cash: bool,
+    ) -> dict[str, Any]:
+        change = None
+        if growth:
+            amount = round(growth[1] - growth[0], 2)
+            change = {"amount": amount, "percent": round(amount / growth[0] * 100, 1)}
+        distinct_days = {day for row in rows for day, _ in histories.get(row["id"], []) if start_day <= day <= today}
+        volatility = None
+        reason = "Moins de 7 valorisations saisies : non applicable."
+        values = [point["value"] for point in series]
+        if len(distinct_days) >= 7:
+            returns = [values[i] / values[i - 1] - 1 for i in range(1, len(values)) if values[i - 1] > 0]
+            if len(returns) >= 6:
+                mean = sum(returns) / len(returns)
+                variance = sum((item - mean) ** 2 for item in returns) / (len(returns) - 1)
+                volatility = round(math.sqrt(variance) * math.sqrt(12) * 100, 1)
+                reason = ""
+        return {
+            "name": name, "value": value,
+            "weight": round(value / total_assets * 100, 1) if total_assets else 0.0,
+            "assetIds": [row["id"] for row in rows], "count": len(rows), "isCash": is_cash, "series": series,
+            "change": change, "volatility": volatility, "volatilityReason": reason,
+            "tri": None, "triReason": "Versements non saisis : le TRI ne peut pas être calculé.",
         }
 
     @staticmethod
