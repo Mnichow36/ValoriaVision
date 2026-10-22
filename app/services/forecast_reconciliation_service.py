@@ -1566,6 +1566,38 @@ class ForecastReconciliationService:
         plural = "s" if len(ids) > 1 else ""
         return len(ids), f"{len(ids)} occurrence{plural} décalée{plural} au {target.strftime('%d/%m/%Y')}."
 
+    def repair_occurrence_states(self) -> int:
+        """Répare les occurrences à l'état incohérent (liens orphelins, rapprochement fantôme)."""
+        repaired = 0
+        with self.db.connect() as conn:
+            # Liens actifs dont la transaction n'existe plus.
+            cur = conn.execute(
+                """
+                UPDATE forecast_reconciliation_links
+                SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE deleted_at IS NULL
+                  AND transaction_id NOT IN (SELECT id FROM transactions)
+                """
+            )
+            repaired += int(cur.rowcount or 0)
+            # Occurrences « à traiter » qui portent encore une transaction sans lien actif.
+            ghosts = conn.execute(
+                """
+                SELECT o.id FROM forecast_occurrences o
+                WHERE o.deleted_at IS NULL
+                  AND o.status IN ('planned', 'overdue', 'to_review')
+                  AND (
+                        o.actual_transaction_id IS NOT NULL
+                     OR EXISTS (SELECT 1 FROM forecast_reconciliation_links l
+                                WHERE l.occurrence_id = o.id AND l.deleted_at IS NULL)
+                  )
+                """
+            ).fetchall()
+            for row in ghosts:
+                self._refresh_occurrence_rollup(conn, int(row["id"]))
+                repaired += 1
+        return repaired
+
     def postpone_to_next_occurrences(
         self,
         occurrence_ids: list[int],

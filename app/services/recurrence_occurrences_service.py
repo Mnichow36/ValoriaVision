@@ -40,7 +40,9 @@ class RecurrenceOccurrencesService:
     ) -> dict[str, Any]:
         today = self._today()
         # Les occurrences sont générées sur 12 mois ; on s'assure qu'elles existent.
-        self.engine_factory(self.database).generate_occurrences(today - timedelta(days=90), today + timedelta(days=365))
+        engine = self.engine_factory(self.database)
+        engine.repair_occurrence_states()
+        engine.generate_occurrences(today - timedelta(days=90), today + timedelta(days=365))
         clauses = ["o.deleted_at IS NULL", "o.source_type = 'recurring'"]
         params: list[Any] = []
         if account_id:
@@ -90,7 +92,16 @@ class RecurrenceOccurrencesService:
             status = "overdue"
         original = str(row["original_expected_date"] or expected_date)
         editable = status in EDITABLE and not int(row["active_links"] or 0) and row["actual_transaction_id"] is None
+        if editable:
+            lock_reason = ""
+        elif status in {"auto_matched", "confirmed", "partially_matched"} or row["actual_transaction_id"] is not None or int(row["active_links"] or 0):
+            lock_reason = "Déjà rapprochée : annule d’abord le rapprochement dans l’écran Rapprochements."
+        elif status in {"ignored", "cancelled"}:
+            lock_reason = "Supprimée ou ignorée : rétablis-la d’abord."
+        else:
+            lock_reason = f"Statut « {STATUS_LABELS.get(status, status)} » : action impossible."
         return {
+            "lockReason": lock_reason,
             "id": int(row["id"]),
             "recurrenceId": int(row["source_id"]) if row["source_id"] is not None else None,
             "date": expected_date,

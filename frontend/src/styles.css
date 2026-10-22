@@ -2501,3 +2501,4 @@ button { cursor: pointer; }
 .transaction-filters--occurrences .occurrence-overdue-chip { grid-column: 1 / -1; justify-self: start; }
 .drawer-choice { display: grid; gap: 8px; margin: 0 0 14px; }
 .drawer-choice label { align-items: center; display: flex; font-size: 13px; font-weight: 700; gap: 8px; }
+.context-menu__note { border-top: 1px solid #e2e8f0; color: #667691; font-size: 12px; line-height: 1.4; margin: 6px 0 0; padding: 8px 12px 4px; }

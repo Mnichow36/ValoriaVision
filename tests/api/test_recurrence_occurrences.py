@@ -95,6 +95,19 @@ class RecurrenceOccurrencesTest(unittest.TestCase):
             self.assertLessEqual(after[item["id"]]["date"], (date.today() + timedelta(days=31)).isoformat())
             self.assertNotEqual(after[item["id"]]["status"], "overdue")
 
+    def test_ghost_reconciliation_state_is_repaired_and_lock_reason_explained(self):
+        _, tx_id, occurrence_id = make_pair(self.database)
+        with self.database.connect() as conn:
+            # État fantôme : occurrence « en retard » qui référence une transaction sans lien actif.
+            conn.execute("UPDATE forecast_occurrences SET status = 'overdue', actual_transaction_id = ? WHERE id = ?", (tx_id, occurrence_id))
+        item = next(i for i in self.service.snapshot()["items"] if i["id"] == occurrence_id)
+        self.assertTrue(item["canShift"], item)
+        self.assertEqual(item["lockReason"], "")
+        ForecastReconciliationService(self.database).confirm_manual_match(occurrence_id, tx_id)
+        locked = next(i for i in self.service.snapshot()["items"] if i["id"] == occurrence_id)
+        self.assertFalse(locked["canShift"])
+        self.assertIn("rapprochement", locked["lockReason"])
+
     def test_reconciled_occurrence_cannot_be_edited_shifted_or_deleted(self):
         _, tx_id, occurrence_id = make_pair(self.database)
         ForecastReconciliationService(self.database).confirm_manual_match(occurrence_id, tx_id)

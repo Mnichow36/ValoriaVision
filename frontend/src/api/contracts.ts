@@ -933,6 +933,7 @@ export interface RecurrenceOccurrence {
   canShift: boolean;
   canDelete: boolean;
   canRestore: boolean;
+  lockReason: string;
 }
 
 export interface RecurrenceOccurrencesSnapshot {

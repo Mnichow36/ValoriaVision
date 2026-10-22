@@ -143,6 +143,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
     setMenu({
       x: event.clientX,
       y: event.clientY,
+      note: item.lockReason || undefined,
       items: [
         { label: "Modifier l’occurrence…", disabled: !item.canEdit, hint: item.canEdit ? undefined : "Non modifiable", onSelect: () => setDrawer({ kind: "edit", item }) },
         { label: `Décaler${plural} à une date…`, disabled: !item.canShift, onSelect: () => setDrawer({ kind: "shift", items: group, mode: "date" }) },
@@ -228,7 +229,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
                 >
                   <td>
                     <label className="transaction-select">
-                      <input aria-label={`Sélectionner ${item.label} du ${formatDate(item.date)}`} checked={selectedIds.includes(item.id)} disabled={!item.canShift} onChange={() => setSelectedIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} type="checkbox" />
+                      <input title={item.lockReason || undefined} aria-label={`Sélectionner ${item.label} du ${formatDate(item.date)}`} checked={selectedIds.includes(item.id)} disabled={!item.canShift} onChange={() => setSelectedIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} type="checkbox" />
                       <span>{formatDate(item.date)}</span>
                     </label>
                     {item.shifted && <small className="occurrence-note">Initialement {formatDate(item.originalDate)}</small>}

@@ -12,6 +12,8 @@ export interface ContextMenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /** Explication affichée sous les actions (ex. pourquoi une action est grisée). */
+  note?: string;
 }
 
 /** Menu contextuel (clic droit) — CDC P4 : pas de bouton d'action permanent dans les listes. */
@@ -37,7 +39,7 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
 
   // Garde le menu dans la fenêtre.
   const width = 240;
-  const height = menu.items.length * 38 + 12;
+  const height = menu.items.length * 38 + 12 + (menu.note ? 64 : 0);
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
   const top = Math.max(8, Math.min(menu.y, window.innerHeight - height - 8));
 
@@ -60,6 +62,7 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
           {item.label}
         </button>
       ))}
+      {menu.note && <p className="context-menu__note">{menu.note}</p>}
     </div>
   );
 }
