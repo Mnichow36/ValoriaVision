@@ -173,6 +173,15 @@ class SafetyThresholdPayload(BaseModel):
     amount: float
 
 
+class ForecastSimulationPayload(BaseModel):
+    kind: str = "Dépense"
+    date: str
+    amount: float
+    account_id: int | None = None
+    label: str = ""
+    scenario: str = "Réaliste"
+
+
 class OccurrenceUpdatePayload(BaseModel):
     date: str
     amount: float
@@ -694,6 +703,20 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_session(x_valoria_session)
         try:
             return ForecastReadService(active_database).update_safety_threshold(payload.amount)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/v1/forecast/simulate")
+    def simulate_forecast(
+        payload: ForecastSimulationPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return ForecastReadService(active_database).simulate(payload.model_dump())
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

@@ -2549,3 +2549,33 @@ button.forecast-kpi { cursor: pointer; }
 .header-actions .segmented__item { background: transparent; border: 0; box-shadow: none; color: #3b4b69; min-height: 0; }
 .header-actions .segmented__item--active { background: #fff; box-shadow: 0 1px 2px rgba(15, 27, 58, .12); color: #1d4ed8; }
 @media (max-width: 1100px) { .forecast-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .forecast-v2 { height: auto; } .forecast-v2__main { grid-template-columns: 1fr; } .forecast-step-wrap { min-height: 360px; } }
+
+/* Prévisionnel : bouton et volet « Et si ? » */
+.forecast-whatif-button { background: #fff; color: #1d4ed8; border: 1px solid #bfd0f5; border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.forecast-whatif-button:hover { background: #eef3ff; }
+.sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.sim-grid select, .sim-grid input[type="date"], .sim-grid > label > input { width: 100%; box-sizing: border-box; height: 42px; border: 1px solid #cdd7e6; border-radius: 10px; padding: 0 12px; font: inherit; font-weight: 600; background: #fff; }
+.sim-segmented { display: flex; background: #e6ecf6; border-radius: 10px; padding: 3px; height: 42px; box-sizing: border-box; }
+.sim-segmented button { flex: 1; border: 0; background: transparent; border-radius: 8px; font-weight: 600; color: #3b4b69; cursor: pointer; }
+.sim-segmented button.is-active { background: #fff; box-shadow: 0 1px 2px rgba(15, 27, 58, .12); font-weight: 700; }
+.sim-segmented button.is-expense { color: #b91c1c; }
+.sim-segmented button.is-income { color: #15803d; }
+.sim-result { border: 1px solid #dde5f1; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.sim-result p { margin: 0; font-size: 13px; line-height: 1.5; }
+.sim-result--ko { border-color: #fecaca; background: #fff5f5; color: #7f1d1d; }
+.sim-result--ok { border-color: #bbf7d0; background: #f0fdf4; color: #14532d; }
+.sim-result--neutral { background: #f8fafc; color: #334155; }
+.sim-result__title { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.sim-dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; display: inline-block; }
+.sim-result--ko .sim-dot { background: #dc2626; }
+.sim-result--ok .sim-dot { background: #16a34a; }
+.sim-chart { width: 100%; height: auto; }
+.sim-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sim-tiles > div { background: #fff; border: 1px solid #dde5f1; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; color: #0f1b3a; }
+.sim-tiles small { font-size: 11px; font-weight: 700; color: #52627d; text-transform: uppercase; }
+.sim-tiles span { font-size: 12px; color: #52627d; }
+.sim-tiles strong { font-size: 16px; }
+.sim-tiles strong.is-bad { color: #b91c1c; }
+.sim-tip { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: #78350f; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.forecast-legend .forecast-whatif-button { margin-left: auto; white-space: nowrap; padding: 5px 14px; }
+.sim-grid .rules-input input { flex: 1; max-width: none; min-width: 0; height: 42px; box-sizing: border-box; border: 1px solid #cdd7e6; border-radius: 10px; padding: 0 12px; font: inherit; font-weight: 600; }

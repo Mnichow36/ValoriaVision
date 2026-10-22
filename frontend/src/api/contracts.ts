@@ -304,6 +304,32 @@ export interface ForecastAccount {
   name: string;
   bank: string;
   type: string;
+  status: string;
+}
+
+export interface ForecastSimulationMetrics {
+  daysBelow: number;
+  firstBelow: string | null;
+  lastBelow: string | null;
+  minBalance: number;
+  minDate: string;
+  finalBalance: number;
+}
+
+export interface ForecastSimulationResult {
+  kind: "Dépense" | "Recette";
+  label: string;
+  date: string;
+  amount: number;
+  accountId: number | null;
+  scenario: string;
+  threshold: number;
+  verdict: "ok" | "ko" | "no_threshold";
+  passes: boolean;
+  without: ForecastSimulationMetrics;
+  with: ForecastSimulationMetrics;
+  suggestion: { date: string; minBalance: number; daysBelow: number } | null;
+  series: { date: string; without: number; with: number }[];
 }
 
 export interface ForecastCategory {

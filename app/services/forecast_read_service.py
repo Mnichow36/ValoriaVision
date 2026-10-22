@@ -192,6 +192,100 @@ class ForecastReadService:
         self.database.set_setting(self.SAFETY_THRESHOLD_KEY, str(amount))
         return {"success": True, "message": f"Seuil de sécurité fixé à {amount:,.2f} €.".replace(",", " "), "safetyThreshold": amount}
 
+    def simulate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """« Et si ? » : compare la trésorerie avec et sans une opération hypothétique (rien n'est enregistré)."""
+        current_time = self.now_provider()
+        today = current_time.astimezone().date() if current_time.tzinfo is not None else current_time.date()
+        kind = str(payload.get("kind") or "Dépense")
+        if kind not in {"Dépense", "Recette"}:
+            raise ValueError("Le type doit être Dépense ou Recette.")
+        try:
+            amount = round(float(str(payload.get("amount")).replace(",", ".")), 2)
+        except (TypeError, ValueError):
+            raise ValueError("Le montant est invalide.")
+        if amount <= 0:
+            raise ValueError("Le montant doit être supérieur à 0.")
+        try:
+            day = date.fromisoformat(str(payload.get("date") or ""))
+        except ValueError:
+            raise ValueError("La date est invalide.")
+        if day <= today:
+            raise ValueError("La date simulée doit être postérieure à aujourd’hui.")
+        horizon_days = (day - today).days + 60
+        if horizon_days > 730:
+            raise ValueError("La simulation est limitée à 2 ans.")
+        account_id = payload.get("account_id")
+        account_id = int(account_id) if account_id not in (None, "", "all") else None
+        if account_id is not None:
+            account = next((row for row in self.database.list_accounts() if _integer(_field(row, "id", 0)) == account_id), None)
+            if account is None or str(_field(account, "status", "")) != "Actif":
+                raise ValueError("Le compte simulé doit être un compte actif.")
+        scenario = str(payload.get("scenario") or "Réaliste")
+        if scenario not in self.ALLOWED_SCENARIOS | set(self._custom_scenario_names()):
+            scenario = "Réaliste"
+        forecast = self.database.cash_forecast(today.isoformat(), horizon_days, scenario, account_id=account_id)
+        points = [(str(point["date"]), _number(point.get("balance"))) for point in forecast.get("daily_points", [])]
+        threshold = self.safety_threshold()
+        signed = -amount if kind == "Dépense" else amount
+
+        def metrics(effective_day: date | None) -> dict[str, Any]:
+            values = [
+                (point_day, balance + (signed if effective_day is not None and point_day >= effective_day.isoformat() else 0.0))
+                for point_day, balance in points
+            ]
+            below = [point_day for point_day, balance in values if threshold > 0 and balance < threshold]
+            low_day, low = min(values, key=lambda item: item[1]) if values else (today.isoformat(), 0.0)
+            return {
+                "values": values,
+                "daysBelow": len(below),
+                "firstBelow": below[0] if below else None,
+                "lastBelow": below[-1] if below else None,
+                "minBalance": round(low, 2),
+                "minDate": low_day,
+                "finalBalance": round(values[-1][1], 2) if values else 0.0,
+            }
+
+        without = metrics(None)
+        with_op = metrics(day)
+        def worsens(trial: dict[str, Any]) -> bool:
+            if trial["daysBelow"] > without["daysBelow"]:
+                return True
+            return trial["daysBelow"] > 0 and trial["minBalance"] < without["minBalance"] - 0.005
+
+        suggestion = None
+        if threshold > 0 and worsens(with_op):
+            for offset in range(1, 61):
+                candidate = day + timedelta(days=offset)
+                if candidate.isoformat() > points[-1][0]:
+                    break
+                trial = metrics(candidate)
+                if not worsens(trial):
+                    suggestion = {"date": candidate.isoformat(), "minBalance": trial["minBalance"], "daysBelow": trial["daysBelow"]}
+                    break
+        passes = not worsens(with_op)
+        verdict = "ok" if passes else "ko"
+        if threshold <= 0:
+            verdict = "no_threshold"
+        label = str(payload.get("label") or "").strip() or ("Dépense simulée" if kind == "Dépense" else "Recette simulée")
+        return {
+            "kind": kind,
+            "label": label,
+            "date": day.isoformat(),
+            "amount": amount,
+            "accountId": account_id,
+            "scenario": scenario,
+            "threshold": threshold,
+            "verdict": verdict,
+            "passes": passes,
+            "without": {key: value for key, value in without.items() if key != "values"},
+            "with": {key: value for key, value in with_op.items() if key != "values"},
+            "suggestion": suggestion,
+            "series": [
+                {"date": point_day, "without": _number(base), "with": _number(sim[1])}
+                for (point_day, base), sim in zip(without["values"], with_op["values"])
+            ],
+        }
+
     @staticmethod
     def _account(row: Any) -> dict[str, Any]:
         return {
@@ -200,6 +294,7 @@ class ForecastReadService:
             + ("" if str(_field(row, "status", "Actif") or "Actif") == "Actif" else f" ({str(_field(row, 'status', '')).lower()})"),
             "bank": str(_field(row, "bank", "") or ""),
             "type": str(_field(row, "account_type", "") or ""),
+            "status": str(_field(row, "status", "Actif") or "Actif"),
         }
 
     @staticmethod

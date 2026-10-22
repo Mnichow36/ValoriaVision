@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { deleteRecurrence, getForecast, getScenarioSettings, updateSafetyThreshold } from "../api/client";
 import type { ForecastAccount, ForecastEvent, ForecastPoint, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrenceItem, ReschedulableOccurrence, ReschedulableOccurrencesResult, ScenarioActionResult, ScenarioSettingsSnapshot } from "../api/contracts";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { ForecastSimulationDrawer } from "./ForecastSimulationDrawer";
 import { ForecastStepChart } from "./ForecastStepChart";
 import { SideDrawer } from "./SideDrawer";
 import { ScenarioManager } from "./ScenarioManager";
@@ -40,6 +41,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
   const [refreshKey, setRefreshKey] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [thresholdOpen, setThresholdOpen] = useState(false);
+  const [simulationOpen, setSimulationOpen] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>();
   const [scenarioManagerOpen, setScenarioManagerOpen] = useState(false);
   const [scenarioCatalog, setScenarioCatalog] = useState<ScenarioSettingsSnapshot>();
@@ -201,6 +203,7 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
               <span><i style={{ background: "#2563eb" }} />{snapshot.filters.scenario}</span>
               {scenario !== "Prudent" && visibleSeries.Prudent && <span><i className="forecast-legend__dash" />Prudent</span>}
               {snapshot.summary.safetyThreshold > 0 && <span><i className="forecast-legend__threshold" />Seuil</span>}
+              <button className="forecast-whatif-button" onClick={() => setSimulationOpen(true)} title="Tester une dépense ou une recette avant de la décider" type="button">Et si ?</button>
             </div>
             <div className="forecast-step-host">
               <ForecastStepChart
@@ -266,6 +269,22 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
         />
       )}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
+      {simulationOpen && (
+        <ForecastSimulationDrawer
+          accounts={snapshot.accounts}
+          categories={snapshot.categories}
+          defaultAccountId={accountId}
+          onClose={() => setSimulationOpen(false)}
+          onSaved={(message) => {
+            setSimulationOpen(false);
+            setNotice(message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+          scenario={scenario}
+          token={token}
+        />
+      )}
       {thresholdOpen && (
         <SafetyThresholdDrawer
           current={snapshot.summary.safetyThreshold}
