@@ -3335,6 +3335,14 @@ class Database:
                 starting_cash = 0.0
                 account_label = "Compte introuvable"
         raw_events = self.forecast_events(start_date, horizon_days, scenario, account_id=account_id)
+        if account_id is None:
+            # Vue « Tous les comptes » : les comptes archivés ou clos sont exclus du total
+            # (comme le solde de départ), pour que la courbe reste cohérente.
+            active_ids = {int(row["id"]) for row in self.list_accounts() if row["status"] == "Actif"}
+            raw_events = [
+                event for event in raw_events
+                if event.get("account_id") is None or int(event["account_id"]) in active_ids
+            ]
         events = self.apply_forecast_scenario_preset(raw_events, scenario)
         start = datetime.strptime(start_date, "%Y-%m-%d").date()
 
