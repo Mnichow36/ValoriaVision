@@ -43,6 +43,9 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [allDates, setAllDates] = useState(true);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [editing, setEditing] = useState<TransactionRow>();
   const [creating, setCreating] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>();
@@ -89,9 +92,37 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
       const matchesAccount = accountId === "all" || transaction.accountId === Number(accountId);
       const matchesFrom = allDates || !dateFrom || transaction.date >= dateFrom;
       const matchesTo = allDates || !dateTo || transaction.date <= dateTo;
-      return matchesSearch && matchesAccount && matchesFrom && matchesTo;
+      const matchesCategory = categoryFilter === "all" || transaction.category === categoryFilter;
+      const matchesStatus = statusFilter === "all"
+        || (statusFilter === RECONCILED_FILTER ? Boolean(transaction.reconciliation?.reconciled) : transaction.status === statusFilter);
+      return matchesSearch && matchesAccount && matchesFrom && matchesTo && matchesCategory && matchesStatus;
+    }).sort((left, right) => compareTransactions(left, right, sort.key, sort.direction));
+  }, [accountId, allDates, categoryFilter, dateFrom, dateTo, search, snapshot, sort, statusFilter]);
+
+  const categoryOptions = useMemo(
+    () => Array.from(new Set((snapshot?.transactions ?? []).map((transaction) => transaction.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr")),
+    [snapshot],
+  );
+  const statusOptions = useMemo(
+    () => Array.from(new Set((snapshot?.transactions ?? []).map((transaction) => transaction.status).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr")),
+    [snapshot],
+  );
+  const hasActiveFilter = categoryFilter !== "all" || statusFilter !== "all" || accountId !== "all" || search.trim() !== "";
+
+  function toggleSort(key: SortKey) {
+    setSort((current) => current.key === key
+      ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: key === "date" || key === "amount" ? "desc" : "asc" });
+  }
+
+  function resetFilters() {
+    clearSelectionForFilter(() => {
+      setSearch("");
+      setAccountId("all");
+      setCategoryFilter("all");
+      setStatusFilter("all");
     });
-  }, [accountId, allDates, dateFrom, dateTo, search, snapshot]);
+  }
 
   const visibleIds = visibleTransactions.map((transaction) => transaction.id);
   const visibleSelectedIds = selectedIds.filter((id) => visibleIds.includes(id));
@@ -221,6 +252,18 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
           <label className="transaction-all-dates"><input aria-label="Afficher toutes les dates" checked={allDates} onChange={(event) => clearSelectionForFilter(() => setAllDates(event.target.checked))} type="checkbox" /><span>Toutes dates</span></label>
           <span className="transaction-count">{visibleTransactions.length} opération{visibleTransactions.length > 1 ? "s" : ""}</span>
         </div>
+        <div className="transaction-filters transaction-filters--secondary" role="group" aria-label="Filtres complémentaires">
+          <select aria-label="Filtrer par catégorie" onChange={(event) => clearSelectionForFilter(() => setCategoryFilter(event.target.value))} value={categoryFilter}>
+            <option value="all">Toutes les catégories</option>
+            {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+          <select aria-label="Filtrer par statut" onChange={(event) => clearSelectionForFilter(() => setStatusFilter(event.target.value))} value={statusFilter}>
+            <option value="all">Tous les statuts</option>
+            <option value={RECONCILED_FILTER}>Rapprochées (liées à une prévision)</option>
+            {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+          {hasActiveFilter && <button className="transaction-filter-reset" onClick={resetFilters} type="button">Réinitialiser les filtres</button>}
+        </div>
 
         {visibleSelectedIds.length > 0 && (
           <div className="transaction-bulkbar">
@@ -238,7 +281,14 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
 
         <div className="transactions-table-wrap">
           <table className="transactions-table">
-            <thead><tr><th><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />Date</label></th><th>Compte</th><th>Tiers / Libellé</th><th>Catégorie</th><th>Statut</th><th>Montant</th></tr></thead>
+            <thead><tr>
+              <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" /><SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
+              <th aria-sort={ariaSort(sort, "account")}><SortButton label="Compte" onSort={toggleSort} sort={sort} sortKey="account" /></th>
+              <th aria-sort={ariaSort(sort, "label")}><SortButton label="Tiers / Libellé" onSort={toggleSort} sort={sort} sortKey="label" /></th>
+              <th aria-sort={ariaSort(sort, "category")}><SortButton label="Catégorie" onSort={toggleSort} sort={sort} sortKey="category" /></th>
+              <th aria-sort={ariaSort(sort, "status")}><SortButton label="Statut" onSort={toggleSort} sort={sort} sortKey="status" /></th>
+              <th aria-sort={ariaSort(sort, "amount")}><SortButton label="Montant" onSort={toggleSort} sort={sort} sortKey="amount" /></th>
+            </tr></thead>
             <tbody>
               {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
                 <TransactionLine
@@ -561,6 +611,47 @@ function TransactionsRecurrences({
       )}
     </div>
   );
+}
+
+type SortKey = "date" | "account" | "label" | "category" | "status" | "amount";
+const RECONCILED_FILTER = "__reconciled__";
+
+function ariaSort(sort: { key: SortKey; direction: "asc" | "desc" }, key: SortKey): "ascending" | "descending" | "none" {
+  if (sort.key !== key) return "none";
+  return sort.direction === "asc" ? "ascending" : "descending";
+}
+
+function SortButton({ label, onSort, sort, sortKey }: {
+  label: string;
+  onSort: (key: SortKey) => void;
+  sort: { key: SortKey; direction: "asc" | "desc" };
+  sortKey: SortKey;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <button
+      className={active ? "transaction-sort transaction-sort--active" : "transaction-sort"}
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSort(sortKey); }}
+      title={`Trier par ${label.toLocaleLowerCase("fr")}`}
+      type="button"
+    >
+      {label}<span aria-hidden="true">{active ? (sort.direction === "asc" ? "▲" : "▼") : "↕"}</span>
+    </button>
+  );
+}
+
+function compareTransactions(left: TransactionRow, right: TransactionRow, key: SortKey, direction: "asc" | "desc"): number {
+  const factor = direction === "asc" ? 1 : -1;
+  let result = 0;
+  if (key === "date") result = left.date.localeCompare(right.date);
+  else if (key === "amount") result = left.amount - right.amount;
+  else if (key === "account") result = shortAccount(left).localeCompare(shortAccount(right), "fr");
+  else if (key === "label") result = (left.beneficiary || left.label).localeCompare(right.beneficiary || right.label, "fr");
+  else if (key === "category") result = left.category.localeCompare(right.category, "fr");
+  else if (key === "status") result = left.status.localeCompare(right.status, "fr");
+  if (result !== 0) return result * factor;
+  // Départage stable : date récente d'abord, puis identifiant.
+  return right.date.localeCompare(left.date) || right.id - left.id;
 }
 
 function TransactionLine({ onContextMenu, onEdit, onToggle, selected, transaction }: { onContextMenu: (event: MouseEvent) => void; onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
