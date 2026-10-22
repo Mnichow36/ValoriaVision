@@ -209,3 +209,23 @@ def is_uncategorized_transaction(category: str | None, status: str | None) -> bo
     category_value = (category or "").strip()
     status_value = (status or "").strip()
     return status_value == "À catégoriser" or category_value == "" or category_value == "À catégoriser"
+
+
+# Termes désignant un élément déjà porté par les comptes bancaires (liquidités,
+# livrets, découverts…). Ces lignes ne sont pas des actifs patrimoniaux saisis :
+# leur montant vient en direct des comptes, afin de ne jamais le compter deux fois.
+ACCOUNT_LIKE_ASSET_TERMS = (
+    "compte courant", "compte bancaire", "liquidités", "liquidites", "livret",
+    "épargne", "epargne", "dépôt", "depot", "découvert", "decouvert",
+)
+
+
+def is_patrimonial_asset(name: str | None, category: str | None, asset_type: str | None) -> bool:
+    """True when the row is a real patrimonial asset or liability.
+
+    Single rule shared by the Patrimoine screen and by the net worth used on the
+    Dashboard, so that both screens always show the same figures.
+    """
+
+    text = " ".join(str(value or "").casefold() for value in (name, category, asset_type))
+    return not any(term in text for term in ACCOUNT_LIKE_ASSET_TERMS)

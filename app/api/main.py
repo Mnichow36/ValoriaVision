@@ -269,7 +269,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             "https://tauri.localhost",
         ],
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=[
             "Accept",
             "Content-Type",

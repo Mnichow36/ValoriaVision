@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from app.services.business_rules import is_patrimonial_asset
+
 
 def _field(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
@@ -37,13 +39,33 @@ class AssetsReadService:
         active_rows = [row for row in rows if row["status"] == "Actif" and self._is_patrimonial(row)]
         assets = [row for row in active_rows if row["value"] >= 0]
         liabilities = [row for row in active_rows if row["value"] < 0]
-        total_assets = round(sum(row["value"] for row in assets), 2)
-        total_liabilities = round(abs(sum(row["value"] for row in liabilities)), 2)
-        net = round(total_assets - total_liabilities, 2)
+        breakdown_provider = getattr(self.database, "net_worth_breakdown", None)
+        if callable(breakdown_provider):
+            # Single source of truth shared with the Dashboard: net worth
+            # includes the live liquidity of the accounts (decision 22/10/2026).
+            breakdown = breakdown_provider()
+            total_assets = _number(breakdown["assets"])
+            total_liabilities = _number(breakdown["liabilities"])
+            net = _number(breakdown["net_worth"])
+            liquidities = _number(breakdown["liquidities"])
+        else:
+            total_assets = round(sum(row["value"] for row in assets), 2)
+            total_liabilities = round(abs(sum(row["value"] for row in liabilities)), 2)
+            net = round(total_assets - total_liabilities, 2)
+            liquidities = 0.0
         evolution = self._evolution()
+        if callable(breakdown_provider) and evolution:
+            # The stored valuation history does not contain account liquidity.
+            # The latest point always reflects today's consolidated figures.
+            evolution[-1] = {
+                **evolution[-1],
+                "net": net,
+                "assets": total_assets,
+                "liabilities": -total_liabilities,
+            }
         starting_net = evolution[0]["net"] if evolution else 0
         change_percent = round((net - starting_net) / abs(starting_net) * 100, 1) if starting_net else 0.0
-        families = self._families(assets, total_assets)
+        families = self._families(assets, total_assets, liquidities)
 
         return {
             "generatedAt": self.now_provider().isoformat(),
@@ -52,7 +74,7 @@ class AssetsReadService:
                 "totalAssets": total_assets,
                 "totalLiabilities": total_liabilities,
                 "netWorth": net,
-                "liquidities": 0.0,
+                "liquidities": liquidities,
                 "changePercent": change_percent,
                 "assetCount": len(assets),
                 "liabilityCount": len(liabilities),
@@ -86,12 +108,7 @@ class AssetsReadService:
 
     @staticmethod
     def _is_patrimonial(row: dict[str, Any]) -> bool:
-        excluded_terms = (
-            "compte courant", "compte bancaire", "liquidités", "liquidites", "livret",
-            "épargne", "epargne", "dépôt", "depot", "découvert", "decouvert",
-        )
-        text = " ".join(str(row.get(key, "")).casefold() for key in ("name", "category", "type"))
-        return not any(term in text for term in excluded_terms)
+        return is_patrimonial_asset(row.get("name"), row.get("category"), row.get("type"))
 
     def _evolution(self) -> list[dict[str, Any]]:
         raw = {
@@ -117,10 +134,12 @@ class AssetsReadService:
         ]
 
     @staticmethod
-    def _families(assets: list[dict[str, Any]], total_assets: float) -> list[dict[str, Any]]:
+    def _families(assets: list[dict[str, Any]], total_assets: float, live_liquidities: float = 0.0) -> list[dict[str, Any]]:
         values: dict[str, float] = {}
         for asset in assets:
             values[asset["category"]] = round(values.get(asset["category"], 0) + asset["value"], 2)
+        if live_liquidities > 0:
+            values["Liquidités"] = round(values.get("Liquidités", 0) + live_liquidities, 2)
         return [
             {
                 "name": name,

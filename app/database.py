@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.services.counterparty_parser import extract_counterparty
-from app.services.business_rules import balance_at_date, is_current_expense, is_true_income, summarize_accounts_at_date
+from app.services.business_rules import balance_at_date, is_current_expense, is_patrimonial_asset, is_true_income, summarize_accounts_at_date
 from app.services.forecast_reconciliation_service import ForecastReconciliationService
 from app.services.reconciliation import (
     ReconciliationRules,
@@ -2443,10 +2443,8 @@ class Database:
             )
             revenus = sum(float(row["amount"] or 0) for row in tx_rows if is_true_income(row["category"], float(row["amount"] or 0)))
             depenses = abs(sum(float(row["amount"] or 0) for row in tx_rows if is_current_expense(row["category"], float(row["amount"] or 0))))
-            assets = conn.execute("SELECT SUM(value) AS total FROM assets WHERE value > 0 AND status = 'Actif'").fetchone()["total"] or 0
-            passifs = conn.execute("SELECT ABS(SUM(value)) AS total FROM assets WHERE value < 0 AND status = 'Actif'").fetchone()["total"] or 0
         liquidites_disponibles = summary["liquidites"]
-        patrimoine_net = assets - passifs
+        patrimoine_net = self.net_worth_breakdown()["net_worth"]
         start_date = self.default_forecast_start_date()
         forecast_30 = self.cash_forecast(start_date, 30, "Réaliste")["end_balance"]
         return {
@@ -2606,10 +2604,56 @@ class Database:
         self.seal_database_to_encrypted_vault()
 
 
+    def net_worth_breakdown(self) -> dict[str, float]:
+        """Single source of truth for assets, liabilities and net worth.
+
+        Business rule (validated 22/10/2026): net worth includes the liquidity
+        of the active current and savings accounts, computed live from the
+        accounts. Used by the Dashboard and by the Patrimoine screen.
+        """
+        with self.connect() as conn:
+            rows = list(
+                conn.execute(
+                    "SELECT name, category, asset_type, value FROM assets WHERE status = 'Actif'"
+                )
+            )
+        asset_values = [
+            float(row["value"] or 0)
+            for row in rows
+            if float(row["value"] or 0) > 0 and is_patrimonial_asset(row["name"], row["category"], row["asset_type"])
+        ]
+        liability_values = [
+            abs(float(row["value"] or 0))
+            for row in rows
+            if float(row["value"] or 0) < 0 and is_patrimonial_asset(row["name"], row["category"], row["asset_type"])
+        ]
+        liquidities = round(float(self.account_summary()["liquidites"] or 0), 2)
+        assets_total = round(sum(asset_values) + max(liquidities, 0.0), 2)
+        liabilities_total = round(sum(liability_values) + max(-liquidities, 0.0), 2)
+        return {
+            "assets": assets_total,
+            "liabilities": liabilities_total,
+            "liquidities": liquidities,
+            "net_worth": round(assets_total - liabilities_total, 2),
+        }
+
     def asset_summary(self) -> dict[str, float]:
         with self.connect() as conn:
-            rows = list(conn.execute("SELECT category, SUM(value) AS total FROM assets WHERE status = 'Actif' GROUP BY category"))
-        return {row["category"]: row["total"] or 0 for row in rows}
+            rows = list(
+                conn.execute(
+                    "SELECT name, category, asset_type, value FROM assets WHERE status = 'Actif'"
+                )
+            )
+        totals: dict[str, float] = {}
+        for row in rows:
+            if not is_patrimonial_asset(row["name"], row["category"], row["asset_type"]):
+                continue
+            category = row["category"]
+            totals[category] = totals.get(category, 0.0) + float(row["value"] or 0)
+        liquidities = round(float(self.account_summary()["liquidites"] or 0), 2)
+        if liquidities:
+            totals["Liquidités"] = totals.get("Liquidités", 0.0) + liquidities
+        return totals
 
 
     def patrimonio_evolution(self, mode: str = "net") -> list[dict[str, float | str]]:

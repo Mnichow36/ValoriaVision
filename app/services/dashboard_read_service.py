@@ -88,7 +88,7 @@ class DashboardReadService:
                 "label": "Dépenses du mois",
                 "value": _number(metrics.get("depenses")),
                 "currency": "EUR",
-                "detail": "Hors transferts et investissements",
+                "detail": "Y compris épargne programmée et remboursements ; hors transferts et investissements",
                 "tone": "red",
             },
         ]

@@ -32,6 +32,11 @@ class BudgetsReadService:
         self.now_provider = now_provider
 
     def snapshot(self, month: str | None = None) -> dict[str, Any]:
+        # Default to the real current month (same rule as the Dashboard), not to
+        # the historical "current_month" setting that can stay on an old month.
+        default_month = getattr(self.database, "dashboard_current_month", None)
+        if month is None and callable(default_month):
+            month = default_month()
         report = self.database.budget_report(month)
         selected_month = str(report.get("month") or month or "")
         transactions = list(self.database.list_transactions())

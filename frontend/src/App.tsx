@@ -446,6 +446,20 @@ function ModulePlaceholder({ module }: { module: ModuleDefinition }) {
   );
 }
 
+/**
+ * Keeps every item in the chart so the slices always add up to the announced
+ * total: the largest items first, the smallest ones grouped under "Autres".
+ */
+function groupSlices(items: { label: string; value: number }[], palette: string[], maxSlices = 6) {
+  const sorted = [...items].sort((left, right) => right.value - left.value);
+  const kept = sorted.length > maxSlices ? sorted.slice(0, maxSlices - 1) : sorted;
+  const rest = sorted.length > maxSlices ? sorted.slice(maxSlices - 1) : [];
+  const slices = rest.length > 0
+    ? [...kept, { label: "Autres", value: rest.reduce((total, item) => total + item.value, 0) }]
+    : kept;
+  return slices.map((item, index) => ({ ...item, color: palette[index % palette.length] }));
+}
+
 function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
   const kpis = new Map(snapshot.kpis.map((kpi) => [kpi.id, kpi]));
   const cash = kpis.get("cash")?.value ?? 0;
@@ -453,22 +467,20 @@ function Dashboard({ snapshot }: { snapshot: DashboardSnapshot }) {
   const income = kpis.get("income")?.value ?? 0;
   const expenses = kpis.get("expenses")?.value ?? snapshot.budget.totalRealized;
   const savings = income - expenses;
-  const expenseRows = snapshot.budget.rows.filter((row) => row.actual > 0).slice(0, 4);
+  const expenseRows = snapshot.budget.rows.filter((row) => row.actual > 0);
   const expenseTotal = expenseRows.reduce((total, row) => total + row.actual, 0);
   const assetTotal = snapshot.assets.reduce((total, item) => total + item.value, 0);
   const budgetVariance = snapshot.budget.totalRealized - snapshot.budget.totalPlanned;
   const toProcess = snapshot.alerts.filter((alert) => alert.level === "warning" || alert.level === "critical").length
     + snapshot.budget.rows.filter((row) => row.usage > 100).length;
-  const expenseSlices = expenseRows.map((row, index) => ({
-    label: row.category,
-    value: row.actual,
-    color: ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626"][index % 4],
-  }));
-  const assetSlices = snapshot.assets.filter((item) => item.value > 0).slice(0, 5).map((item, index) => ({
-    label: item.label,
-    value: item.value,
-    color: ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b"][index % 5],
-  }));
+  const expenseSlices = groupSlices(
+    expenseRows.map((row) => ({ label: row.category, value: row.actual })),
+    ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626", "#7c3aed", "#64748b"],
+  );
+  const assetSlices = groupSlices(
+    snapshot.assets.filter((item) => item.value > 0).map((item) => ({ label: item.label, value: item.value })),
+    ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b", "#64748b"],
+  );
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
 
   return (
