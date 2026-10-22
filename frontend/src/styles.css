@@ -2418,7 +2418,12 @@ button { cursor: pointer; }
 .reconciliation-history__line--cancelled { color: #6b778c; }
 
 /* Réglage des écarts de dates et de montants */
-.reconciliation-rules { display: grid; gap: 12px; padding: 12px 16px; }
+.reconciliation-rules { display: grid; gap: 12px; justify-items: end; }
+.rules-toggle { background: transparent; border: 0; color: #52627d; cursor: pointer; font-size: 12px; font-weight: 700; padding: 2px 4px; }
+.rules-toggle:hover { color: #2563eb; text-decoration: underline; }
+.rules-body { justify-self: stretch; padding: 18px; }
+.rules-save { background: #2563eb; border: 0; border-radius: 9px; color: #fff; cursor: pointer; font-size: 12px; font-weight: 800; min-height: 38px; padding: 8px 18px; }
+.rules-save:disabled { opacity: .65; }
 .rules-body { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .rules-group { display: grid; gap: 10px; align-content: start; }
 .rules-group h3 { margin: 0; font-size: 0.95rem; }
@@ -2428,3 +2433,35 @@ button { cursor: pointer; }
 .rules-field input { width: 90px; padding: 6px 8px; border: 1px solid #d9e1ec; border-radius: 8px; font: inherit; }
 .rules-field small { color: #8794a8; }
 .rules-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+
+/* Écran Rapprochements — rendu cible R8.0 */
+.reconciliation-kpi__mark--orange { background: #f59e0b; }
+.reconciliation-kpi__mark--blue { background: #2563eb; }
+.reconciliation-kpi > small.reconciliation-kpi__detail { font-size: 12px; font-weight: 700; }
+.reconciliation-kpi__detail--danger { color: #dc2626 !important; }
+.reconciliation-kpi__detail--success { color: #16a34a !important; }
+.reconciliation-item__top strong { font-size: 14px; max-width: 100%; }
+.reconciliation-item__meta { margin: 6px 0 10px; font-size: 11px; }
+.reconciliation-item__meta span:last-child { max-width: 100%; }
+.reconciliation-item__footer b { font-size: 14px; white-space: nowrap; }
+.reconciliation-item .reconciliation-status { font-size: 11px; padding: 4px 10px; max-width: 60%; }
+.reconciliation-item__hint { color: #697b99; display: block; font-size: 10px; margin-top: 6px; }
+.reconciliation-selection { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; gap: 4px; padding: 14px 16px; }
+.reconciliation-selection--blue { background: #eff6ff; border: 2px solid #2563eb; }
+.reconciliation-selection--green { background: #ecfdf5; border: 2px solid #16a34a; }
+.reconciliation-selection > span { font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: none; }
+.reconciliation-selection--blue > span { color: #2563eb; }
+.reconciliation-selection--green > span { color: #16a34a; }
+.reconciliation-selection > strong { font-size: 16px; }
+.reconciliation-selection > small { color: #52627d; font-size: 11px; }
+.reconciliation-selection > small b { font-size: 11px; }
+.reconciliation-score__badge { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 999px; color: #16a34a !important; font-size: 12px !important; padding: 2px 10px; }
+.reconciliation-score { margin-top: 22px; }
+.reconciliation-score > div:first-child > span { font-size: 14px; color: #1f2a44; }
+.reconciliation-controls { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; gap: 6px; margin-top: 18px; padding: 14px 16px; }
+.reconciliation-controls h3 { font-size: 13px; margin: 0 0 2px; }
+.reconciliation-controls p { font-size: 12px; font-weight: 700; margin: 0; }
+.reconciliation-controls p.ok { color: #16a34a; }
+.reconciliation-controls p.warn { color: #b45309; }
+.reconciliation-controls p.muted { color: #697b99; font-size: 10px; font-weight: 500; }
+.reconciliation-actions button { font-size: 12px; min-height: 40px; }

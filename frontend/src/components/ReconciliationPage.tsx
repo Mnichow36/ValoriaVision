@@ -36,7 +36,7 @@ const money = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 2,
 });
 
-const shortDate = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+const shortDate = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, status, token }: ReconciliationPageProps) {
   const [snapshot, setSnapshot] = useState<ReconciliationSnapshot>();
@@ -225,10 +225,10 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
       />
 
       <section className="reconciliation-kpis" aria-label="Indicateurs de rapprochement">
-        <ReconciliationKpi detail="Issues des imports et saisies" label="Transactions non rapprochées" tone="blue" value={snapshot.summary.unmatchedTransactions} />
-        <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} écarts de montant`} label="Prévisions ouvertes" tone="cyan" value={snapshot.summary.openOccurrences} />
-        <ReconciliationKpi detail={`Score moyen ${snapshot.summary.averageScore} %`} label="Propositions auto" tone="purple" value={snapshot.summary.automaticProposals} />
-        <ReconciliationKpi detail="Automatiques + manuelles" label="Rapprochées" tone="green" value={snapshot.summary.matched} />
+        <ReconciliationKpi detail="Issues des imports et saisies" detailTone={snapshot.summary.unmatchedTransactions > 0 ? "danger" : "success"} label="Transactions non rapprochées" tone="orange" value={snapshot.summary.unmatchedTransactions} />
+        <ReconciliationKpi detail={`${snapshot.summary.toReview} à vérifier · ${snapshot.summary.partial} écarts de montant`} detailTone="success" label="Prévisions ouvertes" tone="blue" value={snapshot.summary.openOccurrences} />
+        <ReconciliationKpi detail={`Score moyen ${snapshot.summary.averageScore} %`} detailTone="success" label="Propositions auto" tone="cyan" value={snapshot.summary.automaticProposals} />
+        <ReconciliationKpi detail="Automatiques + manuelles" detailTone="success" label="Rapprochées" tone="green" value={snapshot.summary.matched} />
       </section>
 
       <section className="reconciliation-workbench">
@@ -236,6 +236,7 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, st
           {snapshot.transactions.length > 0 ? snapshot.transactions.map((transaction) => (
             <TransactionCard
               key={transaction.id}
+              suggestion={snapshot.suggestions.find((row) => row.transactionId === transaction.id)}
               onContextMenu={(event) => openTransactionMenu(event, transaction)}
               onSelect={() => selectTransaction(transaction)}
               selected={transaction.id === selectedTransactionId}
@@ -351,12 +352,12 @@ function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: Rec
   }
 
   return (
-    <section className="card reconciliation-rules">
-      <button aria-expanded={open} className="secondary-button" onClick={() => setOpen((value) => !value)} type="button">
-        Écarts de dates et de montants · {rules.dateToleranceDays} j / {rules.amountTolerancePercent} % auto · {rules.manualWindowDays} j / {rules.manualAmountTolerancePercent} % manuel
+    <section className="reconciliation-rules">
+      <button aria-expanded={open} className="rules-toggle" onClick={() => setOpen((value) => !value)} type="button">
+        ⚙ Écarts de dates et de montants · {rules.dateToleranceDays} j / {rules.amountTolerancePercent} % auto · {rules.manualWindowDays} j / {rules.manualAmountTolerancePercent} % manuel
       </button>
       {open && (
-        <div className="rules-body">
+        <div className="card rules-body">
           <div className="rules-group">
             <h3>Rapprochement automatique</h3>
             <p>Au-delà de ces écarts, le moteur ne propose aucune correspondance automatique.</p>
@@ -371,19 +372,19 @@ function RulesPanel({ onSaved, rules, token }: { onSaved: () => void; rules: Rec
             {field("manualAmountTolerancePercent", "Écart de montant", "%", "0 à 100")}
           </div>
           {feedback && <p className={`reconciliation-feedback reconciliation-feedback--${feedback.kind}`} role="status">{feedback.text}</p>}
-          <div className="rules-actions"><button className="reconciliation-actions__primary" disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer les écarts"}</button></div>
+          <div className="rules-actions"><button className="rules-save" disabled={busy} onClick={() => void save()} type="button">{busy ? "Enregistrement…" : "Enregistrer les écarts"}</button></div>
         </div>
       )}
     </section>
   );
 }
 
-function ReconciliationKpi({ detail, label, tone, value }: { detail: string; label: string; tone: string; value: number }) {
+function ReconciliationKpi({ detail, detailTone, label, tone, value }: { detail: string; detailTone: "danger" | "success"; label: string; tone: string; value: number }) {
   return (
     <article className="card reconciliation-kpi">
       <div><span>{label}</span><i className={`reconciliation-kpi__mark reconciliation-kpi__mark--${tone}`} /></div>
       <strong>{value.toLocaleString("fr-FR")}</strong>
-      <small>{detail}</small>
+      <small className={`reconciliation-kpi__detail reconciliation-kpi__detail--${detailTone}`}>{detail}</small>
     </article>
   );
 }
@@ -400,16 +401,25 @@ function QueuePanel({ children, count, subtitle, title }: { children: ReactNode;
   );
 }
 
-function TransactionCard({ onContextMenu, onSelect, selected, transaction }: { onContextMenu: (event: MouseEvent) => void; onSelect: () => void; selected: boolean; transaction: ReconciliationTransaction }) {
+function TransactionCard({ onContextMenu, onSelect, selected, suggestion, transaction }: { onContextMenu: (event: MouseEvent) => void; onSelect: () => void; selected: boolean; suggestion?: ReconciliationSuggestion; transaction: ReconciliationTransaction }) {
   const displayName = transaction.beneficiary || transaction.label;
   const hasDistinctBankLabel = Boolean(transaction.beneficiary)
     && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
+  let pill: ReactNode;
+  if (transaction.reconciled) {
+    pill = <span className="reconciliation-status reconciliation-status--success" title={`Rapprochée avec « ${transaction.links[0]?.label ?? ""} »`}>Rapprochée</span>;
+  } else if (transaction.manualCandidate) {
+    pill = <span className="reconciliation-status reconciliation-status--warning" title={transaction.manualCandidate.reason}>Écart de date · {transaction.manualCandidate.dayGap} j</span>;
+  } else {
+    pill = <span className={`reconciliation-status reconciliation-status--${suggestionTone(suggestion)}`} title={suggestion?.reason}>Non rapprochée</span>;
+  }
   return (
     <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} onContextMenu={onContextMenu} type="button">
-      <div className="reconciliation-item__top"><strong>{displayName}</strong><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b></div>
+      <div className="reconciliation-item__top"><strong>{displayName}</strong></div>
       {hasDistinctBankLabel && <small className="reconciliation-item__bank-label" title={transaction.label}>{transaction.label}</small>}
-      <div className="reconciliation-item__meta"><span>{formatDate(transaction.date)}</span><span>{transaction.accountName}</span></div>
-      <div className="reconciliation-item__footer"><span className="transaction-pill transaction-pill--muted">{transaction.category}</span>{!transaction.reconciled && transaction.manualCandidate ? <span className="transaction-pill transaction-pill--warning" title={transaction.manualCandidate.reason}>Écart de date · {transaction.manualCandidate.dayGap} j</span> : transaction.reconciled ? <span className="reconciled-pill" title={`Rapprochée avec « ${transaction.links[0]?.label ?? ""} »`}>Rapprochée</span> : <small>{transaction.remainingAmount < Math.abs(transaction.amount) ? `${money.format(transaction.remainingAmount)} disponibles` : "Non rapprochée"}</small>}</div>
+      <div className="reconciliation-item__meta"><span>{formatDate(transaction.date)} - {transaction.accountName}</span></div>
+      <div className="reconciliation-item__footer"><b className={transaction.amount >= 0 ? "positive" : "negative"}>{signedMoney(transaction.amount)}</b>{pill}</div>
+      {!transaction.reconciled && transaction.remainingAmount < Math.abs(transaction.amount) && <small className="reconciliation-item__hint">{money.format(transaction.remainingAmount)} disponibles</small>}
     </button>
   );
 }
@@ -417,11 +427,19 @@ function TransactionCard({ onContextMenu, onSelect, selected, transaction }: { o
 function OccurrenceCard({ occurrence, onContextMenu, onSelect, selected }: { occurrence: ReconciliationOccurrence; onContextMenu: (event: MouseEvent) => void; onSelect: () => void; selected: boolean }) {
   return (
     <button aria-pressed={selected} className={selected ? "reconciliation-item reconciliation-item--selected" : "reconciliation-item"} onClick={onSelect} onContextMenu={onContextMenu} type="button">
-      <div className="reconciliation-item__top"><strong>{occurrence.label}</strong><b className={occurrence.amount >= 0 ? "positive" : "negative"}>{signedMoney(occurrence.amount)}</b></div>
-      <div className="reconciliation-item__meta"><span>{formatDate(occurrence.date)}</span><span>{occurrence.accountName}</span></div>
-      <div className="reconciliation-item__footer"><span className={`reconciliation-status reconciliation-status--${statusTone(occurrence.displayStatus)}`}>{occurrence.statusLabel}</span><small>{money.format(occurrence.remainingAmount)} restants</small></div>
+      <div className="reconciliation-item__top"><strong>{occurrence.label}</strong></div>
+      <div className="reconciliation-item__meta"><span>{formatDate(occurrence.date)} - {occurrence.accountName}</span></div>
+      <div className="reconciliation-item__footer"><b className={occurrence.amount >= 0 ? "positive" : "negative"}>{signedMoney(occurrence.amount)}</b><span className={`reconciliation-status reconciliation-status--${statusTone(occurrence.displayStatus)}`}>{occurrence.statusLabel}</span></div>
+      {Math.abs(occurrence.remainingAmount - Math.abs(occurrence.amount)) > 0.005 && <small className="reconciliation-item__hint">{money.format(occurrence.remainingAmount)} restants</small>}
     </button>
   );
+}
+
+function suggestionTone(suggestion?: ReconciliationSuggestion): string {
+  if (!suggestion) return "muted";
+  if (Math.abs(suggestion.amountDifference) > 0.005) return "danger";
+  if (suggestion.decision === "automatic") return "success";
+  return "warning";
 }
 
 function ProposalPanel({
@@ -466,7 +484,7 @@ function ProposalPanel({
     return (
       <aside className="card reconciliation-proposal">
         <div className="reconciliation-heading"><div><h2>Proposition de rapprochement</h2><p>Sélectionnez également une prévision à traiter.</p></div></div>
-        <SelectionSummary label="Transaction" name={transactionDisplayName} amount={transaction.amount} />
+        <SelectionSummary label="Transaction réelle sélectionnée" name={transactionDisplayName} date={transaction.date} account={transaction.accountName} amount={transaction.amount} tone="blue" />
         <p className="reconciliation-proposal__empty">Aucune prévision n’est sélectionnée.</p>
       </aside>
     );
@@ -474,28 +492,27 @@ function ProposalPanel({
 
   const dateDifference = Math.abs((new Date(transaction.date).getTime() - new Date(occurrence.date).getTime()) / 86_400_000);
   const overage = Math.max(transaction.remainingAmount - occurrence.remainingAmount, 0);
+  const amountGap = Math.abs(Math.abs(transaction.amount) - Math.abs(occurrence.amount));
   return (
     <aside className="card reconciliation-proposal">
-      <div className="reconciliation-heading"><div><h2>Proposition de rapprochement</h2><p>{suggestion ? "Meilleure correspondance expliquée par le moteur." : "Paire sélectionnée pour un contrôle manuel."}</p></div></div>
-      <SelectionSummary label="Transaction réelle" name={transactionDisplayName} amount={transaction.amount} />
-      <div className="reconciliation-link" aria-hidden="true"><span /><b>↕</b><span /></div>
-      <SelectionSummary label="Prévision attendue" name={occurrence.label} amount={occurrence.amount} />
-      {suggestion ? (
-        <>
-          <div className="reconciliation-score">
-            <div><span>Score de confiance</span><strong>{suggestion.score} %</strong></div>
-            <div className="reconciliation-score__track"><span style={{ width: `${Math.max(0, Math.min(100, suggestion.score))}%` }} /></div>
-            <small>{decisionLabel(suggestion.decision, rules)}</small>
-          </div>
-          <dl className="reconciliation-criteria">
-            <div><dt>Écart de montant</dt><dd>{money.format(suggestion.amountDifference)}</dd></div>
-            <div><dt>Écart de date</dt><dd>{Math.round(dateDifference)} jour(s)</dd></div>
-            <div><dt>Critères</dt><dd>{suggestion.reason}</dd></div>
-          </dl>
-        </>
-      ) : (
-        <p className="reconciliation-manual-intro">{transaction.manualCandidate && transaction.manualCandidate.occurrenceId === occurrence.id ? transaction.manualCandidate.reason : "Cette paire n’est pas la proposition prioritaire du moteur. Vérifiez les montants et les comptes avant une affectation manuelle."}</p>
+      <div className="reconciliation-heading"><div><h2>Proposition de rapprochement</h2><p>Valoria compare date, montant, compte et libellé.</p></div></div>
+      <SelectionSummary label="Transaction réelle sélectionnée" name={transactionDisplayName} date={transaction.date} account={transaction.accountName} amount={transaction.amount} tone="blue" />
+      <SelectionSummary label="Prévision associée" name={occurrence.label} date={occurrence.date} account={occurrence.accountName} amount={occurrence.amount} tone="green" />
+      {suggestion && (
+        <div className="reconciliation-score">
+          <div><span>Score de correspondance</span><strong className="reconciliation-score__badge">{suggestion.score} %</strong></div>
+          <div className="reconciliation-score__track"><span style={{ width: `${Math.max(0, Math.min(100, suggestion.score))}%` }} /></div>
+          <small>{decisionLabel(suggestion.decision, rules)}</small>
+        </div>
       )}
+      <div className="reconciliation-controls">
+        <h3>Contrôles</h3>
+        <p className={amountGap < 0.005 ? "ok" : "warn"}>{amountGap < 0.005 ? "Montant identique" : "Écart de montant"} : {money.format(amountGap)} d’écart</p>
+        <p className={Math.round(dateDifference) <= rules.dateToleranceDays ? "ok" : "warn"}>{Math.round(dateDifference) === 0 ? "Même date" : `Date proche : ${new Date(transaction.date) >= new Date(occurrence.date) ? "+" : "-"} ${Math.round(dateDifference)} jour(s)`}</p>
+        {suggestion ? <p className="muted">Critères : {suggestion.reason}</p> : (
+          <p className="muted">{transaction.manualCandidate && transaction.manualCandidate.occurrenceId === occurrence.id ? transaction.manualCandidate.reason : "Cette paire n’est pas la proposition prioritaire du moteur. Vérifiez les montants et les comptes avant une affectation manuelle."}</p>
+        )}
+      </div>
       {manualMode && (
         <div className="reconciliation-manual-box">
           <div><span>Transaction disponible</span><strong>{money.format(transaction.remainingAmount)}</strong></div>
@@ -511,20 +528,20 @@ function ProposalPanel({
       )}
       {actionFeedback && <p className={`reconciliation-feedback reconciliation-feedback--${actionFeedback.kind}`} role="status">{actionFeedback.text}</p>}
       <div className="reconciliation-actions">
-        <button disabled={actionBusy || !suggestion?.proposalId} onClick={onReject} title={suggestion?.proposalId ? "Rejeter cette proposition sans supprimer les données" : "Aucune proposition enregistrée à rejeter"} type="button">Ignorer la proposition</button>
+        <button disabled={actionBusy || !suggestion?.proposalId} onClick={onReject} title={suggestion?.proposalId ? "Rejeter cette proposition sans supprimer les données" : "Aucune proposition enregistrée à rejeter"} type="button">Ignorer</button>
         <button aria-pressed={manualMode} className={manualMode ? "reconciliation-actions__manual-active" : ""} disabled={actionBusy} onClick={onToggleManual} type="button">{manualMode ? "Quitter le mode manuel" : "Mode manuel"}</button>
         <button className="reconciliation-actions__primary" disabled={actionBusy} onClick={onValidate} type="button">{actionBusy ? "Traitement…" : manualMode || !suggestion?.proposalId ? "Confirmer l’affectation" : "Valider le rapprochement"}</button>
       </div>
-      <p className="reconciliation-readonly-note">Chaque action passe par le moteur Python et conserve l’historique du rapprochement.</p>
     </aside>
   );
 }
 
-function SelectionSummary({ amount, label, name }: { amount: number; label: string; name: string }) {
+function SelectionSummary({ account, amount, date, label, name, tone }: { account: string; amount: number; date: string; label: string; name: string; tone: "blue" | "green" }) {
   return (
-    <div className="reconciliation-selection">
+    <div className={`reconciliation-selection reconciliation-selection--${tone}`}>
       <span>{label}</span>
-      <div><strong>{name}</strong><b className={amount >= 0 ? "positive" : "negative"}>{signedMoney(amount)}</b></div>
+      <strong>{name}</strong>
+      <small>{formatDate(date)} · {account} · <b className={amount >= 0 ? "positive" : "negative"}>{signedMoney(amount)}</b></small>
     </div>
   );
 }

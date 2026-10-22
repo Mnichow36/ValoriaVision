@@ -62,7 +62,7 @@ const modules: Record<NavigationId, ModuleDefinition> = {
   },
   reconciliation: {
     title: "Rapprochements",
-    description: "Contrôler les correspondances entre prévisionnel et réalisé.",
+    description: "Associer les transactions réelles aux prévisions attendues.",
   },
   settings: {
     title: "Paramètres",

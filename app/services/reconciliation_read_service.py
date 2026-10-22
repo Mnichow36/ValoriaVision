@@ -174,13 +174,13 @@ class ReconciliationReadService:
             "view": {
                 "transactionsTitle": "Transactions à rapprocher" if is_active_view else "Transactions rapprochées",
                 "transactionsSubtitle": (
-                    "Transactions compatibles avec au moins une prévision."
+                    "Opérations réelles importées ou saisies."
                     if is_active_view
                     else "Transactions liées à une prévision ou à une récurrence."
                 ),
                 "occurrencesTitle": "Prévisions à traiter" if is_active_view else "Prévisions du filtre choisi",
                 "occurrencesSubtitle": (
-                    "Récurrences et opérations ponctuelles ouvertes."
+                    "Occurrences attendues non encore validées."
                     if is_active_view
                     else "Statut affiché = statut filtré ; les liens annulés restent dans l’historique."
                 ),
@@ -354,7 +354,9 @@ class ReconciliationReadService:
             if best is not None:
                 gap, _, occ = best
                 label = str(_field(occ, "expected_label", "Prévision") or "Prévision")
-                occ_day = str(_field(occ, "expected_date", ""))
+                raw_day = str(_field(occ, "expected_date", ""))
+                parsed_day = self._parse_day(raw_day)
+                occ_day = parsed_day.strftime("%d/%m/%Y") if parsed_day else raw_day
                 result[tx_id] = {
                     "occurrenceId": int(_field(occ, "id", 0) or 0),
                     "label": label,
