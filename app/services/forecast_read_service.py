@@ -114,7 +114,7 @@ class ForecastReadService:
                 "startDate": start_date,
                 "endDate": end_date,
             },
-            "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "")) == "Actif"],
+            "accounts": [self._account(row) for row in self.database.list_accounts() if str(_field(row, "status", "Actif")) != "Clos"],
             "categories": [self._category(row) for row in self.database.list_categories()],
             "recurrences": recurrences,
             "series": {
@@ -196,7 +196,8 @@ class ForecastReadService:
     def _account(row: Any) -> dict[str, Any]:
         return {
             "id": _integer(_field(row, "id", 0)),
-            "name": str(_field(row, "name", "Compte") or "Compte"),
+            "name": str(_field(row, "name", "Compte") or "Compte")
+            + ("" if str(_field(row, "status", "Actif") or "Actif") == "Actif" else f" ({str(_field(row, 'status', '')).lower()})"),
             "bank": str(_field(row, "bank", "") or ""),
             "type": str(_field(row, "account_type", "") or ""),
         }
