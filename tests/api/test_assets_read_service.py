@@ -17,8 +17,8 @@ class StubDatabase:
 
     def patrimonio_evolution(self, mode="net"):
         values = {
-            "net": [140000, 155000],
-            "assets": [260000, 275000],
+            "net": [130000, 130000],
+            "assets": [250000, 250000],
             "liabilities": [120000, 120000],
         }
         return [
@@ -36,14 +36,14 @@ class AssetsReadServiceTest(unittest.TestCase):
 
         snapshot = service.snapshot()
 
-        self.assertEqual(snapshot["summary"]["totalAssets"], 275000.0)
+        self.assertEqual(snapshot["summary"]["totalAssets"], 250000.0)
         self.assertEqual(snapshot["summary"]["totalLiabilities"], 120000.0)
-        self.assertEqual(snapshot["summary"]["netWorth"], 155000.0)
-        self.assertEqual(snapshot["summary"]["liquidities"], 25000.0)
+        self.assertEqual(snapshot["summary"]["netWorth"], 130000.0)
+        self.assertEqual(snapshot["summary"]["liquidities"], 0.0)
         self.assertEqual(snapshot["leadingAssetId"], 1)
         self.assertEqual(snapshot["families"][0]["name"], "Immobilier")
         self.assertEqual(snapshot["evolution"][-1]["liabilities"], -120000.0)
-        self.assertEqual(len(snapshot["assets"]), 2)
+        self.assertEqual(len(snapshot["assets"]), 1)
 
 
 if __name__ == "__main__":

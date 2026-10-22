@@ -454,6 +454,7 @@ class Database:
                 valuation_date TEXT NOT NULL,
                 valuation_mode TEXT NOT NULL DEFAULT 'Manuelle',
                 comment TEXT,
+                details_json TEXT NOT NULL DEFAULT '{}',
                 status TEXT NOT NULL DEFAULT 'Actif',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT
@@ -609,7 +610,7 @@ class Database:
         """)
         self.ensure_columns(conn, "transactions", {"updated_at": "TEXT"})
         self.ensure_columns(conn, "import_batches", {"status": "TEXT NOT NULL DEFAULT 'Importé'", "canceled_at": "TEXT"})
-        self.ensure_columns(conn, "assets", {"updated_at": "TEXT"})
+        self.ensure_columns(conn, "assets", {"updated_at": "TEXT", "details_json": "TEXT NOT NULL DEFAULT '{}'"})
         conn.execute("UPDATE import_batches SET status = 'Importé' WHERE status IS NULL OR status = ''")
         self.apply_category_foundation(conn)
         self.seed_categories(conn)
@@ -2501,16 +2502,20 @@ class Database:
         if any(word in category.lower() or word in asset_type.lower() for word in passive_keywords):
             value = -abs(value)
         payload["value"] = value
+        details = payload.get("details_json", "{}")
+        if isinstance(details, dict):
+            details = json.dumps(details, ensure_ascii=False)
+        payload["details_json"] = str(details or "{}")
         return payload
 
 
-    def add_asset(self, data: dict) -> None:
+    def add_asset(self, data: dict) -> int:
         payload = self.normalize_asset_payload(data)
         with self.connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO assets(name, category, asset_type, value, valuation_date, valuation_mode, comment, status)
-                VALUES (:name, :category, :asset_type, :value, :valuation_date, :valuation_mode, :comment, :status)
+                INSERT INTO assets(name, category, asset_type, value, valuation_date, valuation_mode, comment, details_json, status)
+                VALUES (:name, :category, :asset_type, :value, :valuation_date, :valuation_mode, :comment, :details_json, :status)
                 """,
                 payload,
             )
@@ -2520,6 +2525,7 @@ class Database:
                 (asset_id, payload["valuation_date"], payload["value"], payload["valuation_mode"], payload.get("comment", "")),
             )
         self.seal_database_to_encrypted_vault()
+        return asset_id
 
 
 
@@ -2545,6 +2551,7 @@ class Database:
                     valuation_date = :valuation_date,
                     valuation_mode = :valuation_mode,
                     comment = :comment,
+                    details_json = :details_json,
                     status = :status,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = :asset_id
@@ -2617,7 +2624,21 @@ class Database:
         - "liabilities": absolute sum of negative active liabilities only.
         """
         with self.connect() as conn:
-            assets = list(conn.execute("SELECT id, value, valuation_date, status FROM assets WHERE status = 'Actif'"))
+            assets = list(conn.execute("""
+                SELECT id, value, valuation_date, status
+                FROM assets
+                WHERE status = 'Actif'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%compte courant%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%compte bancaire%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%liquidit%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%livret%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%épargne%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%epargne%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%dépôt%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%depot%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%découvert%'
+                  AND LOWER(name || ' ' || category || ' ' || asset_type) NOT LIKE '%decouvert%'
+            """))
             value_rows = list(
                 conn.execute(
                     """
@@ -2625,6 +2646,16 @@ class Database:
                     FROM asset_values av
                     JOIN assets a ON a.id = av.asset_id
                     WHERE a.status = 'Actif'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%compte courant%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%compte bancaire%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%liquidit%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%livret%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%épargne%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%epargne%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%dépôt%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%depot%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%découvert%'
+                      AND LOWER(a.name || ' ' || a.category || ' ' || a.asset_type) NOT LIKE '%decouvert%'
                     ORDER BY av.valuation_date, av.asset_id
                     """
                 )

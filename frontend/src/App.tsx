@@ -88,6 +88,7 @@ export function App() {
   const [transactionsView, setTransactionsView] = useState<TransactionsView>("journal");
   const [transactionImportRequestKey, setTransactionImportRequestKey] = useState(0);
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
+  const [assetEditorRequestKey, setAssetEditorRequestKey] = useState(0);
   const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
 
   useEffect(() => {
@@ -190,6 +191,7 @@ export function App() {
             forecastHorizonDays={forecastHorizonDays}
             onAccountStatusChange={setAccountStatusFilter}
             onAddAccount={() => setAccountEditorRequestKey((key) => key + 1)}
+            onAddAsset={() => setAssetEditorRequestKey((key) => key + 1)}
             onBudgetMonthChange={setBudgetMonth}
             onForecastAccountChange={setForecastAccountId}
             onForecastHorizonChange={setForecastHorizonDays}
@@ -246,7 +248,7 @@ export function App() {
             />
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
-          {activeModule === "assets" && <AssetsPage token={state.token} />}
+          {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
           {activeModule === "reconciliation" && (
             <ReconciliationPage
               accountId={reconciliationAccountId}
@@ -275,6 +277,7 @@ function HeaderActions({
   forecastHorizonDays,
   onAccountStatusChange,
   onAddAccount,
+  onAddAsset,
   onBudgetMonthChange,
   onForecastAccountChange,
   onForecastHorizonChange,
@@ -299,6 +302,7 @@ function HeaderActions({
   forecastHorizonDays: number;
   onAccountStatusChange: (value: string) => void;
   onAddAccount: () => void;
+  onAddAsset: () => void;
   onBudgetMonthChange: (value: string) => void;
   onForecastAccountChange: (value: string) => void;
   onForecastHorizonChange: (value: number) => void;
@@ -399,8 +403,7 @@ function HeaderActions({
   if (activeModule === "assets") {
     return (
       <div className="header-actions">
-        <button aria-disabled="true" className="header-action-disabled" title="Ajout d’actif prévu dans l’incrément d’écriture" type="button">Ajouter un actif</button>
-        <button aria-disabled="true" className="secondary-button header-action-disabled" title="La synthèse patrimoniale est affichée sur cette page" type="button">Synthèse</button>
+        <button onClick={onAddAsset} type="button">Ajouter un actif</button>
       </div>
     );
   }

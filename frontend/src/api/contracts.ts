@@ -646,6 +646,25 @@ export interface PatrimonialAsset {
   valuationMode: string;
   status: string;
   comment: string;
+  details: Record<string, string>;
+}
+
+export interface PatrimonialAssetPayload {
+  name: string;
+  category: string;
+  assetType: string;
+  value: number;
+  valuationDate: string;
+  valuationMode: string;
+  comment: string;
+  details: Record<string, string>;
+  status: string;
+}
+
+export interface PatrimonialAssetActionResult {
+  success: boolean;
+  message: string;
+  assetId: number;
 }
 
 export interface AssetEvolutionPoint {

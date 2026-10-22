@@ -100,6 +100,18 @@ class AccountStatusPayload(BaseModel):
     status: str
 
 
+class AssetPayload(BaseModel):
+    name: str
+    category: str
+    asset_type: str
+    value: float
+    valuation_date: str
+    valuation_mode: str = "Manuelle"
+    comment: str = ""
+    details: dict[str, str] = {}
+    status: str = "Actif"
+
+
 class TransactionPayload(BaseModel):
     account_id: int
     tx_date: str
@@ -843,6 +855,56 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return AssetsReadService(active_database).snapshot()
+
+    @app.post("/api/v1/assets")
+    def create_asset(
+        payload: AssetPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        if not payload.name.strip():
+            raise HTTPException(status_code=422, detail="Le nom de l’élément est obligatoire.")
+        data = payload.model_dump()
+        data["details_json"] = data.pop("details")
+        asset_id = active_database.add_asset(data)
+        return {"success": True, "message": "Élément patrimonial ajouté.", "assetId": asset_id}
+
+    @app.post("/api/v1/assets/{asset_id}")
+    def update_asset(
+        asset_id: int,
+        payload: AssetPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        if not payload.name.strip():
+            raise HTTPException(status_code=422, detail="Le nom de l’élément est obligatoire.")
+        data = payload.model_dump()
+        data["details_json"] = data.pop("details")
+        try:
+            active_database.update_asset(asset_id, data)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"success": True, "message": "Élément patrimonial mis à jour.", "assetId": asset_id}
+
+    @app.post("/api/v1/assets/{asset_id}/delete")
+    def delete_asset(
+        asset_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        if active_database.get_asset(asset_id) is None:
+            raise HTTPException(status_code=404, detail="Élément patrimonial introuvable.")
+        active_database.delete_asset(asset_id)
+        return {"success": True, "message": "Élément patrimonial supprimé.", "assetId": asset_id}
 
     @app.get("/api/v1/settings")
     def settings(

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetsSnapshot, DashboardSnapshot, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -408,6 +408,32 @@ export function getBudgets(token: string, month: string, signal?: AbortSignal): 
 
 export function getAssets(token: string, signal?: AbortSignal): Promise<AssetsSnapshot> {
   return request<AssetsSnapshot>("/api/v1/assets", { token, signal });
+}
+
+function assetBody(payload: PatrimonialAssetPayload) {
+  return {
+    name: payload.name,
+    category: payload.category,
+    asset_type: payload.assetType,
+    value: payload.value,
+    valuation_date: payload.valuationDate,
+    valuation_mode: payload.valuationMode,
+    comment: payload.comment,
+    details: payload.details,
+    status: payload.status,
+  };
+}
+
+export function createAsset(token: string, payload: PatrimonialAssetPayload): Promise<PatrimonialAssetActionResult> {
+  return request<PatrimonialAssetActionResult>("/api/v1/assets", { method: "POST", token, body: assetBody(payload) });
+}
+
+export function updateAsset(token: string, assetId: number, payload: PatrimonialAssetPayload): Promise<PatrimonialAssetActionResult> {
+  return request<PatrimonialAssetActionResult>(`/api/v1/assets/${assetId}`, { method: "POST", token, body: assetBody(payload) });
+}
+
+export function deleteAsset(token: string, assetId: number): Promise<PatrimonialAssetActionResult> {
+  return request<PatrimonialAssetActionResult>(`/api/v1/assets/${assetId}/delete`, { method: "POST", token });
 }
 
 export function getSettings(token: string, signal?: AbortSignal): Promise<SettingsSnapshot> {

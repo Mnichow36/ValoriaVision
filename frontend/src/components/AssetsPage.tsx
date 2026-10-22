@@ -1,189 +1,172 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
-import { getAssets } from "../api/client";
-import type { AssetEvolutionPoint, AssetsSnapshot, PatrimonialAsset } from "../api/contracts";
-import { InteractiveDonutChart, InteractiveLineChart } from "./InteractiveCharts";
+import { createAsset, deleteAsset, getAssets, updateAsset } from "../api/client";
+import type { AssetsSnapshot, PatrimonialAsset, PatrimonialAssetActionResult, PatrimonialAssetPayload } from "../api/contracts";
 
-interface AssetsPageProps {
-  token: string;
-}
+interface AssetsPageProps { editorRequestKey?: number; onDataChanged?: () => void; token: string; }
+type Tab = "assets" | "liabilities";
+type DrawerMode = "create" | "view" | "edit" | "delete";
+interface DrawerState { asset?: PatrimonialAsset; kind: Tab; mode: DrawerMode; }
+interface DetailField { key: string; label: string; type?: "date" | "number" | "text"; }
+interface NatureDefinition { category: string; fields: DetailField[]; id: string; kind: Tab; label: string; }
+interface AssetDraft { comment: string; details: Record<string, string>; name: string; natureId: string; valuationDate: string; valuationMode: string; value: number; }
+const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", currencyDisplay: "code", maximumFractionDigits: 0 });
 
-const money = new Intl.NumberFormat("fr-FR", {
-  style: "currency",
-  currency: "EUR",
-  currencyDisplay: "code",
-  maximumFractionDigits: 0,
-});
+const NATURES: NatureDefinition[] = [
+  { id: "residence", kind: "assets", label: "Résidence principale", category: "Immobilier", fields: [{ key: "location", label: "Adresse ou commune" }, { key: "ownership", label: "Quote-part détenue" }, { key: "surface", label: "Surface (m²)", type: "number" }] },
+  { id: "rental", kind: "assets", label: "Investissement locatif", category: "Immobilier", fields: [{ key: "location", label: "Adresse ou commune" }, { key: "occupancy", label: "Occupation" }, { key: "monthlyRent", label: "Loyer mensuel hors charges", type: "number" }] },
+  { id: "scpi", kind: "assets", label: "SCPI / immobilier papier", category: "Immobilier papier", fields: [{ key: "manager", label: "Société de gestion" }, { key: "shares", label: "Nombre de parts", type: "number" }, { key: "yield", label: "Rendement annuel (%)", type: "number" }] },
+  { id: "securities", kind: "assets", label: "PEA / compte-titres", category: "Placements financiers", fields: [{ key: "institution", label: "Établissement" }, { key: "envelope", label: "Enveloppe fiscale" }, { key: "holder", label: "Titulaire" }] },
+  { id: "lifeInsurance", kind: "assets", label: "Assurance-vie / PER", category: "Assurance-vie", fields: [{ key: "institution", label: "Assureur ou établissement" }, { key: "contract", label: "Contrat" }, { key: "holder", label: "Titulaire" }] },
+  { id: "business", kind: "assets", label: "Parts d’entreprise", category: "Participation", fields: [{ key: "company", label: "Société" }, { key: "ownership", label: "Part détenue (%)", type: "number" }, { key: "holder", label: "Titulaire" }] },
+  { id: "valuable", kind: "assets", label: "Objets de valeur", category: "Objets de valeur", fields: [{ key: "itemKind", label: "Nature de l’objet" }, { key: "storage", label: "Lieu de conservation" }, { key: "insurance", label: "Assurance" }] },
+  { id: "vehicle", kind: "assets", label: "Véhicule de collection", category: "Véhicules", fields: [{ key: "brand", label: "Marque / modèle" }, { key: "year", label: "Année", type: "number" }, { key: "registration", label: "Immatriculation" }] },
+  { id: "otherAsset", kind: "assets", label: "Autre actif patrimonial", category: "Autres actifs", fields: [{ key: "holder", label: "Titulaire" }, { key: "reference", label: "Référence ou localisation" }] },
+  { id: "mortgage", kind: "liabilities", label: "Crédit immobilier", category: "Crédit immobilier", fields: [{ key: "lender", label: "Banque prêteuse" }, { key: "monthlyPayment", label: "Mensualité", type: "number" }, { key: "endDate", label: "Date de fin", type: "date" }] },
+  { id: "consumerLoan", kind: "liabilities", label: "Crédit à la consommation", category: "Crédit à la consommation", fields: [{ key: "lender", label: "Organisme prêteur" }, { key: "monthlyPayment", label: "Mensualité", type: "number" }, { key: "endDate", label: "Date de fin", type: "date" }] },
+  { id: "familyDebt", kind: "liabilities", label: "Dette familiale", category: "Dette familiale", fields: [{ key: "creditor", label: "Créancier" }, { key: "repayment", label: "Modalité de remboursement" }] },
+  { id: "taxDebt", kind: "liabilities", label: "Dette fiscale", category: "Dette fiscale", fields: [{ key: "creditor", label: "Administration ou créancier" }, { key: "dueDate", label: "Échéance", type: "date" }] },
+  { id: "otherLiability", kind: "liabilities", label: "Autre dette", category: "Autres passifs", fields: [{ key: "creditor", label: "Créancier" }, { key: "dueDate", label: "Échéance", type: "date" }] },
+];
 
-export function AssetsPage({ token }: AssetsPageProps) {
+export function AssetsPage({ editorRequestKey = 0, onDataChanged, token }: AssetsPageProps) {
   const [snapshot, setSnapshot] = useState<AssetsSnapshot>();
-  const [selectedAssetId, setSelectedAssetId] = useState<number>();
+  const [tab, setTab] = useState<Tab>("assets");
+  const [selectedId, setSelectedId] = useState<number>();
+  const [drawer, setDrawer] = useState<DrawerState>();
   const [error, setError] = useState<string>();
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setError(undefined);
-    getAssets(token, controller.signal)
-      .then((data) => {
-        setSnapshot(data);
-        setSelectedAssetId((current) => data.assets.some((asset) => asset.id === current)
-          ? current
-          : data.leadingAssetId ?? data.assets[0]?.id);
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "Le patrimoine ne peut pas être chargé.");
-        }
-      });
-    return () => controller.abort();
-  }, [refreshKey, token]);
+  const load = useCallback(async (selected?: number, selectedTab: Tab = tab) => {
+    try {
+      const data = await getAssets(token);
+      const list = selectedTab === "assets" ? data.assets : data.liabilities;
+      setSnapshot(data);
+      setSelectedId(selected ?? list[0]?.id);
+      setError(undefined);
+    } catch (cause: unknown) { setError(messageFrom(cause)); }
+  }, [tab, token]);
 
-  const selectedAsset = snapshot?.assets.find((asset) => asset.id === selectedAssetId) ?? snapshot?.assets[0];
-  const selectedWeight = snapshot && selectedAsset && snapshot.summary.totalAssets
-    ? Math.max(0, Math.min(100, selectedAsset.value / snapshot.summary.totalAssets * 100))
-    : 0;
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (editorRequestKey) setDrawer({ kind: "assets", mode: "create" }); }, [editorRequestKey]);
 
-  const familyAssetIds = useMemo(() => {
-    const result = new Map<string, number>();
-    snapshot?.assets.forEach((asset) => {
-      if (!result.has(asset.category)) result.set(asset.category, asset.id);
-    });
-    return result;
-  }, [snapshot]);
+  const rows = tab === "assets" ? snapshot?.assets ?? [] : snapshot?.liabilities ?? [];
+  const selected = rows.find((item) => item.id === selectedId) ?? rows[0];
+  const maxFamily = useMemo(() => Math.max(...(snapshot?.families.map((family) => family.value) ?? [1]), 1), [snapshot]);
 
-  if (error) {
-    return (
-      <section className="error-state">
-        <strong>Le patrimoine ne peut pas être affiché.</strong>
-        <p>{error}</p>
-        <button className="secondary-button" onClick={() => setRefreshKey((key) => key + 1)} type="button">Réessayer</button>
-      </section>
-    );
+  function changeTab(nextTab: Tab) {
+    if (!snapshot) return;
+    const first = nextTab === "assets" ? snapshot.assets[0] : snapshot.liabilities[0];
+    setTab(nextTab);
+    setSelectedId(first?.id);
   }
 
-  if (!snapshot) {
-    return <div className="loading-state"><span aria-hidden="true" />Calcul du patrimoine par le moteur Python…</div>;
+  async function completeChange(result: PatrimonialAssetActionResult, kind: Tab) {
+    setDrawer(undefined);
+    await load(result.assetId, kind);
+    onDataChanged?.();
   }
 
-  return (
-    <div className="assets-page">
-      <section className="assets-kpis" aria-label="Indicateurs patrimoniaux">
-        <AssetKpi detail={`${snapshot.summary.assetCount} élément(s) actif(s)`} label="Actifs" tone="purple" value={money.format(snapshot.summary.totalAssets)} />
-        <AssetKpi detail={`${snapshot.summary.liabilityCount} crédit(s) ou dette(s)`} label="Passifs" tone="red" value={money.format(snapshot.summary.totalLiabilities)} />
-        <AssetKpi detail={`${signedPercent(snapshot.summary.changePercent)} sur l’historique affiché`} label="Net" tone="green" value={money.format(snapshot.summary.netWorth)} />
-        <AssetKpi detail="Disponible immédiatement" label="Liquidités" tone="cyan" value={money.format(snapshot.summary.liquidities)} />
-      </section>
+  if (error) return <section className="error-state"><strong>Le patrimoine ne peut pas être affiché.</strong><p>{error}</p></section>;
+  if (!snapshot) return <div className="loading-state"><span aria-hidden="true" />Calcul du patrimoine local…</div>;
 
-      <section className="assets-main-grid">
-        <article className="card assets-evolution-card">
-          <div className="assets-heading"><h2>Évolution du patrimoine net</h2><p>Historique réel des valorisations consolidées.</p></div>
-          <AssetsEvolutionChart points={snapshot.evolution} />
-          <div className="assets-family-table-wrap">
-            <table className="assets-family-table">
-              <thead><tr><th>Famille</th><th>Valeur</th><th>Poids</th><th>Statut</th></tr></thead>
-              <tbody>
-                {snapshot.families.length > 0 ? snapshot.families.slice(0, 5).map((family) => (
-                  <tr key={family.name}>
-                    <td><button onClick={() => setSelectedAssetId(familyAssetIds.get(family.name))} type="button">{family.name}</button></td>
-                    <td>{money.format(family.value)}</td>
-                    <td>{family.weight.toLocaleString("fr-FR")} %</td>
-                    <td><span className={family.status === "Disponible" ? "assets-status assets-status--available" : "assets-status"}>{family.status}</span></td>
-                  </tr>
-                )) : <tr><td className="assets-empty-row" colSpan={4}>Aucun actif enregistré.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <AssetDetail asset={selectedAsset} selectedWeight={selectedWeight} totalAssets={snapshot.summary.totalAssets} />
-      </section>
+  return <section className="assets-studio">
+    <div className="assets-studio__top">
+      <article className="assets-studio-card assets-studio-card--trend"><CardTitle title="Évolution du patrimoine" /><strong>{money.format(snapshot.summary.netWorth)}</strong><small>{signedPercent(snapshot.summary.changePercent)} sur l’historique</small><PatrimonyChart points={snapshot.evolution} /></article>
+      <article className="assets-studio-card"><CardTitle title="Diversification" /><div className="assets-studio-bars">{snapshot.families.slice(0, 5).map((family) => <div key={family.name}><span>{family.name}</span><b>{family.weight.toLocaleString("fr-FR")} %</b><i><em style={{ width: `${family.value / maxFamily * 100}%` }} /></i></div>)}</div></article>
+      <article className="assets-studio-card assets-studio-card--ratio"><CardTitle title="Rapport actifs / passifs" /><div className="assets-studio-figures"><div><span>Actifs</span><strong>{money.format(snapshot.summary.totalAssets)}</strong></div><div><span>Passifs</span><strong>{money.format(snapshot.summary.totalLiabilities)}</strong></div></div><MonthlyRatioChart points={snapshot.evolution} /></article>
     </div>
-  );
+
+    <section className="assets-studio__portfolio">
+      <header><div className="assets-studio-tabs"><button className={tab === "assets" ? "active" : ""} onClick={() => changeTab("assets")} type="button">Actifs</button><button className={tab === "liabilities" ? "active" : ""} onClick={() => changeTab("liabilities")} type="button">Passifs</button></div><div className="assets-studio__actions"><span>{rows.length} élément(s)</span><button onClick={() => setDrawer({ kind: tab, mode: "create" })} type="button">Ajouter {tab === "assets" ? "un actif" : "un passif"}</button></div></header>
+      <div className="assets-studio-table-wrap"><table><thead><tr><th>Nom</th><th>Nature</th><th>Valorisation</th><th>Dernière mise à jour</th><th>Part</th></tr></thead><tbody>{rows.length ? rows.map((item) => <AssetRow active={item.id === selected?.id} item={item} key={item.id} onOpen={() => { setSelectedId(item.id); setDrawer({ asset: item, kind: tab, mode: "view" }); }} total={tab === "assets" ? snapshot.summary.totalAssets : snapshot.summary.totalLiabilities} />) : <tr><td colSpan={5}>Aucun élément patrimonial à afficher.</td></tr>}</tbody></table></div>
+    </section>
+
+    {selected && <button className="assets-studio__selection" onClick={() => setDrawer({ asset: selected, kind: tab, mode: "view" })} type="button"><span>{tab === "assets" ? "Actif sélectionné" : "Passif sélectionné"}</span><strong>{selected.name}</strong><p>{selected.type} · {money.format(Math.abs(selected.value))} · valorisé le {formatDate(selected.valuationDate)}</p><b>Ouvrir la fiche</b></button>}
+    {drawer && <AssetDrawer asset={drawer.asset} kind={drawer.kind} mode={drawer.mode} onClose={() => setDrawer(undefined)} onCompleted={completeChange} onDelete={() => setDrawer((current) => current && { ...current, mode: "delete" })} onEdit={() => setDrawer((current) => current && { ...current, mode: "edit" })} token={token} />}
+  </section>;
 }
 
-function AssetKpi({ detail, label, tone, value }: { detail: string; label: string; tone: string; value: string }) {
-  return (
-    <article className="card asset-kpi">
-      <div><span>{label}</span><i className={`asset-kpi__mark asset-kpi__mark--${tone}`} /></div>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </article>
-  );
+function CardTitle({ title }: { title: string }) { return <h2>{title}</h2>; }
+
+function AssetRow({ active, item, onOpen, total }: { active: boolean; item: PatrimonialAsset; onOpen: () => void; total: number }) {
+  const share = total ? Math.abs(item.value) / total * 100 : 0;
+  return <tr className={active ? "active" : ""} onClick={onOpen}><td><button type="button">{item.name}<small>{item.category}</small></button></td><td>{item.type}</td><td>{money.format(Math.abs(item.value))}</td><td>{formatDate(item.valuationDate)}</td><td>{share.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %</td></tr>;
 }
 
-function AssetDetail({ asset, selectedWeight, totalAssets }: { asset?: PatrimonialAsset; selectedWeight: number; totalAssets: number }) {
-  if (!asset) {
-    return <aside className="card asset-detail"><div className="assets-heading"><h2>Volet actif</h2><p>Aucun actif disponible.</p></div></aside>;
+function PatrimonyChart({ points }: { points: AssetsSnapshot["evolution"] }) {
+  const values = points.map((point) => point.net);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const coordinates = values.map((value, index) => `${index / Math.max(values.length - 1, 1) * 100},${90 - (value - min) / range * 66}`).join(" ");
+  return <div className="assets-patrimony-chart"><div className="assets-chart-key"><i />Patrimoine net</div><svg aria-label="Évolution du patrimoine net" preserveAspectRatio="none" role="img" viewBox="0 0 100 100"><line x1="0" x2="100" y1="90" y2="90" /><line x1="0" x2="100" y1="55" y2="55" /><polyline points={coordinates} /></svg></div>;
+}
+
+function MonthlyRatioChart({ points }: { points: AssetsSnapshot["evolution"] }) {
+  const displayed = points.slice(-6);
+  const maximum = Math.max(...displayed.flatMap((point) => [point.assets, Math.abs(point.liabilities)]), 1);
+  return <div className="assets-ratio-chart"><div className="assets-ratio-key"><i />Actifs <i />Passifs</div><div className="assets-ratio-columns">{displayed.map((point) => <div key={point.date}><div><i style={{ height: `${point.assets / maximum * 100}%` }} /><i style={{ height: `${Math.abs(point.liabilities) / maximum * 100}%` }} /></div><span>{monthLabel(point.date)}</span></div>)}</div></div>;
+}
+
+function AssetDrawer({ asset, kind, mode, onClose, onCompleted, onDelete, onEdit, token }: {
+  asset?: PatrimonialAsset;
+  kind: Tab;
+  mode: DrawerMode;
+  onClose: () => void;
+  onCompleted: (result: PatrimonialAssetActionResult, kind: Tab) => Promise<void>;
+  onDelete: () => void;
+  onEdit: () => void;
+  token: string;
+}) {
+  const [draft, setDraft] = useState<AssetDraft>(() => initialDraft(asset, kind));
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string>();
+  const nature = findNature(draft.natureId, kind);
+  const viewing = mode === "view";
+  const deleting = mode === "delete";
+
+  function field<Key extends keyof AssetDraft>(key: Key, value: AssetDraft[Key]) { setDraft((current) => ({ ...current, [key]: value })); }
+  function detail(key: string, value: string) { setDraft((current) => ({ ...current, details: { ...current.details, [key]: value } })); }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setFormError(undefined);
+    try {
+      const payload: PatrimonialAssetPayload = {
+        name: draft.name.trim(), category: nature.category, assetType: nature.label, value: Math.abs(draft.value), valuationDate: draft.valuationDate,
+        valuationMode: draft.valuationMode, comment: draft.comment.trim(), details: draft.details, status: "Actif",
+      };
+      const result = asset ? await updateAsset(token, asset.id, payload) : await createAsset(token, payload);
+      await onCompleted(result, kind);
+    } catch (cause: unknown) { setFormError(messageFrom(cause)); } finally { setBusy(false); }
   }
-  const otherAssets = Math.max(0, totalAssets - asset.value);
-  return (
-    <aside className="card asset-detail">
-      <div className="assets-heading"><h2>Volet actif</h2><p>{asset.name} · {selectedWeight.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % du portefeuille.</p></div>
-      <InteractiveDonutChart
-        ariaLabel={`Poids de ${asset.name} dans les actifs`}
-        showLegend={false}
-        slices={[
-          { label: asset.name, value: asset.value, color: "#2563eb" },
-          { label: "Autres actifs", value: otherAssets, color: "#dfe6ef" },
-        ]}
-        valueFormatter={compactMoney}
-      />
-      <dl>
-        <div><dt>Type</dt><dd>{asset.type}</dd></div>
-        <div><dt>Valeur estimée</dt><dd>{money.format(asset.value)}</dd></div>
-        <div><dt>Crédit associé</dt><dd>Non renseigné</dd></div>
-        <div><dt>Date de valorisation</dt><dd>{formatDate(asset.valuationDate)}</dd></div>
-        <div><dt>Mode</dt><dd>{asset.valuationMode}</dd></div>
-      </dl>
-      {asset.comment && <p className="asset-detail__comment">{asset.comment}</p>}
-      <button aria-disabled="true" disabled title="Modification de valorisation prévue dans l’incrément d’écriture" type="button">Modifier la valorisation</button>
-    </aside>
-  );
+
+  async function confirmDeletion() {
+    if (!asset) return;
+    setBusy(true);
+    setFormError(undefined);
+    try { await onCompleted(await deleteAsset(token, asset.id), kind); } catch (cause: unknown) { setFormError(messageFrom(cause)); } finally { setBusy(false); }
+  }
+
+  const title = mode === "create" ? `Ajouter ${kind === "assets" ? "un actif" : "un passif"}` : mode === "edit" ? `Modifier ${kind === "assets" ? "l’actif" : "le passif"}` : mode === "delete" ? `Supprimer ${asset?.name}` : asset?.name;
+  return <div className="asset-drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}><aside aria-labelledby="asset-drawer-title" aria-modal="true" className="asset-drawer" role="dialog"><header><div><span className="eyebrow">{kind === "assets" ? "Patrimoine · actif" : "Patrimoine · passif"}</span><h2 id="asset-drawer-title">{title}</h2></div><button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button></header>{deleting ? <div className="asset-drawer__delete"><p>La suppression est définitive. Les valorisations associées seront également retirées.</p><strong>{asset?.name}</strong><small>{asset?.type} · {money.format(Math.abs(asset?.value ?? 0))}</small>{formError && <div className="account-form-error" role="alert">{formError}</div>}<footer><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Conserver</button><button className="asset-delete-confirm" disabled={busy} onClick={() => void confirmDeletion()} type="button">{busy ? "Suppression…" : "Supprimer définitivement"}</button></footer></div> : viewing ? <div className="asset-drawer__view"><div className="asset-drawer__amount"><span>Valeur estimée</span><strong>{money.format(Math.abs(asset?.value ?? 0))}</strong><small>Valorisée le {formatDate(asset?.valuationDate ?? "")}</small></div><AssetDetails asset={asset} nature={findNatureForAsset(asset, kind)} /><div className="asset-drawer__view-actions"><button className="secondary-button" onClick={onDelete} type="button">Supprimer</button><button onClick={onEdit} type="button">Modifier</button></div></div> : <form onSubmit={(event) => void submit(event)}><div className="asset-drawer__form"><label className="asset-field asset-field--wide"><span>Nom *</span><input autoFocus maxLength={120} onChange={(event) => field("name", event.target.value)} required value={draft.name} /></label><label className="asset-field asset-field--wide"><span>Nature *</span><select onChange={(event) => field("natureId", event.target.value)} value={draft.natureId}>{NATURES.filter((option) => option.kind === kind).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><label className="asset-field"><span>{kind === "assets" ? "Valeur estimée" : "Capital restant dû"} *</span><input min="0" onChange={(event) => field("value", Number(event.target.value))} required step="0.01" type="number" value={draft.value} /></label><label className="asset-field"><span>Date de valorisation *</span><input onChange={(event) => field("valuationDate", event.target.value)} required type="date" value={draft.valuationDate} /></label>{nature.fields.map((definition) => <label className="asset-field" key={definition.key}><span>{definition.label}</span><input onChange={(event) => detail(definition.key, event.target.value)} type={definition.type ?? "text"} value={draft.details[definition.key] ?? ""} /></label>)}<label className="asset-field asset-field--wide"><span>Mode de valorisation</span><select onChange={(event) => field("valuationMode", event.target.value)} value={draft.valuationMode}><option>Manuelle</option><option>Estimation</option><option>Documentée</option></select></label><label className="asset-field asset-field--wide"><span>Note</span><textarea maxLength={800} onChange={(event) => field("comment", event.target.value)} rows={4} value={draft.comment} /></label></div>{formError && <div className="account-form-error" role="alert">{formError}</div>}<footer><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button disabled={busy} type="submit">{busy ? "Enregistrement…" : mode === "create" ? "Ajouter" : "Enregistrer"}</button></footer></form>}</aside></div>;
 }
 
-function AssetsEvolutionChart({ points }: { points: AssetEvolutionPoint[] }) {
-  if (points.length < 2) return <div className="assets-chart-empty">Ajoutez au moins deux valorisations pour afficher une évolution.</div>;
-  return (
-    <InteractiveLineChart
-      ariaLabel="Évolution des actifs, passifs et du patrimoine net"
-      series={[
-        {
-          id: "net",
-          label: "Patrimoine net",
-          color: "#2563eb",
-          area: true,
-          points: points.map((point) => ({ date: point.date, value: point.net })),
-        },
-        {
-          id: "assets",
-          label: "Actifs",
-          color: "#7c3aed",
-          points: points.map((point) => ({ date: point.date, value: point.assets })),
-        },
-        {
-          id: "liabilities",
-          label: "Passifs",
-          color: "#e11d48",
-          dashed: true,
-          points: points.map((point) => ({ date: point.date, value: point.liabilities })),
-        },
-      ]}
-      valueFormatter={compactMoney}
-    />
-  );
+function AssetDetails({ asset, nature }: { asset?: PatrimonialAsset; nature: NatureDefinition }) {
+  if (!asset) return null;
+  return <dl className="asset-details"><div><dt>Nature</dt><dd>{asset.type}</dd></div><div><dt>Catégorie</dt><dd>{asset.category}</dd></div>{nature.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{asset.details[field.key] || "Non renseigné"}</dd></div>)}{asset.comment && <div className="asset-details__note"><dt>Note</dt><dd>{asset.comment}</dd></div>}</dl>;
 }
 
-function compactMoney(value: number): string {
-  if (Math.abs(value) >= 1000) return `${Math.round(value / 1000).toLocaleString("fr-FR")} kEUR`;
-  return money.format(value);
+function initialDraft(asset: PatrimonialAsset | undefined, kind: Tab): AssetDraft {
+  const nature = findNatureForAsset(asset, kind);
+  return { name: asset?.name ?? "", natureId: nature.id, value: Math.abs(asset?.value ?? 0), valuationDate: asset?.valuationDate || today(), valuationMode: asset?.valuationMode || "Manuelle", comment: asset?.comment ?? "", details: asset?.details ?? {} };
 }
 
-function signedPercent(value: number): string {
-  return `${value > 0 ? "+ " : value < 0 ? "- " : ""}${Math.abs(value).toLocaleString("fr-FR")} %`;
-}
-
-function formatDate(value: string): string {
-  const parsed = new Date(`${value}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("fr-FR").format(parsed);
-}
+function findNature(id: string, kind: Tab) { return NATURES.find((nature) => nature.id === id && nature.kind === kind) ?? NATURES.find((nature) => nature.kind === kind)!; }
+function findNatureForAsset(asset: PatrimonialAsset | undefined, kind: Tab) { return NATURES.find((nature) => nature.kind === kind && (nature.label === asset?.type || nature.category === asset?.category)) ?? findNature("", kind); }
+function signedPercent(value: number) { return `${value > 0 ? "+ " : ""}${value.toLocaleString("fr-FR")} %`; }
+function formatDate(value: string) { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("fr-FR").format(date); }
+function today() { return new Date().toISOString().slice(0, 10); }
+function monthLabel(value: string) { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(date).replace(".", ""); }
+function messageFrom(cause: unknown) { return cause instanceof Error ? cause.message : "Une erreur est survenue."; }

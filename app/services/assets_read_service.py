@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -33,18 +34,12 @@ class AssetsReadService:
 
     def snapshot(self) -> dict[str, Any]:
         rows = [self._asset(row) for row in self.database.list_assets()]
-        active_rows = [row for row in rows if row["status"] == "Actif"]
+        active_rows = [row for row in rows if row["status"] == "Actif" and self._is_patrimonial(row)]
         assets = [row for row in active_rows if row["value"] >= 0]
         liabilities = [row for row in active_rows if row["value"] < 0]
         total_assets = round(sum(row["value"] for row in assets), 2)
         total_liabilities = round(abs(sum(row["value"] for row in liabilities)), 2)
         net = round(total_assets - total_liabilities, 2)
-        liquidities = round(sum(
-            row["value"] for row in assets
-            if "liquid" in row["category"].lower()
-            or "compte" in row["category"].lower()
-            or "liquid" in row["type"].lower()
-        ), 2)
         evolution = self._evolution()
         starting_net = evolution[0]["net"] if evolution else 0
         change_percent = round((net - starting_net) / abs(starting_net) * 100, 1) if starting_net else 0.0
@@ -57,7 +52,7 @@ class AssetsReadService:
                 "totalAssets": total_assets,
                 "totalLiabilities": total_liabilities,
                 "netWorth": net,
-                "liquidities": liquidities,
+                "liquidities": 0.0,
                 "changePercent": change_percent,
                 "assetCount": len(assets),
                 "liabilityCount": len(liabilities),
@@ -71,6 +66,11 @@ class AssetsReadService:
 
     @staticmethod
     def _asset(row: Any) -> dict[str, Any]:
+        raw_details = _field(row, "details_json", "{}")
+        try:
+            details = raw_details if isinstance(raw_details, dict) else json.loads(str(raw_details or "{}"))
+        except (TypeError, ValueError):
+            details = {}
         return {
             "id": int(_field(row, "id", 0) or 0),
             "name": str(_field(row, "name", "Élément patrimonial") or "Élément patrimonial"),
@@ -81,7 +81,17 @@ class AssetsReadService:
             "valuationMode": str(_field(row, "valuation_mode", "Manuelle") or "Manuelle"),
             "status": str(_field(row, "status", "Actif") or "Actif"),
             "comment": str(_field(row, "comment", "") or ""),
+            "details": {str(key): str(value) for key, value in details.items()} if isinstance(details, dict) else {},
         }
+
+    @staticmethod
+    def _is_patrimonial(row: dict[str, Any]) -> bool:
+        excluded_terms = (
+            "compte courant", "compte bancaire", "liquidités", "liquidites", "livret",
+            "épargne", "epargne", "dépôt", "depot", "découvert", "decouvert",
+        )
+        text = " ".join(str(row.get(key, "")).casefold() for key in ("name", "category", "type"))
+        return not any(term in text for term in excluded_terms)
 
     def _evolution(self) -> list[dict[str, Any]]:
         raw = {
