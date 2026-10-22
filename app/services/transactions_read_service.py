@@ -237,6 +237,39 @@ class TransactionsReadService:
             "transactionId": _integer(_field(row, "id", 0)) if row is not None else 0,
         }
 
+    def _delete(self, ids: list[int], rows: list[Any]) -> int:
+        """Supprime des transactions ; les rapprochements actifs sont d'abord annulés proprement."""
+        from app.services.forecast_reconciliation_service import ForecastReconciliationService
+
+        engine = ForecastReconciliationService(self.database)
+        with self.database.connect() as conn:
+            links = conn.execute(
+                f"""
+                SELECT occurrence_id, transaction_id
+                FROM forecast_reconciliation_links
+                WHERE deleted_at IS NULL AND transaction_id IN ({",".join("?" for _ in ids)})
+                """,
+                ids,
+            ).fetchall()
+        for link in links:
+            engine.cancel_reconciliation_link(int(link["occurrence_id"]), int(link["transaction_id"]))
+        deleted = self.database.delete_transactions(ids)
+        with self.database.connect() as conn:
+            for row in rows:
+                self.database.audit_event(
+                    conn,
+                    "transaction_deleted",
+                    "transaction",
+                    str(_field(row, "id", "")),
+                    "Transaction supprimée.",
+                    {
+                        "date": str(_field(row, "tx_date", "")),
+                        "label": str(_field(row, "label", "")),
+                        "amount": _number(_field(row, "amount", 0)),
+                    },
+                )
+        return int(deleted)
+
     def bulk_update(
         self,
         transaction_ids: list[int],
@@ -280,6 +313,9 @@ class TransactionsReadService:
                 )
             updated = self.database.update_transactions_status(ids, "Validée")
             message = f"{updated} transaction(s) validée(s)."
+        elif action == "delete":
+            updated = self._delete(ids, rows)
+            message = f"{updated} transaction{'s' if updated > 1 else ''} supprimée{'s' if updated > 1 else ''}."
         else:
             raise ValueError("L’action groupée demandée n’est pas reconnue.")
 

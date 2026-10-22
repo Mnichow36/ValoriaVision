@@ -51,6 +51,7 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   const [editing, setEditing] = useState<TransactionRow>();
   const [creating, setCreating] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>();
+  const [deleting, setDeleting] = useState<TransactionRow[]>();
 
   useEffect(() => {
     if (createRequestKey > 0) setCreating(true);
@@ -150,7 +151,7 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
     setBulkError(undefined);
   }
 
-  async function runBulkAction(action: "category" | "validate") {
+  async function runBulkAction(action: "category" | "validate" | "delete") {
     if (visibleSelectedIds.length === 0) return;
     if (action === "category" && !bulkCategory) {
       setBulkError("Choisissez une catégorie à appliquer.");
@@ -175,6 +176,9 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   function openRowMenu(event: MouseEvent, transaction: TransactionRow) {
     event.preventDefault();
     const badge = transaction.reconciliation;
+    const group = selectedIds.includes(transaction.id) && visibleSelectedIds.length > 1
+      ? visibleTransactions.filter((row) => selectedIds.includes(row.id))
+      : [transaction];
     const items = [
       { label: "Modifier la transaction", onSelect: () => setEditing(transaction) },
       ...(badge?.reconciled && badge.occurrenceId
@@ -193,6 +197,11 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
           }]
         : []),
     ];
+    items.push({
+      label: group.length > 1 ? `Supprimer les ${group.length} transactions…` : "Supprimer la transaction…",
+      danger: true,
+      onSelect: () => setDeleting(group),
+    } as (typeof items)[number]);
     setMenu({ x: event.clientX, y: event.clientY, items });
   }
 
@@ -241,7 +250,38 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
 
   return (
     <div className="transactions-page">
-      <TransactionsTabs onViewChange={onViewChange} view={view} />
+      <div className="transactions-topbar">
+        <TransactionsTabs onViewChange={onViewChange} view={view} />
+        <section className="transaction-insights" aria-label="Indicateurs du journal">
+        <InsightCard
+          badge={`${snapshot.recentImport ? snapshot.recentImport.duplicateCount + snapshot.recentImport.errorCount : 0} rejet`}
+          badgeTone="success"
+          description={snapshot.recentImport
+            ? `${snapshot.recentImport.fileName} · ${snapshot.recentImport.recognizedCount} lignes reconnues`
+            : "Aucun lot d’import enregistré"}
+          progress={snapshot.recentImport?.recognizedCount
+            ? (snapshot.recentImport.importedCount / snapshot.recentImport.recognizedCount) * 100
+            : 0}
+          title="Import récent"
+        />
+        <InsightCard
+          badge={`${snapshot.summary.categorizedPercent} %`}
+          badgeTone="blue"
+          description="Règles personnelles appliquées localement"
+          progress={snapshot.summary.categorizedPercent}
+          title="Catégorisation locale"
+        />
+        <InsightCard
+          badge={`${snapshot.summary.reviewCount} à revoir`}
+          badgeTone="warning"
+          description="Dates et montants homogènes avant rapprochement"
+          progress={snapshot.summary.transactionCount
+            ? ((snapshot.summary.transactionCount - snapshot.summary.reviewCount) / snapshot.summary.transactionCount) * 100
+            : 100}
+          title="Qualité données"
+        />
+      </section>
+      </div>
       {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       <article className="card transactions-journal">
         <div className="transactions-heading"><h2>Journal des transactions</h2></div>
@@ -278,6 +318,7 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
             </select>
             <button className="secondary-button" disabled={bulkBusy || !bulkCategory} onClick={() => void runBulkAction("category")} type="button">Appliquer la catégorie</button>
             <button disabled={bulkBusy} onClick={() => void runBulkAction("validate")} type="button">Valider la sélection</button>
+            <button className="danger-button" disabled={bulkBusy} onClick={() => setDeleting(visibleTransactions.filter((row) => selectedIds.includes(row.id)))} type="button">Supprimer…</button>
             <button aria-label="Désélectionner" className="transaction-bulk-clear" disabled={bulkBusy} onClick={() => setSelectedIds([])} type="button">×</button>
             {bulkError && <span className="transaction-bulk-error" role="alert">{bulkError}</span>}
           </div>
@@ -311,36 +352,21 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
         </div>
       </article>
 
-      <section className="transaction-insights" aria-label="Indicateurs du journal">
-        <InsightCard
-          badge={`${snapshot.recentImport ? snapshot.recentImport.duplicateCount + snapshot.recentImport.errorCount : 0} rejet`}
-          badgeTone="success"
-          description={snapshot.recentImport
-            ? `${snapshot.recentImport.fileName} · ${snapshot.recentImport.recognizedCount} lignes reconnues`
-            : "Aucun lot d’import enregistré"}
-          progress={snapshot.recentImport?.recognizedCount
-            ? (snapshot.recentImport.importedCount / snapshot.recentImport.recognizedCount) * 100
-            : 0}
-          title="Import récent"
-        />
-        <InsightCard
-          badge={`${snapshot.summary.categorizedPercent} %`}
-          badgeTone="blue"
-          description="Règles personnelles appliquées localement"
-          progress={snapshot.summary.categorizedPercent}
-          title="Catégorisation locale"
-        />
-        <InsightCard
-          badge={`${snapshot.summary.reviewCount} à revoir`}
-          badgeTone="warning"
-          description="Dates et montants homogènes avant rapprochement"
-          progress={snapshot.summary.transactionCount
-            ? ((snapshot.summary.transactionCount - snapshot.summary.reviewCount) / snapshot.summary.transactionCount) * 100
-            : 100}
-          title="Qualité données"
-        />
-      </section>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
+      {deleting && (
+        <DeleteTransactionsDrawer
+          items={deleting}
+          onClose={() => setDeleting(undefined)}
+          onConfirm={async () => {
+            const result = await bulkUpdateTransactions(token, deleting.map((row) => row.id), "delete");
+            setDeleting(undefined);
+            setSelectedIds([]);
+            setNotice(result.message);
+            setRefreshKey((key) => key + 1);
+            onDataChanged();
+          }}
+        />
+      )}
       {creating && (
         <TransactionCreator
           defaultAccountId={accountId !== "all" ? Number(accountId) : undefined}
@@ -661,6 +687,38 @@ function TransactionEditor({ onClose, onCompleted, snapshot, token, transaction 
   );
 }
 
+function DeleteTransactionsDrawer({ items, onClose, onConfirm }: { items: TransactionRow[]; onClose: () => void; onConfirm: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const reconciled = items.filter((row) => row.reconciliation?.reconciled).length;
+  const plural = items.length > 1;
+
+  async function confirm() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onConfirm();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SideDrawer
+      eyebrow="Transactions"
+      footer={(<><button className="secondary-button" disabled={busy} onClick={onClose} type="button">Annuler</button><button className="danger-button" disabled={busy} onClick={() => void confirm()} type="button">{busy ? "Suppression…" : plural ? `Supprimer ${items.length} transactions` : "Supprimer"}</button></>)}
+      onClose={onClose}
+      title={plural ? `Supprimer ${items.length} transactions` : "Supprimer cette transaction"}
+    >
+      <p className="drawer-help">La suppression est définitive : les soldes, les budgets et le prévisionnel sont recalculés.</p>
+      {reconciled > 0 && <p className="drawer-help">{reconciled} transaction{reconciled > 1 ? "s sont rapprochées" : " est rapprochée"} : le rapprochement sera annulé et la prévision correspondante redeviendra « Prévue » ou « En retard ».</p>}
+      <ul className="drawer-list">{items.map((row) => <li key={row.id}>{formatDate(row.date)} · {row.beneficiary || row.label} · {signedMoney(row.amount)}</li>)}</ul>
+      {error && <p className="account-form-error" role="alert">{error}</p>}
+    </SideDrawer>
+  );
+}
+
 function InsightCard({ badge, badgeTone, description, progress, title }: {
   badge: string;
   badgeTone: "blue" | "success" | "warning";
@@ -671,9 +729,8 @@ function InsightCard({ badge, badgeTone, description, progress, title }: {
   const safeProgress = Math.max(0, Math.min(100, progress));
   return (
     <article className="card transaction-insight">
-      <h2>{title}</h2>
+      <div className="transaction-insight__head"><h2>{title}</h2><span className={`transaction-insight__badge transaction-insight__badge--${badgeTone}`}>{badge}</span></div>
       <p title={description}>{description}</p>
-      <span className={`transaction-insight__badge transaction-insight__badge--${badgeTone}`}>{badge}</span>
       <div className="transaction-progress"><span style={{ width: `${safeProgress}%` }} /></div>
     </article>
   );

@@ -192,7 +192,7 @@ export function createTransactionCategorizationRule(
 export function bulkUpdateTransactions(
   token: string,
   transactionIds: number[],
-  action: "category" | "validate",
+  action: "category" | "validate" | "delete",
   category?: string,
 ): Promise<TransactionBulkResult> {
   return request<TransactionBulkResult>("/api/v1/transactions/actions/bulk", {

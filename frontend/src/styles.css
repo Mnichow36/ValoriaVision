@@ -2482,3 +2482,16 @@ button { cursor: pointer; }
 .drawer-help { color: #52627d; font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
 .drawer-quick { display: flex; gap: 8px; margin-bottom: 12px; }
 .drawer-list { color: #334155; font-size: 13px; margin: 8px 0 0; max-height: 240px; overflow: auto; padding-left: 18px; }
+
+/* Règle UX : tout visible à 100 % sans défiler — tuiles de synthèse en haut à droite, à côté des onglets */
+.transactions-page { gap: 16px; }
+.transactions-topbar { align-items: center; display: flex; flex-wrap: wrap; gap: 12px 16px; justify-content: space-between; }
+.transactions-topbar .transaction-insights { display: flex; flex: 1 1 560px; gap: 10px; justify-content: flex-end; }
+.transactions-topbar .transaction-insight { flex: 1 1 0; height: auto; max-width: 260px; min-width: 150px; padding: 9px 12px; }
+.transaction-insight__head { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.transaction-insight h2 { font-size: 13px; margin: 0; white-space: nowrap; }
+.transaction-insight__badge { font-size: 11px; margin: 0; padding: 2px 7px; white-space: nowrap; }
+.transaction-insight p { font-size: 11px; margin: 3px 0 6px; }
+.transaction-progress { height: 6px; margin-top: 0; }
+.transactions-journal .transactions-table-wrap { max-height: max(300px, calc(100vh - 420px)); }
+.workspace-content { padding-bottom: 20px; }
