@@ -39,6 +39,7 @@ from app.services.reconciliation_read_service import ReconciliationReadService
 from app.services.scenario_event_service import ScenarioEventService
 from app.services.scenario_service import ScenarioService
 from app.services.settings_read_service import SettingsReadService
+from app.services.rule_suggestion_service import RuleSuggestionService
 from app.services.transactions_read_service import TransactionsReadService
 
 
@@ -257,6 +258,21 @@ class TransactionBulkPayload(BaseModel):
 class TransactionCategorizationRulePayload(BaseModel):
     target_category_id: int
     match_value: str | None = None
+
+
+class RuleSuggestionItemPayload(BaseModel):
+    match_value: str
+    target_category_id: int
+    transaction_type: str | None = None
+    transaction_ids: list[int] = []
+
+
+class RuleSuggestionApplyPayload(BaseModel):
+    items: list[RuleSuggestionItemPayload]
+
+
+class RuleSuggestionDismissPayload(BaseModel):
+    match_value: str
 
 
 class RecurrencePayload(BaseModel):
@@ -1426,6 +1442,57 @@ def create_app(database: Database | None = None) -> FastAPI:
                 payload.target_category_id,
                 payload.match_value,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/v1/rule-suggestions")
+    def rule_suggestions(
+        min_reliability: float = 0.9,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return RuleSuggestionService(active_database).suggestions(min(max(min_reliability, 0.5), 1.0))
+
+    @app.get("/api/v1/rule-suggestions/preview")
+    def rule_suggestion_preview(
+        match_value: str,
+        transaction_type: str | None = None,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return {"transactions": RuleSuggestionService(active_database).preview(match_value, transaction_type)}
+
+    @app.post("/api/v1/rule-suggestions/apply")
+    def apply_rule_suggestions(
+        payload: RuleSuggestionApplyPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return RuleSuggestionService(active_database).apply([item.model_dump() for item in payload.items])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/rule-suggestions/dismiss")
+    def dismiss_rule_suggestion(
+        payload: RuleSuggestionDismissPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return RuleSuggestionService(active_database).dismiss(payload.match_value)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

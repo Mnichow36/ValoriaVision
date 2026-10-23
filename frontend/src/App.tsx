@@ -211,7 +211,7 @@ export function App() {
   const module = activeModule === "transactions"
     ? transactionsView === "reconciliation"
       ? { title: "Transactions", description: "Associer les transactions réelles aux prévisions attendues." }
-      : transactionsView === "recurrences" || transactionsView === "rules"
+      : transactionsView === "recurrences" || transactionsView === "rules" || transactionsView === "suggestions"
       ? modules.transactions
       : transactionsView !== "journal"
         ? {
@@ -437,7 +437,7 @@ function HeaderActions({
         </div>
       );
     }
-    if (transactionView === "recurrences" || transactionView === "rules") {
+    if (transactionView === "recurrences" || transactionView === "rules" || transactionView === "suggestions") {
       return (
         <div className="header-actions">
           {transactionView === "rules" && <button className="secondary-button" onClick={onCreateRecurrenceRule} type="button">Nouvelle récurrence</button>}

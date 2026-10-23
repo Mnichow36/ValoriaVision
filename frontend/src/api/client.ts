@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -778,4 +778,22 @@ export function inspectBackup(token: string, source: BackupSource, passphrase: s
 
 export function restoreBackup(token: string, source: BackupSource, passphrase: string, password: string): Promise<{ restored: boolean; safetyCopy: string }> {
   return request<{ restored: boolean; safetyCopy: string }>("/api/v1/backups/restore", { method: "POST", token, body: { ...source, passphrase, password } });
+}
+
+export function getRuleSuggestions(token: string, minReliability: number, signal?: AbortSignal): Promise<RuleSuggestionsSnapshot> {
+  return request<RuleSuggestionsSnapshot>(`/api/v1/rule-suggestions?min_reliability=${minReliability}`, { token, signal });
+}
+
+export function previewRuleSuggestion(token: string, matchValue: string, transactionType: string | null, signal?: AbortSignal): Promise<{ transactions: RuleSuggestionPreviewRow[] }> {
+  const query = new URLSearchParams({ match_value: matchValue });
+  if (transactionType) query.set("transaction_type", transactionType);
+  return request<{ transactions: RuleSuggestionPreviewRow[] }>(`/api/v1/rule-suggestions/preview?${query.toString()}`, { token, signal });
+}
+
+export function applyRuleSuggestions(token: string, items: RuleSuggestionApplyItem[]): Promise<RuleSuggestionApplyResult> {
+  return request<RuleSuggestionApplyResult>("/api/v1/rule-suggestions/apply", { method: "POST", token, body: { items } });
+}
+
+export function dismissRuleSuggestion(token: string, matchValue: string): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>("/api/v1/rule-suggestions/dismiss", { method: "POST", token, body: { match_value: matchValue } });
 }

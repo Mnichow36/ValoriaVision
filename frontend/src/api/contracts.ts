@@ -1285,3 +1285,45 @@ export interface BackupInspection {
   backup: BackupCounts & { createdAt?: string; kind?: string; legacy: boolean; verified: boolean };
   current: BackupCounts;
 }
+
+export interface RuleSuggestion {
+  key: string;
+  matchValue: string;
+  category: string;
+  categoryId: number;
+  transactionType: "Débit" | "Crédit" | null;
+  support: number;
+  agreeing: number;
+  reliability: number;
+  recommended: boolean;
+  matches: number;
+}
+
+export interface RuleSuggestionsSnapshot {
+  suggestions: RuleSuggestion[];
+  discardedCount: number;
+  minReliability: number;
+  totalMatches: number;
+}
+
+export interface RuleSuggestionPreviewRow {
+  id: number;
+  date: string;
+  label: string;
+  amount: number;
+  account: string;
+}
+
+export interface RuleSuggestionApplyItem {
+  match_value: string;
+  target_category_id: number;
+  transaction_type: string | null;
+  transaction_ids: number[];
+}
+
+export interface RuleSuggestionApplyResult {
+  success: boolean;
+  created: number;
+  classified: number;
+  message: string;
+}
