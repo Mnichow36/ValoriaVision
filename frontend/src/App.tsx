@@ -14,7 +14,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 import type { TransactionsView } from "./components/TransactionsPage";
 import type { Me, Profile } from "./api/contracts";
-import { InteractiveDonutChart } from "./components/InteractiveCharts";
+import { AssetFamilyDrawer, FlowHistoryChart, RankedBars, TreemapChart } from "./components/DashboardCharts";
 
 type AppState =
   | { status: "booting" }
@@ -529,6 +529,7 @@ function DashboardEmpty({ profileName, onCreateAccount, onImport }: { profileNam
 }
 
 function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; onNavigate: (module: NavigationId | "reconciliation") => void; snapshot: DashboardSnapshot }) {
+  const [family, setFamily] = useState<string | null>(null);
   const kpis = new Map(snapshot.kpis.map((kpi) => [kpi.id, kpi]));
   const cash = kpis.get("cash")?.value ?? 0;
   const netWorth = kpis.get("net-worth")?.value ?? 0;
@@ -545,12 +546,16 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
   const filtered = snapshot.filters?.accountId != null;
   const expenseSlices = groupSlices(
     expenseRows.map((row) => ({ label: row.label, value: row.value })),
-    ["#2563eb", "#06b6d4", "#f59e0b", "#dc2626", "#7c3aed", "var(--s-64748b)"],
-  );
+    ["#1d4ed8"],
+    8,
+  ).map((slice) => (slice.label === "Autres" ? { ...slice, color: "#6b7a99" } : slice));
   const assetSlices = groupSlices(
     snapshot.assets.filter((item) => item.value > 0).map((item) => ({ label: item.label, value: item.value })),
-    ["#2563eb", "#7c3aed", "#06b6d4", "#22c55e", "#f59e0b", "var(--s-64748b)"],
+    ["#1d4ed8", "#6d28d9", "#0e7490", "#15803d", "#b45309", "#55627f"],
   );
+  const liabilities = Math.max(0, assetTotal - netWorth);
+  const selectedSlice = assetSlices.find((slice) => slice.label === family) ?? null;
+  const familyItems = family && family !== "Autres" ? snapshot.assetDetails?.[family] ?? [] : [];
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
   const quality = snapshot.quality;
   const varianceLabel = comparable ? `${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget` : "Budget global non comparable sur ce périmètre";
@@ -565,22 +570,25 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
       </section>
 
       <section className="r8-dashboard-main">
+        <article className="card r8-panel r8-assets-panel">
+          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Total des actifs · {moneyCode.format(assetTotal)} · surface = poids dans le patrimoine.</p></div></div>
+          <TreemapChart ariaLabel="Répartition du patrimoine par famille" format={(value) => moneyCode.format(value)} items={assetSlices} onSelect={setFamily} total={assetTotal} />
+          <div className="dash-net-strip"><span>Passifs <b className="bgt-bad">{liabilities > 0 ? "−" : ""}{moneyCode.format(liabilities)}</b></span><span>Patrimoine net <b>{moneyCode.format(netWorth)}</b></span></div>
+        </article>
         <article className="card r8-panel r8-expenses-panel">
-          <div className="panel-heading"><div><h2>Répartition des dépenses</h2><p>{formatPeriod(snapshot.period)} · total {moneyCode.format(expenseTotal)}.</p></div></div>
-          <div className="r8-expenses-content r8-expenses-content--interactive">
-            <InteractiveDonutChart ariaLabel="Répartition des dépenses par catégorie" slices={expenseSlices} valueFormatter={(value) => moneyCode.format(value)} />
-          </div>
+          <div className="panel-heading"><div><h2>Où part l’argent</h2><p>{formatPeriod(snapshot.period)} · total {moneyCode.format(expenseTotal)} · classées par montant.</p></div></div>
+          <RankedBars format={(value) => moneyCode.format(value)} items={expenseSlices} total={expenseTotal} />
           {comparable && <span className={budgetVariance > 0 ? "r8-variance r8-variance--warning" : "r8-variance"}>{varianceLabel}</span>}
         </article>
-        <article className="card r8-panel r8-assets-panel">
-          <div className="panel-heading"><div><h2>Patrimoine</h2><p>Total des actifs · {moneyCode.format(assetTotal)} · tous comptes.</p></div></div>
-          <InteractiveDonutChart ariaLabel="Répartition du patrimoine par famille" slices={assetSlices} valueFormatter={(value) => moneyCode.format(value)} />
-        </article>
         <article className="card r8-panel r8-flow-panel">
-          <div className="panel-heading"><div><h2>Flux du mois</h2><p>Revenus, dépenses et épargne nette · hors transferts.</p></div></div>
-          <FlowBar label="Revenus" maximum={flowMaximum} tone="green" value={income} />
-          <FlowBar label="Dépenses" maximum={flowMaximum} tone="red" value={expenses} />
-          <FlowBar label="Épargne nette" maximum={flowMaximum} tone="blue" value={savings} />
+          <div className="panel-heading"><div><h2>Flux sur 6 mois</h2><p>Revenus et dépenses · hors transferts. Sous chaque mois : épargne nette.</p></div></div>
+          {snapshot.flowHistory && snapshot.flowHistory.length > 0
+            ? <FlowHistoryChart format={(value) => moneyCode.format(value)} history={snapshot.flowHistory} />
+            : <>
+              <FlowBar label="Revenus" maximum={flowMaximum} tone="green" value={income} />
+              <FlowBar label="Dépenses" maximum={flowMaximum} tone="red" value={expenses} />
+              <FlowBar label="Épargne nette" maximum={flowMaximum} tone="blue" value={savings} />
+            </>}
         </article>
       </section>
 
@@ -588,7 +596,7 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
         <article className="card r8-panel r8-alerts-panel">
           <div className="panel-heading"><div><h2>Alertes utiles</h2></div>{toProcess > 0 && <span className="dash-count">{toProcess}</span>}</div>
           <ul>
-            {snapshot.alerts.slice(0, 4).map((alert) => (
+            {snapshot.alerts.slice(0, 2).map((alert) => (
               <li className={`dash-alert dash-alert--${alert.level}`} key={`${alert.title}-${alert.detail}`}>
                 <button disabled={!alert.target} onClick={() => alert.target && onNavigate(alert.target)} type="button">
                   <span><strong>{alert.title}</strong><small>{alert.detail}</small></span>
@@ -606,17 +614,17 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
               <div className="r8-quality-track"><span style={{ width: `${Math.min(100, quality.categorizedPercent)}%` }} /></div>
               <div className="dash-rows">
                 <button onClick={() => onNavigate("transactions")} type="button"><span>À catégoriser</span><b>{quality.uncategorized} ›</b></button>
-                <button onClick={() => onNavigate("reconciliation")} type="button"><span>Rapprochements en attente</span><b>{quality.reconciliationPending} ›</b></button>
+                <button onClick={() => onNavigate("reconciliation")} type="button"><span>Rapprochements</span><b>{quality.reconciliationPending} ›</b></button>
                 <button onClick={onImport} type="button"><span>Dernier import</span><b>{quality.lastImport ? (quality.daysSinceImport === 0 ? "aujourd’hui" : `il y a ${quality.daysSinceImport} j`) : "aucun"} ›</b></button>
               </div>
             </>
           ) : <p className="bgt-empty">Indicateurs indisponibles.</p>}
         </article>
         <article className="card r8-panel r8-upcoming-panel">
-          <div className="panel-heading"><div><h2>Prochaines échéances</h2><p>Les 5 prochains mouvements prévus.</p></div><button className="bgt-link" onClick={() => onNavigate("forecast")} type="button">Prévisionnel ›</button></div>
+          <div className="panel-heading"><div><h2>Prochaines échéances</h2><p>Les prochains mouvements prévus.</p></div><button className="bgt-link" onClick={() => onNavigate("forecast")} type="button">Prévisionnel ›</button></div>
           {(snapshot.upcoming ?? []).length === 0 && <p className="bgt-empty">Aucun mouvement prévu prochainement.</p>}
           <ul className="dash-upcoming">
-            {(snapshot.upcoming ?? []).map((item, index) => (
+            {(snapshot.upcoming ?? []).slice(0, 3).map((item, index) => (
               <li key={`${item.date}-${item.label}-${index}`}>
                 <span>{item.date.slice(8, 10)}/{item.date.slice(5, 7)}</span>
                 <strong title={item.label}>{item.label}</strong>
@@ -626,6 +634,9 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
           </ul>
         </article>
       </section>
+      {family && selectedSlice && (
+        <AssetFamilyDrawer color={selectedSlice.color} family={family} format={(value) => moneyCode.format(value)} items={familyItems} onClose={() => setFamily(null)} onOpenAssets={() => { setFamily(null); onNavigate("assets"); }} share={assetTotal > 0 ? (selectedSlice.value / assetTotal) * 100 : 0} total={selectedSlice.value} />
+      )}
     </div>
   );
 }

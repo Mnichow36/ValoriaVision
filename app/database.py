@@ -3031,6 +3031,30 @@ class Database:
         return totals
 
 
+    def asset_details(self) -> dict[str, list[dict]]:
+        """Détail par famille de ``asset_summary`` : biens et comptes qui la composent."""
+        with self.connect() as conn:
+            rows = list(
+                conn.execute("SELECT name, category, asset_type, value FROM assets WHERE status = 'Actif'")
+            )
+        details: dict[str, list[dict]] = {}
+        for row in rows:
+            if not is_patrimonial_asset(row["name"], row["category"], row["asset_type"]):
+                continue
+            details.setdefault(row["category"], []).append({"name": str(row["name"]), "value": round(float(row["value"] or 0), 2)})
+        accounts = [
+            {"name": str(row["name"]), "value": round(float(row["calculated_balance"] or 0), 2)}
+            for row in self.list_accounts()
+            if row["status"] == "Actif" and row["account_type"] in ("Compte courant", "Compte épargne") and float(row["calculated_balance"] or 0)
+        ]
+        if accounts:
+            details.setdefault("Liquidités", []).extend(accounts)
+        # Même règle que le graphique : seules les familles d'actifs (total positif) sont détaillées.
+        details = {family: items for family, items in details.items() if sum(i["value"] for i in items) > 0}
+        for items in details.values():
+            items.sort(key=lambda item: -abs(item["value"]))
+        return details
+
     def asset_value_history(self) -> list[dict]:
         """Toutes les valorisations stockées (actifs et passifs), triées par date."""
         with self.connect() as conn:

@@ -48,6 +48,23 @@ class DashboardInteractiveTest(unittest.TestCase):
     def service(self):
         return DashboardReadService(self.database, today_provider=lambda: self.today, now_provider=lambda: datetime.now(timezone.utc))
 
+    def test_flow_history_covers_six_months_ending_on_selected_month(self):
+        snapshot = self.service().snapshot(None, self.month)
+        history = snapshot["flowHistory"]
+        self.assertEqual(len(history), 6)
+        self.assertEqual(history[-1]["month"], self.month)
+        self.assertEqual([row["month"] for row in history], sorted(row["month"] for row in history))
+        self.assertAlmostEqual(history[-1]["expenses"], snapshot["kpis"][4]["value"], places=2)
+        january = self.service().snapshot(None, "2026-02")["flowHistory"]
+        self.assertEqual([row["month"] for row in january][:2], ["2025-09", "2025-10"])
+
+    def test_asset_details_group_assets_and_cash_accounts_by_family(self):
+        details = self.service().snapshot(None, self.month)["assetDetails"]
+        by_family = {label["label"]: label["value"] for label in self.service().snapshot(None, self.month)["assets"]}
+        for family, items in details.items():
+            self.assertAlmostEqual(sum(item["value"] for item in items), by_family[family], places=2)
+            self.assertEqual([abs(i["value"]) for i in items], sorted((abs(i["value"]) for i in items), reverse=True))
+
     def test_account_filter_limits_flows_and_categories_but_not_net_worth(self):
         everything = self.service().snapshot()
         only_a = self.service().snapshot(self.a)

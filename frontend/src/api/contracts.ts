@@ -71,6 +71,8 @@ export interface DashboardSnapshot {
   toProcess?: number;
   expensesByCategory?: { label: string; value: number }[];
   budgetComparable?: boolean;
+  flowHistory?: { month: string; income: number; expenses: number }[];
+  assetDetails?: Record<string, { name: string; value: number }[]>;
   quality?: DashboardQuality;
   upcoming?: DashboardUpcoming[];
 }

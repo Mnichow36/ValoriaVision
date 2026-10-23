@@ -87,7 +87,19 @@ class DashboardReadService:
                 days_since = (today - date.fromisoformat(last_import)).days
             except ValueError:
                 days_since = None
+        flow_history = []
+        year, number = int(month[:4]), int(month[5:])
+        for back in range(5, -1, -1):
+            step_month, step_year = number - back, year
+            while step_month <= 0:
+                step_month += 12
+                step_year -= 1
+            key = f"{step_year:04d}-{step_month:02d}"
+            month_flows = db.dashboard_month_flows(key, account_id)
+            flow_history.append({"month": key, "income": round(month_flows["revenus"], 2), "expenses": round(month_flows["depenses"], 2)})
         return {
+            "flowHistory": flow_history,
+            "assetDetails": db.asset_details() if hasattr(db, "asset_details") else {},
             "filters": {"accountId": account_id, "month": month},
             "accounts": accounts,
             "months": [str(item) for item in db.budget_months()],
