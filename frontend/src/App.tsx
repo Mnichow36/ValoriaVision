@@ -196,6 +196,7 @@ export function App() {
     );
   }
 
+  const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? null;
   const module = activeModule === "transactions"
     ? transactionsView === "reconciliation"
       ? { title: "Transactions", description: "Associer les transactions réelles aux prévisions attendues." }
@@ -217,7 +218,7 @@ export function App() {
       <main className="workspace">
         <header className="module-header">
           <div>
-            <h1>{module.title}</h1>
+            <h1>{activeModule === "dashboard" && activeProfile ? (activeProfile.kind === "demo" ? "Profil de démonstration" : `Bonjour ${activeProfile.name}`) : module.title}</h1>
             <p>{module.description}</p>
           </div>
           <HeaderActions
@@ -248,7 +249,13 @@ export function App() {
           />
         </header>
         <div className="workspace-content">
-          {activeModule === "dashboard" && <Dashboard onImport={() => openBankImport()} onNavigate={navigate} snapshot={state.snapshot} />}
+          {activeModule === "dashboard" && ((state.snapshot.accounts ?? []).length === 0
+            ? <DashboardEmpty
+                onCreateAccount={() => { setAccountEditorRequestKey((key) => key + 1); navigate("accounts"); }}
+                onImport={() => openBankImport()}
+                profileName={activeProfile?.name ?? ""}
+              />
+            : <Dashboard onImport={() => openBankImport()} onNavigate={navigate} snapshot={state.snapshot} />)}
           {activeModule === "accounts" && (
             <AccountsPage
               editorRequestKey={accountEditorRequestKey}
@@ -487,6 +494,24 @@ function groupSlices(items: { label: string; value: number }[], palette: string[
     ? [...kept, { label: "Autres", value: rest.reduce((total, item) => total + item.value, 0) }]
     : kept;
   return slices.map((item, index) => ({ ...item, color: palette[index % palette.length] }));
+}
+
+function DashboardEmpty({ profileName, onCreateAccount, onImport }: { profileName: string; onCreateAccount: () => void; onImport: () => void }) {
+  return (
+    <section className="dashboard-empty card">
+      <h2>{profileName ? `Bienvenue, ${profileName}` : "Bienvenue"}</h2>
+      <p>Ce profil est encore vide : c’est normal, rien n’est repris d’un autre profil. Ajoutez vos comptes pour voir apparaître votre cockpit financier.</p>
+      <ol>
+        <li><strong>Créez un compte</strong> (compte courant, livret…) avec son solde de départ.</li>
+        <li><strong>Importez un relevé</strong> bancaire pour alimenter les transactions.</li>
+        <li>Complétez ensuite le <strong>patrimoine</strong>, les <strong>budgets</strong> et les <strong>récurrences</strong>.</li>
+      </ol>
+      <div className="dashboard-empty__actions">
+        <button className="settings-primary" onClick={onCreateAccount} type="button">Créer un compte</button>
+        <button className="settings-secondary" onClick={onImport} type="button">Importer un relevé</button>
+      </div>
+    </section>
+  );
 }
 
 function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; onNavigate: (module: NavigationId | "reconciliation") => void; snapshot: DashboardSnapshot }) {
