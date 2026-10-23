@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { createProfile, deleteProfile, setupAdministrator, updateProfile } from "../api/client";
-import type { Profile } from "../api/contracts";
+import { createProfile, deleteProfile, setupAdministrator, updateProfile, updateProfileAccess } from "../api/client";
+import type { AccessResource, Profile } from "../api/contracts";
 import { PasswordStrengthMeter } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { RecoveryKeyPanel } from "./RecoveryKeyPanel";
@@ -16,7 +16,54 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : "Opération impossible.";
 }
 
+type Role = "admin" | "contributor" | "reader";
+
+const ROLE_OPTIONS: { id: Role; label: string; text: string }[] = [
+  { id: "admin", label: "Administrateur", text: "Voit et modifie tout, gère les profils et les accès." },
+  { id: "contributor", label: "Contributeur", text: "Consulte et modifie, uniquement dans son périmètre." },
+  { id: "reader", label: "Lecteur", text: "Consultation uniquement, dans son périmètre." },
+];
+
+function ScopePicker({ resources, selected, onChange }: { resources: AccessResource[]; selected: Set<string>; onChange: (next: Set<string>) => void }) {
+  const groups = [
+    { type: "account" as const, title: "Comptes bancaires" },
+    { type: "asset" as const, title: "Patrimoine" },
+  ];
+  const key = (r: AccessResource) => `${r.type}:${r.id}`;
+  function toggle(keys: string[], on: boolean) {
+    const next = new Set(selected);
+    keys.forEach((k) => (on ? next.add(k) : next.delete(k)));
+    onChange(next);
+  }
+  return (
+    <div className="scope-picker">
+      {groups.map((group) => {
+        const items = resources.filter((r) => r.type === group.type);
+        if (items.length === 0) return null;
+        const keys = items.map(key);
+        const all = keys.every((k) => selected.has(k));
+        return (
+          <div key={group.type}>
+            <label className="scope-picker__group">
+              <input checked={all} onChange={(e) => toggle(keys, e.target.checked)} type="checkbox" />
+              <strong>{group.title}</strong>
+            </label>
+            {items.map((item) => (
+              <label className="scope-picker__item" key={key(item)}>
+                <input checked={selected.has(key(item))} onChange={(e) => toggle([key(item)], e.target.checked)} type="checkbox" />
+                <span>{item.name}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface ProfileFormProps {
+  /** Mode administrateur : rôle et périmètre modifiables (liste des comptes et biens). */
+  resources?: AccessResource[];
   mode: "create" | "edit";
   profile?: Profile;
   hasDemo?: boolean;
@@ -31,11 +78,16 @@ interface ProfileFormProps {
   onCreated?: (profile: Profile, password: string) => void;
 }
 
-export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = false, token, onClose, onSaved, onCreated }: ProfileFormProps) {
+export function ProfileFormDrawer({ mode, profile, resources, hasDemo = false, firstRun = false, token, onClose, onSaved, onCreated }: ProfileFormProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(profile?.name ?? "");
   const [color, setColor] = useState(profile?.color ?? PROFILE_COLORS[1]);
   const [kind, setKind] = useState<"personal" | "demo">("personal");
+  const adminMode = resources !== undefined && !firstRun;
+  const [role, setRole] = useState<Role>(profile?.role ?? "contributor");
+  const [scope, setScope] = useState<Set<string>>(() => new Set(
+    (resources ?? []).filter((r) => profile && r.visibleTo.includes(profile.id)).map((r) => `${r.type}:${r.id}`),
+  ));
   const [avatar, setAvatar] = useState<string | null>(profile?.avatar ?? null);
   const [avatarChanged, setAvatarChanged] = useState(false);
   const [avatarMode, setAvatarMode] = useState<"initials" | "photo">(profile?.avatar ? "photo" : "initials");
@@ -68,6 +120,11 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
     }
   }
 
+  function scopePayload() {
+    const ids = (type: string) => [...scope].filter((k) => k.startsWith(`${type}:`)).map((k) => Number(k.split(":")[1]));
+    return { accounts: ids("account"), assets: ids("asset") };
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -83,8 +140,10 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
         const result = await updateProfile(token, profile.id, {
           name,
           color,
+          ...(adminMode && role !== profile.role ? { role } : {}),
           ...(avatarChanged ? (avatar ? { avatar } : { clear_avatar: true }) : {}),
         });
+        if (adminMode && role !== "admin") await updateProfileAccess(token, profile.id, scopePayload());
         onSaved?.(result.profile);
         return;
       }
@@ -102,7 +161,7 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
         name,
         color,
         kind,
-        ...(isDemo ? {} : { password }),
+        ...(isDemo ? {} : { password, role, ...scopePayload() }),
         ...(avatar && avatarMode === "photo" ? { avatar } : {}),
       });
       if (result.recoveryKey) setCreated({ profile: result.profile, recoveryKey: result.recoveryKey });
@@ -117,15 +176,15 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
   if (created) {
     return (
       <SideDrawer eyebrow="Profils" onClose={() => undefined} title="Profil créé"
-        footer={<button className="settings-primary" disabled={!keyConfirmed} onClick={() => onCreated?.(created.profile, password)} type="button">Ouvrir mon espace</button>}>
-        <p><strong>{created.profile.name}</strong> est prêt. Voici sa clé de secours, indispensable si le mot de passe est oublié.</p>
+        footer={<button className="settings-primary" disabled={!keyConfirmed} onClick={() => onCreated?.(created.profile, password)} type="button">{adminMode ? "Terminé" : "Ouvrir mon espace"}</button>}>
+        <p><strong>{created.profile.name}</strong> est prêt. Voici sa clé de secours, indispensable si le mot de passe est oublié{adminMode ? " : remettez-la à cette personne, elle ne sera plus affichée." : "."}</p>
         <RecoveryKeyPanel onConfirmedChange={setKeyConfirmed} recoveryKey={created.recoveryKey} />
       </SideDrawer>
     );
   }
 
   return (
-    <SideDrawer eyebrow="Profils" onClose={onClose} title={mode === "create" ? (firstRun ? "Créer l’administrateur" : "Nouveau profil") : "Modifier le profil"}
+    <SideDrawer eyebrow="Profils" onClose={onClose} title={mode === "create" ? (firstRun ? "Créer l’administrateur" : "Nouveau profil") : adminMode ? "Profil et accès" : "Modifier le profil"}
       footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-primary" disabled={busy} form="profile-form" type="submit">{busy ? "Enregistrement…" : mode === "create" ? "Créer le profil" : "Enregistrer"}</button></>}>
       <form className="drawer-form" id="profile-form" onSubmit={submit}>
         <label>Nom du profil<input autoFocus maxLength={40} onChange={(e) => setName(e.target.value)} value={name} /></label>
@@ -156,6 +215,23 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
           ))}
         </div>
 
+        {adminMode && mode === "edit" && (
+          <>
+            <div className="drawer-form__label">Rôle</div>
+            <div className="role-options" role="radiogroup" aria-label="Rôle">
+              {ROLE_OPTIONS.map((option) => (
+                <button aria-checked={role === option.id} key={option.id} onClick={() => setRole(option.id)} role="radio" type="button">
+                  <strong>{option.label}</strong><span>{option.text}</span>
+                </button>
+              ))}
+            </div>
+            <div className="drawer-form__label">Périmètre : ce que ce profil peut voir</div>
+            {role === "admin"
+              ? <p className="drawer-note">Un administrateur voit toujours tous les comptes et tous les biens.</p>
+              : <ScopePicker onChange={setScope} resources={resources ?? []} selected={scope} />}
+          </>
+        )}
+
         {mode === "create" && (
           <>
             {firstRun
@@ -166,6 +242,22 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = f
               <button aria-pressed={kind === "personal"} onClick={() => setKind("personal")} type="button"><strong>Personnel</strong><span>Accès à la base familiale, mot de passe obligatoire.</span></button>
               <button aria-pressed={kind === "demo"} disabled={hasDemo} onClick={() => setKind("demo")} title={hasDemo ? "Un profil Démo existe déjà." : undefined} type="button"><strong>Démo</strong><span>{hasDemo ? "Déjà créé." : "Données fictives, sans mot de passe."}</span></button>
             </div>
+            )}
+                    {adminMode && !isDemo && (
+              <>
+                <div className="drawer-form__label">Rôle</div>
+                <div className="role-options" role="radiogroup" aria-label="Rôle">
+                  {ROLE_OPTIONS.map((option) => (
+                    <button aria-checked={role === option.id} key={option.id} onClick={() => setRole(option.id)} role="radio" type="button">
+                      <strong>{option.label}</strong><span>{option.text}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="drawer-form__label">Périmètre : ce que ce profil peut voir</div>
+                {role === "admin"
+                  ? <p className="drawer-note">Un administrateur voit toujours tous les comptes et tous les biens.</p>
+                  : <ScopePicker onChange={setScope} resources={resources ?? []} selected={scope} />}
+              </>
             )}
             {!isDemo && (
               <>

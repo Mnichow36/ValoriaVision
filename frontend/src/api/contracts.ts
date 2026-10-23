@@ -1132,6 +1132,23 @@ export interface ProfileUpdatePayload {
   clear_avatar?: boolean;
 }
 
+export interface AccessResource {
+  type: "account" | "asset";
+  id: number;
+  name: string;
+  visibleTo: string[];
+}
+
+export interface AccessMatrix {
+  users: Profile[];
+  resources: AccessResource[];
+}
+
+export interface ProfileAccessPayload {
+  accounts: number[];
+  assets: number[];
+}
+
 /** Ce que le profil ouvert peut voir et faire. */
 export interface Me {
   id: string;

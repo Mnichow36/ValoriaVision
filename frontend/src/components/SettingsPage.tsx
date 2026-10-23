@@ -26,6 +26,7 @@ import type {
 } from "../api/contracts";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { AccessAdmin } from "./AccessAdmin";
 import { ProfileFormDrawer } from "./ProfileDrawers";
 import type { NavigationId } from "./Sidebar";
 import { ThemeSwitch } from "./ThemeSwitch";
@@ -435,7 +436,7 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
               <div className="panel-heading"><div><h2>Mon profil</h2><p>Nom, photo et couleur affichés à l’ouverture de Valoria.</p></div></div>
               <div className="settings-profile-row">
                 <ProfileAvatar profile={profile} size={64} />
-                <div><strong>{profile.name}</strong><small>{profile.kind === "demo" ? "Profil de démonstration" : "Profil personnel"}</small></div>
+                <div><strong>{profile.name}</strong><small>{profile.kind === "demo" ? "Profil de démonstration" : profile.roleLabel ?? "Profil personnel"}</small></div>
               </div>
               <div className="security-card-actions">
                 <button className="settings-secondary" onClick={() => setSecurityDrawer("profile")} type="button">Modifier le profil</button>
@@ -455,6 +456,9 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
               <button className="settings-secondary" onClick={() => setSecurityDrawer("recovery")} type="button">{securityStatus?.recoveryKeyConfigured ? "Remplacer la clé de secours" : "Créer la clé de secours"}</button>
             </div>
           </article>
+          )}
+          {profile?.role === "admin" && profile.kind !== "demo" && (
+            <AccessAdmin currentProfileId={profile.id} onChanged={onProfileChanged} onNotice={setNotice} token={token} />
           )}
           <article className="card settings-summary-card security-journal-card">
             <div className="panel-heading"><div><h2>Journal de sécurité</h2><p>Dernières connexions, échecs et verrouillages.</p></div></div>

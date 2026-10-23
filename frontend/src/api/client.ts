@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { Me, Profile, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccessMatrix, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -68,6 +68,14 @@ export function openSession(profileId: string, password: string): Promise<AuthSe
 /** Première installation : crée le premier administrateur et ouvre sa session. */
 export function setupAdministrator(name: string, password: string): Promise<AuthSession & { recoveryKey: string }> {
   return request<AuthSession & { recoveryKey: string }>("/api/v1/auth/setup", { method: "POST", body: { name, password } });
+}
+
+export function getAccessMatrix(token: string, signal?: AbortSignal): Promise<AccessMatrix> {
+  return request<AccessMatrix>("/api/v1/access", { token, signal });
+}
+
+export function updateProfileAccess(token: string, profileId: string, payload: ProfileAccessPayload): Promise<{ profile: Profile }> {
+  return request<{ profile: Profile }>(`/api/v1/profiles/${encodeURIComponent(profileId)}/access`, { method: "PUT", token, body: payload });
 }
 
 export function getMe(token: string): Promise<{ me: Me | null }> {
