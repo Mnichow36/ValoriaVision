@@ -611,6 +611,7 @@ class Database:
         self.ensure_columns(conn, "transactions", {"updated_at": "TEXT"})
         self.ensure_columns(conn, "import_batches", {"status": "TEXT NOT NULL DEFAULT 'Importé'", "canceled_at": "TEXT"})
         self.ensure_columns(conn, "assets", {"updated_at": "TEXT", "details_json": "TEXT NOT NULL DEFAULT '{}'"})
+        self.ensure_columns(conn, "recurring_items", {"recurrence_kind": "TEXT NOT NULL DEFAULT 'Autre'"})
         conn.execute("UPDATE import_batches SET status = 'Importé' WHERE status IS NULL OR status = ''")
         self.apply_category_foundation(conn)
         self.seed_categories(conn)
@@ -3175,11 +3176,12 @@ class Database:
     def add_recurring_item(self, data: dict) -> int:
         payload = dict(data)
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
+        payload.setdefault("recurrence_kind", "Autre")
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO recurring_items(account_id, name, category, amount, frequency, next_date, end_date, scenario, status)
-                VALUES (:account_id, :name, :category, :amount, :frequency, :next_date, :end_date, :scenario, :status)
+                INSERT INTO recurring_items(account_id, name, category, amount, frequency, next_date, end_date, scenario, status, recurrence_kind)
+                VALUES (:account_id, :name, :category, :amount, :frequency, :next_date, :end_date, :scenario, :status, :recurrence_kind)
                 """,
                 payload,
             )
@@ -3201,6 +3203,7 @@ class Database:
         payload = dict(data)
         payload["amount"] = self.normalize_amount_for_category(payload.get("category"), payload.get("amount", 0))
         payload["item_id"] = item_id
+        payload.setdefault("recurrence_kind", None)
         with self.connect() as conn:
             occurrence_ids = [
                 int(row[0])
@@ -3226,6 +3229,7 @@ class Database:
                     end_date = :end_date,
                     scenario = :scenario,
                     status = :status,
+                    recurrence_kind = COALESCE(:recurrence_kind, recurrence_kind),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = :item_id
                 """,

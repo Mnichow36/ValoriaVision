@@ -382,6 +382,7 @@ function recurrenceBody(payload: RecurrencePayload) {
     next_date: payload.nextDate,
     end_date: payload.endDate || null,
     scenario: payload.scenario,
+    kind: payload.kind ?? null,
   };
 }
 

@@ -308,6 +308,7 @@ class RecurrencePayload(BaseModel):
     next_date: str
     end_date: str | None = None
     scenario: str = "Réaliste"
+    kind: str | None = None
 
 
 class SafetyThresholdPayload(BaseModel):

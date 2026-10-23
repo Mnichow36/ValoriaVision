@@ -348,6 +348,7 @@ class ForecastReadService:
             "rescheduledOccurrenceCount": len(rescheduled_dates),
             "endDate": str(_field(row, "end_date", "") or ""),
             "scenario": str(_field(row, "scenario", "Réaliste") or "Réaliste"),
+            "kind": str(_field(row, "recurrence_kind", "Autre") or "Autre"),
             "status": str(_field(row, "status", "Actif") or "Actif"),
         }
 

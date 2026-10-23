@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { deleteRecurrence, getForecast } from "../api/client";
 import type { ForecastSnapshot, RecurrenceActionResult, RecurrenceItem } from "../api/contracts";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { RecurrenceEditor } from "./RecurrenceEditor";
+import { type RecurrenceKind, kindLabel, monthlyAmount, recurrenceKinds } from "./recurrenceKinds";
 import { SideDrawer } from "./SideDrawer";
 
 const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", currencyDisplay: "code", minimumFractionDigits: 2 });
@@ -26,7 +28,8 @@ export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: {
   const [refreshKey, setRefreshKey] = useState(0);
   const [accountId, setAccountId] = useState("all");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
+  const [kindFilter, setKindFilter] = useState<RecurrenceKind | "all">("all");
+  const [menu, setMenu] = useState<ContextMenuState>();
   const [editing, setEditing] = useState<RecurrenceItem>();
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleting, setDeleting] = useState<RecurrenceItem>();
@@ -49,9 +52,9 @@ export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: {
   const query = search.trim().toLocaleLowerCase("fr");
   const rules = useMemo(() => (snapshot?.recurrences ?? []).filter((item) => {
     if (accountId !== "all" && item.accountId !== Number(accountId)) return false;
-    if (status !== "all" && (status === "active") !== (item.status === "Actif")) return false;
-    return !query || [item.name, item.accountName, item.bank, item.category, item.frequency, item.scenario].some((value) => value.toLocaleLowerCase("fr").includes(query));
-  }), [accountId, query, snapshot, status]);
+    if (kindFilter !== "all" && item.kind !== kindFilter) return false;
+    return !query || [item.name, item.accountName, item.bank, item.category, item.frequency, item.scenario, item.kind].some((value) => value.toLocaleLowerCase("fr").includes(query));
+  }), [accountId, kindFilter, query, snapshot]);
 
   function completed(result: RecurrenceActionResult) {
     setEditorOpen(false);
@@ -86,55 +89,78 @@ export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: {
   }
   if (!snapshot) return <div className="loading-state"><span aria-hidden="true" />Chargement des règles…</div>;
 
+  const activeRules = snapshot.recurrences.filter((item) => item.status === "Actif");
+  const countOf = (kind: RecurrenceKind) => snapshot.recurrences.filter((item) => item.kind === kind).length;
+  const monthlyOf = (kind: RecurrenceKind) => activeRules.filter((item) => item.kind === kind).reduce((sum, item) => sum + monthlyAmount(item), 0);
+  const subscriptionsMonthly = monthlyOf("Abonnement");
+  const kindFilters: Array<{ id: RecurrenceKind | "all"; label: string; count: number }> = [
+    { id: "all", label: "Tous", count: snapshot.recurrences.length },
+    ...recurrenceKinds.map((kind) => ({ id: kind.id, label: kind.plural, count: countOf(kind.id) })),
+  ];
+
+  function openMenu(event: MouseEvent, item: RecurrenceItem) {
+    event.preventDefault();
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: "Modifier la règle…", onSelect: () => { setEditing(item); setEditorOpen(true); } },
+        { label: "Supprimer la règle…", danger: true, onSelect: () => setDeleting(item) },
+      ],
+    });
+  }
+
   return (
-    <div className="transactions-page recurrence-workspace">
+    <div className="rcr-fill">
       {notice && <div className="transaction-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
       {error && <p className="account-form-error" role="alert">{error}</p>}
-      <article className="card recurrence-catalog">
-        <div className="recurrence-catalog__heading">
-          <div>
-            <h2>Règles de récurrence</h2>
-            <p>Une règle génère les occurrences listées dans l’onglet « Récurrences ». Modifier une règle met à jour les échéances à venir non modifiées à la main.</p>
+      <article className="card stg-panel">
+        <div className="stg-toolbar">
+          <div className="stg-toolbar__left">
+            <input aria-label="Rechercher une règle" onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher une règle…" type="search" value={search} />
+            <div className="stg-segment" role="group" aria-label="Filtrer par type">
+              {kindFilters.map((item) => (
+                <button aria-pressed={kindFilter === item.id} key={item.id} onClick={() => setKindFilter(item.id)} type="button">{item.label} · {item.count}</button>
+              ))}
+            </div>
+            <select aria-label="Compte des règles" onChange={(event) => setAccountId(event.target.value)} value={accountId}>
+              <option value="all">Tous les comptes</option>
+              {snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}
+            </select>
           </div>
         </div>
-        <div className="recurrence-catalog__filters">
-          <input aria-label="Rechercher une règle" onChange={(event) => setSearch(event.target.value)} placeholder="Recherche libellé, compte, catégorie…" type="search" value={search} />
-          <select aria-label="Compte des règles" onChange={(event) => setAccountId(event.target.value)} value={accountId}>
-            <option value="all">Tous les comptes</option>
-            {snapshot.accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}
-          </select>
-          <select aria-label="Statut des règles" onChange={(event) => setStatus(event.target.value)} value={status}>
-            <option value="all">Tous les statuts</option>
-            <option value="active">Actives</option>
-            <option value="inactive">Inactives</option>
-          </select>
+
+        <div className="stg-kpis stg-kpis--3">
+          <div className="rcr-kpi--blue"><b>{money.format(subscriptionsMonthly)}</b> d’abonnements par mois <span>· {activeRules.filter((item) => item.kind === "Abonnement").length} actif(s) · {money.format(subscriptionsMonthly * 12)} par an</span></div>
+          <div><b>{money.format(monthlyOf("Charge fixe"))}</b> de charges fixes par mois</div>
+          <div className="stg-kpis__ok"><b>{money.format(monthlyOf("Revenu"))}</b> de revenus réguliers par mois</div>
         </div>
-        <div className="recurrence-rules__grid">
-          {rules.map((item) => (
-            <article className="recurrence-rule-card" key={item.id}>
-              <div className="recurrence-rule-card__top">
-                <div><strong>{item.name}</strong><span>{item.bank ? `${item.bank} · ` : ""}{item.accountName}</span></div>
-                <b className={item.direction === "Crédit" ? "positive" : "negative"}>{signed(item.direction === "Crédit" ? item.amount : -item.amount)}</b>
-              </div>
-              <div className="recurrence-rule-card__meta">
-                <span>{item.category}</span>
-                <span>{item.frequency}</span>
-                <span>{item.scenario}</span>
-                <span className={item.status === "Actif" ? "recurrence-status recurrence-status--active" : "recurrence-status"}>{item.status}</span>
-              </div>
-              <div className="recurrence-rule-card__dates">
-                <div><span>Prochaine échéance</span><strong>{item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "Aucune"}</strong></div>
-                <div><span>Fin de la règle</span><strong>{item.endDate ? formatDate(item.endDate) : "Sans fin"}</strong></div>
-              </div>
-              <div className="recurrence-rule-card__actions">
-                <button className="secondary-button" onClick={() => { setEditing(item); setEditorOpen(true); }} type="button">Modifier</button>
-                <button className="danger-button" onClick={() => setDeleting(item)} type="button">Supprimer</button>
-              </div>
-            </article>
-          ))}
-          {rules.length === 0 && <div className="forecast-day-details__empty"><strong>Aucune règle trouvée</strong><p>Modifiez les filtres ou créez une nouvelle récurrence.</p></div>}
+
+        <div className="stg-table-wrap">
+          <table className="stg-table stg-table--rules">
+            <thead>
+              <tr><th>Nom</th><th>Type</th><th>Catégorie</th><th>Fréquence</th><th className="num">Montant</th><th>Prochaine échéance</th><th>Statut</th></tr>
+            </thead>
+            <tbody>
+              {rules.map((item) => (
+                <tr key={item.id} onContextMenu={(event) => openMenu(event, item)} onDoubleClick={() => { setEditing(item); setEditorOpen(true); }} title="Double-clic : modifier · clic droit : actions">
+                  <td><strong>{item.name}</strong> <small>· {item.bank ? `${item.bank} · ` : ""}{item.accountName}</small></td>
+                  <td><span className={`rcr-pill rcr-pill--${kindClass(item.kind)}`}>{kindLabel(item.kind)}</span></td>
+                  <td>{item.category}</td>
+                  <td>{item.frequency}</td>
+                  <td className={item.direction === "Crédit" ? "num positive" : "num negative"}><b>{signed(item.direction === "Crédit" ? item.amount : -item.amount)}</b></td>
+                  <td>{item.nextOccurrenceDate ? formatDate(item.nextOccurrenceDate) : "Aucune"}</td>
+                  <td><span className={item.status === "Actif" ? "status-chip status-chip--success" : "status-chip status-chip--muted"}>{item.status === "Actif" ? "Active" : item.status}</span></td>
+                </tr>
+              ))}
+              {rules.length === 0 && <tr><td className="stg-empty" colSpan={7}>Aucune règle trouvée. Modifiez les filtres ou créez une récurrence (clic droit sur une opération du journal › Créer une récurrence…).</td></tr>}
+            </tbody>
+          </table>
         </div>
+
+        <p className="stg-footnote">Les totaux ramènent chaque fréquence à un mois (annuel ÷ 12, trimestriel ÷ 3, hebdomadaire × 52 ÷ 12), règles actives seulement. Clic droit sur une règle : Modifier · Supprimer. Une règle génère les occurrences de l’onglet « Récurrences ».</p>
       </article>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
 
       {editorOpen && (
         <RecurrenceEditor
@@ -162,4 +188,8 @@ export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: {
       )}
     </div>
   );
+}
+
+function kindClass(kind: string): string {
+  return kind === "Abonnement" ? "sub" : kind === "Charge fixe" ? "fixed" : kind === "Revenu" ? "income" : "other";
 }

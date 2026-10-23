@@ -391,6 +391,7 @@ export interface RecurrencePayload {
   nextDate: string;
   endDate: string;
   scenario: "Prudent" | "Réaliste" | "Optimiste";
+  kind?: "Abonnement" | "Charge fixe" | "Revenu" | "Autre";
 }
 
 export interface RecurrenceActionResult {
@@ -450,6 +451,7 @@ export interface RecurrenceItem {
   rescheduledOccurrenceCount: number;
   endDate: string;
   scenario: RecurrencePayload["scenario"];
+  kind: NonNullable<RecurrencePayload["kind"]>;
   status: string;
 }
 

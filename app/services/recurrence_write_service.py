@@ -28,12 +28,14 @@ class RecurrenceWriteService:
     }
     ALLOWED_SCENARIOS = {"Prudent", "Réaliste", "Optimiste"}
     ALLOWED_DIRECTIONS = {"Débit", "Crédit"}
+    ALLOWED_KINDS = {"Abonnement", "Charge fixe", "Revenu", "Autre"}
 
     def __init__(self, database: Any) -> None:
         self.database = database
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         item = self._validated_item(payload)
+        item["recurrence_kind"] = item["recurrence_kind"] or "Autre"
         item_id = self.database.add_recurring_item(item)
         generated = self._generate_occurrences(
             item_id,
@@ -88,6 +90,7 @@ class RecurrenceWriteService:
         frequency = str(payload.get("frequency") or "Mensuel").strip()
         scenario = str(payload.get("scenario") or "Réaliste").strip()
         direction = str(payload.get("direction") or "").strip()
+        kind = str(payload["kind"]).strip() if payload.get("kind") else None
         account_id = self._positive_integer(payload.get("account_id"), "Le compte est obligatoire.")
         amount = self._positive_amount(payload.get("amount"))
         next_date = self._date(payload.get("next_date"), "La première échéance est invalide.")
@@ -103,6 +106,12 @@ class RecurrenceWriteService:
             raise ValueError("Le scénario sélectionné n’est pas pris en charge.")
         if direction not in self.ALLOWED_DIRECTIONS:
             raise ValueError("Le sens Débit ou Crédit est obligatoire.")
+        if kind is not None and kind not in self.ALLOWED_KINDS:
+            raise ValueError("Le type de récurrence sélectionné n’est pas pris en charge.")
+        if kind == "Revenu" and direction != "Crédit":
+            raise ValueError("Un revenu régulier doit être un crédit.")
+        if direction == "Crédit" and kind in {"Abonnement", "Charge fixe"}:
+            raise ValueError("Un abonnement ou une charge fixe doit être un débit.")
         if end_date is not None and end_date < next_date:
             raise ValueError("La date de fin doit être postérieure à la première échéance.")
 
@@ -146,6 +155,7 @@ class RecurrenceWriteService:
             "end_date": end_date.isoformat() if end_date else None,
             "scenario": scenario,
             "status": "Actif",
+            "recurrence_kind": kind,
         }
 
     def _generate_occurrences(

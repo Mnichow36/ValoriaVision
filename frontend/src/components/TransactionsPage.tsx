@@ -6,6 +6,7 @@ import { BankImportPage } from "./BankImportPage";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { SideDrawer } from "./SideDrawer";
 import { ReconciledPill } from "./ReconciledPill";
+import { RecurrenceFromTransaction } from "./RecurrenceFromTransaction";
 import { RecurrenceOccurrencesTab } from "./RecurrenceOccurrencesTab";
 import { RecurrenceRulesTab } from "./RecurrenceRulesTab";
 import { ReconciliationPage } from "./ReconciliationPage";
@@ -54,6 +55,7 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
   const [statusFilter, setStatusFilter] = useState("all");
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [editing, setEditing] = useState<TransactionRow>();
+  const [recurrenceFrom, setRecurrenceFrom] = useState<TransactionRow>();
   const [creating, setCreating] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
@@ -208,6 +210,9 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
       : [transaction];
     const items = [
       { label: "Modifier la transaction", onSelect: () => setEditing(transaction) },
+      ...(group.length === 1
+        ? [{ label: "Créer une récurrence…", onSelect: () => setRecurrenceFrom(transaction) }]
+        : []),
       ...(badge?.reconciled && badge.occurrenceId
         ? [{
             label: "Annuler le rapprochement",
@@ -457,6 +462,18 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
           }}
           snapshot={snapshot}
           token={token}
+        />
+      )}
+      {recurrenceFrom && (
+        <RecurrenceFromTransaction
+          onClose={() => setRecurrenceFrom(undefined)}
+          onCompleted={(result) => {
+            setRecurrenceFrom(undefined);
+            setNotice(result.message);
+            onDataChanged();
+          }}
+          token={token}
+          transaction={recurrenceFrom}
         />
       )}
       {editing && (

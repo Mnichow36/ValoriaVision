@@ -1,28 +1,35 @@
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 
 import { createRecurrence, updateRecurrence } from "../api/client";
 import type { ForecastAccount, ForecastCategory, RecurrenceActionResult, RecurrenceItem, RecurrencePayload } from "../api/contracts";
+import { recurrenceKinds, suggestKind } from "./recurrenceKinds";
 
 export function RecurrenceEditor({
   accounts,
   categories,
   defaultAccountId,
   defaultScenario,
+  initial,
   onClose,
   onCompleted,
   recurrence,
+  sourceNote,
   token,
 }: {
   accounts: ForecastAccount[];
   categories: ForecastCategory[];
   defaultAccountId: string;
   defaultScenario: string;
+  /** Valeurs de départ (création depuis une opération). */
+  initial?: Partial<RecurrencePayload>;
   onClose: () => void;
   onCompleted: (result: RecurrenceActionResult) => void;
   recurrence?: RecurrenceItem;
+  /** Rappel de l'opération d'origine, affiché en tête du volet. */
+  sourceNote?: ReactNode;
   token: string;
 }) {
-  const initialDirection: RecurrencePayload["direction"] = recurrence?.direction ?? "Débit";
+  const initialDirection: RecurrencePayload["direction"] = recurrence?.direction ?? initial?.direction ?? "Débit";
   const initialCategories = compatibleCategories(categories, initialDirection);
   const [draft, setDraft] = useState<RecurrencePayload>(() => recurrence ? {
     accountId: recurrence.accountId,
@@ -34,6 +41,7 @@ export function RecurrenceEditor({
     nextDate: recurrence.nextDate,
     endDate: recurrence.endDate,
     scenario: recurrence.scenario,
+    kind: recurrence.kind,
   } : {
     accountId: defaultAccountId !== "all" ? Number(defaultAccountId) : accounts[0]?.id ?? 0,
     name: "",
@@ -44,7 +52,10 @@ export function RecurrenceEditor({
     nextDate: today(),
     endDate: "",
     scenario: isScenario(defaultScenario) ? defaultScenario : "Réaliste",
+    kind: sourceNote ? suggestKind(initialDirection, initial?.category ?? initialCategories[0]?.name ?? "") : "Autre",
+    ...initial,
   });
+  const suggestedKind = useMemo(() => suggestKind(initial?.direction ?? "Débit", initial?.category ?? ""), [initial]);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string>();
   const availableCategories = useMemo(
@@ -56,10 +67,26 @@ export function RecurrenceEditor({
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  function changeKind(kind: NonNullable<RecurrencePayload["kind"]>) {
+    setDraft((current) => {
+      const direction = kind === "Revenu" ? "Crédit" : kind === "Abonnement" || kind === "Charge fixe" ? "Débit" : current.direction;
+      const options = compatibleCategories(categories, direction);
+      return {
+        ...current,
+        kind,
+        direction,
+        category: options.some((category) => category.name === current.category) ? current.category : options[0]?.name ?? "",
+      };
+    });
+  }
+
   function changeDirection(direction: RecurrencePayload["direction"]) {
     const options = compatibleCategories(categories, direction);
     setDraft((current) => ({
       ...current,
+      kind: direction === "Crédit" && (current.kind === "Abonnement" || current.kind === "Charge fixe")
+        ? "Revenu"
+        : direction === "Débit" && current.kind === "Revenu" ? "Autre" : current.kind,
       direction,
       category: options.some((category) => category.name === current.category)
         ? current.category
@@ -86,10 +113,23 @@ export function RecurrenceEditor({
     <div className="account-editor-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
       <aside aria-labelledby="recurrence-editor-title" aria-modal="true" className="account-editor recurrence-editor" role="dialog">
         <header>
-          <div><span className="eyebrow">Prévisionnel</span><h2 id="recurrence-editor-title">{recurrence ? "Modifier la récurrence" : "Nouvelle récurrence"}</h2></div>
+          <div><span className="eyebrow">{sourceNote ? "Récurrences" : "Prévisionnel"}</span><h2 id="recurrence-editor-title">{recurrence ? "Modifier la récurrence" : sourceNote ? "Créer une récurrence" : "Nouvelle récurrence"}</h2></div>
           <button aria-label="Fermer" disabled={busy} onClick={onClose} type="button">×</button>
         </header>
         <form onSubmit={(event) => void submit(event)}>
+          {sourceNote && <div className="rcr-source">{sourceNote}</div>}
+          <fieldset className="rcr-kinds">
+            <legend>Type de récurrence</legend>
+            <div className="rcr-kinds__grid">
+              {recurrenceKinds.map((kind) => (
+                <label className={draft.kind === kind.id ? "rcr-kind rcr-kind--on" : "rcr-kind"} key={kind.id}>
+                  <input checked={draft.kind === kind.id} name="recurrence-kind" onChange={() => changeKind(kind.id)} type="radio" />
+                  <b>{kind.label}</b>{sourceNote && kind.id === suggestedKind && <small className="rcr-kind__tag">suggéré</small>}
+                  <span>{kind.help}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="account-editor-grid">
             <label className="account-field account-field--wide">
               <span>Nom du tiers ou libellé attendu *</span>
