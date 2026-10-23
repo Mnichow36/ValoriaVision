@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { closeSession, getAuthStatus, getDashboard, getHealth, openSession } from "./api/client";
+import { closeSession, getAuthStatus, getDashboard, getHealth, getMe, openSession } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
@@ -13,7 +13,7 @@ import { ForecastPage } from "./components/ForecastPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 import type { TransactionsView } from "./components/TransactionsPage";
-import type { Profile } from "./api/contracts";
+import type { Me, Profile } from "./api/contracts";
 import { InteractiveDonutChart } from "./components/InteractiveCharts";
 
 type AppState =
@@ -69,6 +69,7 @@ export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
   const [accountStatusFilter, setAccountStatusFilter] = useState("Actif");
   const [forecastAccountId, setForecastAccountId] = useState("all");
@@ -118,6 +119,7 @@ export function App() {
       const session = await openSession(profileId, password);
       const snapshot = await getDashboard(session.token);
       setActiveProfileId(session.profileId ?? profileId);
+      void getMe(session.token).then((result) => setMe(result.me)).catch(() => setMe(null));
       void refreshProfiles();
       setState({ status: "ready", snapshot, token: session.token });
     } catch (error: unknown) {
@@ -130,6 +132,7 @@ export function App() {
       const snapshot = await getDashboard(token);
       const auth = await refreshProfiles();
       setActiveProfileId(auth?.activeProfileId ?? null);
+      void getMe(token).then((result) => setMe(result.me)).catch(() => setMe(null));
       setState({ status: "ready", snapshot, token });
     } catch (error: unknown) {
       setState({ status: "locked", busy: false, error: errorMessage(error) });
@@ -249,6 +252,17 @@ export function App() {
           />
         </header>
         <div className="workspace-content">
+          {me && (me.restricted || !me.canWrite) && (
+            <div className="scope-banner" role="status">
+              <strong>{me.canWrite ? "Vue limitée" : me.restricted ? "Vue limitée · consultation seule" : "Consultation seule"}</strong>
+              <span>
+                {me.restricted
+                  ? `Vous voyez ${me.visibleAccounts} compte(s) sur ${me.totalAccounts} et ${me.visibleAssets} bien(s) sur ${me.totalAssets}. Les totaux et les prévisions ne portent que sur votre périmètre ; les budgets restent ceux de la famille.`
+                  : "Vous pouvez tout consulter mais pas modifier les données."}
+                {me.restricted && !me.canWrite ? " Aucune modification n’est possible." : ""}
+              </span>
+            </div>
+          )}
           {activeModule === "dashboard" && ((state.snapshot.accounts ?? []).length === 0
             ? <DashboardEmpty
                 onCreateAccount={() => { setAccountEditorRequestKey((key) => key + 1); navigate("accounts"); }}
@@ -539,7 +553,7 @@ function Dashboard({ onImport, onNavigate, snapshot }: { onImport: () => void; o
   );
   const flowMaximum = Math.max(income, expenses, Math.abs(savings), 1);
   const quality = snapshot.quality;
-  const varianceLabel = comparable ? `${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget` : "Compte seul · budget global non comparable";
+  const varianceLabel = comparable ? `${budgetVariance > 0 ? "+ " : ""}${moneyCode.format(budgetVariance)} vs budget` : "Budget global non comparable sur ce périmètre";
 
   return (
     <div className="r8-dashboard">

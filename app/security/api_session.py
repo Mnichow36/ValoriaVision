@@ -11,6 +11,8 @@ from typing import Callable
 @dataclass
 class _Session:
     expires_at: float
+    user_id: int | None = None
+    mode: str = "family"
 
 
 class ApiSessionStore:
@@ -35,13 +37,13 @@ class ApiSessionStore:
     def _digest(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-    def create(self) -> tuple[str, int]:
+    def create(self, user_id: int | None = None, mode: str = "family") -> tuple[str, int]:
         token = secrets.token_urlsafe(32)
         now = self.clock()
         with self._lock:
             self._purge_expired(now)
             self._sessions[self._digest(token)] = _Session(
-                expires_at=now + self.timeout_seconds
+                expires_at=now + self.timeout_seconds, user_id=user_id, mode=mode
             )
         return token, self.timeout_seconds
 
@@ -58,6 +60,14 @@ class ApiSessionStore:
             if touch:
                 session.expires_at = now + self.timeout_seconds
             return True
+
+    def identity(self, token: str | None, *, touch: bool = False) -> tuple[int | None, str] | None:
+        """Retourne (identifiant du profil, mode) pour une session valide, sinon None."""
+        if not self.validate(token, touch=touch):
+            return None
+        with self._lock:
+            session = self._sessions.get(self._digest(token or ""))
+            return (session.user_id, session.mode) if session else None
 
     def clear(self) -> None:
         """Révoque toutes les sessions (changement de profil)."""

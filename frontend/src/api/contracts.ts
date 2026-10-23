@@ -1105,21 +1105,45 @@ export interface Profile {
   configured: boolean;
   recoveryKeyConfigured: boolean;
   removable: boolean;
+  role?: "admin" | "contributor" | "reader";
+  roleLabel?: string;
+  scopeAccounts?: number;
+  scopeAssets?: number;
+  totalAccounts?: number;
+  totalAssets?: number;
 }
 
 export interface ProfileCreatePayload {
   name: string;
   color?: string;
   kind: "personal" | "demo";
+  role?: "admin" | "contributor" | "reader";
   password?: string;
   avatar?: string | null;
+  accounts?: number[];
+  assets?: number[];
 }
 
 export interface ProfileUpdatePayload {
   name?: string;
   color?: string;
+  role?: "admin" | "contributor" | "reader";
   avatar?: string | null;
   clear_avatar?: boolean;
+}
+
+/** Ce que le profil ouvert peut voir et faire. */
+export interface Me {
+  id: string;
+  name: string;
+  role: "admin" | "contributor" | "reader";
+  roleLabel: string;
+  canWrite: boolean;
+  restricted: boolean;
+  visibleAccounts: number;
+  totalAccounts: number;
+  visibleAssets: number;
+  totalAssets: number;
 }
 
 export interface AuthStatus {
@@ -1130,6 +1154,7 @@ export interface AuthStatus {
   timeoutSeconds: number;
   retryAfterSeconds?: number;
   recoveryKeyConfigured?: boolean;
+  me?: Me | null;
 }
 
 export interface SecurityStatus {

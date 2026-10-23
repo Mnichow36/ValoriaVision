@@ -97,7 +97,7 @@ class DashboardReadService:
                 {"label": name, "value": round(value, 2)}
                 for name, value in sorted(flows["by_category"].items(), key=lambda item: -item[1])
             ],
-            "budgetComparable": account_id is None,
+            "budgetComparable": account_id is None and db.get_setting("scope.restricted", "0") != "1",
             "quality": {**quality, "daysSinceImport": days_since, "reconciliationPending": reconciliation["pending"]},
             "upcoming": upcoming,
         }

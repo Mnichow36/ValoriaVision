@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hmac
 import os
-import time
+from contextvars import ContextVar
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, SecretStr
 
@@ -13,6 +14,16 @@ from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
 from app.security.profiles import LEGACY_PROFILE_ID, ProfileError, ProfileManager, ProfileNotFound
+from app.security.users import (
+    ROLE_ADMIN,
+    ROLE_LABELS,
+    UNRESTRICTED,
+    Scope,
+    ScopedSnapshots,
+    UserError,
+    UserNotFound,
+    UserStore,
+)
 from app.services.accounts_read_service import AccountDeletionBlockedError, AccountsReadService
 from app.services.assets_read_service import AssetsReadService
 from app.services.bank_import_workflow_service import BankImportWorkflowService
@@ -58,6 +69,7 @@ class BudgetRulesPayload(BaseModel):
 class PasswordPayload(BaseModel):
     password: SecretStr = SecretStr("")
     profile_id: str | None = None
+    name: str | None = None
 
 
 class ChangePasswordPayload(BaseModel):
@@ -79,15 +91,24 @@ class ProfileCreatePayload(BaseModel):
     name: str
     color: str | None = None
     kind: str = "personal"
+    role: str = "contributor"
     password: SecretStr | None = None
     avatar: str | None = None
+    accounts: list[int] = []
+    assets: list[int] = []
 
 
 class ProfileUpdatePayload(BaseModel):
     name: str | None = None
     color: str | None = None
+    role: str | None = None
     avatar: str | None = None
     clear_avatar: bool = False
+
+
+class ProfileAccessPayload(BaseModel):
+    accounts: list[int] = []
+    assets: list[int] = []
 
 
 class ProfileDeletePayload(BaseModel):
@@ -371,12 +392,29 @@ def _scenario_snapshot(database: Database) -> dict:
     }
 
 
+_scope_view: ContextVar = ContextVar("valoria_scope_view", default=None)
+
+# Requêtes POST qui ne modifient rien : elles restent permises aux profils en
+# consultation et travaillent, comme les lectures, sur le périmètre visible.
+READ_ONLY_POSTS = frozenset(
+    {
+        "/api/v1/transactions/imports/preview",
+        "/api/v1/forecast/simulate",
+        "/api/v1/settings/rules-preview",
+    }
+)
+SELF_SERVICE_PREFIXES = ("/api/v1/auth/", "/api/v1/security/")
+
+
 class ActiveDatabase:
-    """Base du profil actuellement ouvert.
+    """Base actuellement ouverte.
 
     Les services reçoivent cet objet une fois pour toutes ; il redirige chaque
-    appel vers la base du profil actif. Changer de profil = changer de cible.
+    appel vers la base ouverte. Pour un profil au périmètre limité, les lectures
+    sont redirigées vers une copie filtrée de la base (voir ``ScopedSnapshots``).
     """
+
+    _REAL_ATTRIBUTES = frozenset({"path", "data_dir"})
 
     def __init__(self) -> None:
         object.__setattr__(self, "_target", None)
@@ -390,10 +428,18 @@ class ActiveDatabase:
     def is_active(self) -> bool:
         return object.__getattribute__(self, "_target") is not None
 
-    def __getattr__(self, name: str):
+    def real(self) -> Database:
         target = object.__getattribute__(self, "_target")
         if target is None:
             raise RuntimeError("Aucun profil n’est ouvert.")
+        return target
+
+    def __getattr__(self, name: str):
+        target = self.real()
+        if name not in ActiveDatabase._REAL_ATTRIBUTES:
+            view = _scope_view.get()
+            if view is not None:
+                return getattr(view(), name)
         return getattr(target, name)
 
 
@@ -403,6 +449,208 @@ def create_app(database: Database | None = None) -> FastAPI:
         version="0.1.0",
         description="Local-only boundary between the React UI and Python engines.",
     )
+
+    legacy_database = database or Database()
+    # Le registre ne sert plus qu'à retrouver le profil Démo (base séparée) et,
+    # lors de la reprise d'une installation existante, le nom/l'avatar d'origine.
+    profiles = ProfileManager(legacy_database.data_dir, legacy_database=legacy_database)
+    users = UserStore(legacy_database)
+    snapshots = ScopedSnapshots(legacy_database)
+    active_database = ActiveDatabase()
+    state: dict = {"ready": False, "demo_id": None}
+    policy = AuthService(None)
+    bank_imports = BankImportWorkflowService(active_database)
+    sessions = ApiSessionStore(600)
+    bootstrap_secret = os.environ.get("VALORIA_API_BOOTSTRAP_SECRET", "")
+
+    # ------------------------------------------------------------------
+    # Préparation de la base commune et reprise d'une installation existante
+    # ------------------------------------------------------------------
+    def ensure_ready() -> None:
+        if state["ready"] or not users.db_exists():
+            return
+        legacy_database.prepare_existing_database()
+        users.ensure_schema()
+        if users.count() == 0:
+            name, avatar = "Administrateur", None
+            if profiles.exists(LEGACY_PROFILE_ID):
+                entry = profiles.get(LEGACY_PROFILE_ID)
+                if entry["name"] and entry["name"] != "Profil principal":
+                    name = entry["name"]
+                avatar = entry["avatar"]
+            users.migrate_legacy_password(name, avatar)
+        state["ready"] = True
+
+    def demo_profiles() -> list[dict]:
+        result = []
+        for entry in profiles.list_profiles():
+            if entry["kind"] != "demo":
+                continue
+            result.append(
+                {
+                    **entry,
+                    "role": ROLE_ADMIN,
+                    "roleLabel": "Démonstration",
+                    "scopeAccounts": 0,
+                    "scopeAssets": 0,
+                    "totalAccounts": 0,
+                    "totalAssets": 0,
+                    "removable": True,
+                }
+            )
+        return result
+
+    def public_profiles() -> list[dict]:
+        ensure_ready()
+        return users.list_users() + demo_profiles()
+
+    def timeout_seconds_for(db: Database) -> int:
+        try:
+            minutes = max(1, int(db.get_setting("security.session_timeout_minutes", "10")))
+        except (ValueError, Exception):
+            minutes = 10
+        return max(60, minutes * 60)
+
+    def open_session(user_id: int | None, mode: str):
+        """Ouvre l'espace d'un profil : un seul profil actif à la fois."""
+        sessions.clear()
+        snapshots.clear()
+        if mode == "demo":
+            db = profiles.database_for(state["demo_id"])
+            db.prepare_existing_database()
+        else:
+            db = legacy_database
+            users.touch_login(int(user_id))
+        active_database.use(db)
+        sessions.timeout_seconds = timeout_seconds_for(db)
+        return sessions.create(user_id=user_id, mode=mode)
+
+    # ------------------------------------------------------------------
+    # Identité et périmètre
+    # ------------------------------------------------------------------
+    def scope_of(token: str | None) -> Scope:
+        ident = sessions.identity(token)
+        if ident is None or ident[1] == "demo" or ident[0] is None:
+            return UNRESTRICTED
+        try:
+            return users.scope_for(ident[0])
+        except UserNotFound:
+            raise HTTPException(status_code=401, detail="Session locale absente ou expirée.") from None
+
+    def require_admin(token: str | None) -> Scope:
+        scope = scope_of(token)
+        if not scope.is_admin:
+            raise HTTPException(status_code=403, detail="Réservé à l’administrateur.")
+        return scope
+
+    def auth_for(token: str | None) -> AuthService:
+        ident = sessions.identity(token)
+        if ident is None or ident[0] is None:
+            raise HTTPException(status_code=409, detail="Cette fonction n’existe pas pour le profil Démo.")
+        return AuthService(users.settings_for(ident[0]))
+
+    def hidden() -> HTTPException:
+        return HTTPException(status_code=404, detail="Élément introuvable.")
+
+    def guard_account(token: str | None, account_id: int | None) -> None:
+        if not scope_of(token).sees_account(account_id):
+            raise hidden()
+
+    def guard_asset(token: str | None, asset_id: int | None) -> None:
+        if not scope_of(token).sees_asset(asset_id):
+            raise hidden()
+
+    def guard_rows(token: str | None, sql: str, ids: list[int]) -> None:
+        """Refuse une écriture si l'une des lignes ciblées dépend d'un compte hors périmètre."""
+        scope = scope_of(token)
+        if scope.accounts is None or not ids:
+            return
+        marks = ",".join("?" * len(ids))
+        with active_database.real().connect() as conn:
+            rows = conn.execute(sql.format(marks=marks), [int(i) for i in ids]).fetchall()
+        if any(not scope.sees_account(r[0]) for r in rows):
+            raise hidden()
+
+    def guard_transactions(token: str | None, ids: list[int]) -> None:
+        guard_rows(token, "SELECT DISTINCT account_id FROM transactions WHERE id IN ({marks})", ids)
+
+    def guard_occurrences(token: str | None, ids: list[int]) -> None:
+        guard_rows(token, "SELECT DISTINCT account_id FROM forecast_occurrences WHERE id IN ({marks})", ids)
+
+    def guard_recurrences(token: str | None, ids: list[int]) -> None:
+        guard_rows(token, "SELECT DISTINCT account_id FROM recurring_items WHERE id IN ({marks})", ids)
+
+    def guard_proposal(token: str | None, proposal_id: int) -> None:
+        guard_rows(
+            token,
+            "SELECT DISTINCT t.account_id FROM reconciliation_proposal_members m "
+            "JOIN transactions t ON t.id = m.transaction_id WHERE m.proposal_id IN ({marks})",
+            [proposal_id],
+        )
+
+    def grant_creator(token: str | None, resource_type: str, resource_id: int) -> None:
+        """Un contributeur voit ce qu'il crée."""
+        ident = sessions.identity(token)
+        if ident is None or ident[0] is None or not resource_id:
+            return
+        scope = scope_of(token)
+        if scope.restricted:
+            users.grant(ident[0], resource_type, int(resource_id))
+
+    def me_payload(token: str | None) -> dict | None:
+        ident = sessions.identity(token)
+        if ident is None:
+            return None
+        user_id, mode = ident
+        if mode == "demo" or user_id is None:
+            return {
+                "id": state["demo_id"], "name": "Démo", "role": ROLE_ADMIN, "roleLabel": "Démonstration",
+                "canWrite": True, "restricted": False,
+                "visibleAccounts": 0, "totalAccounts": 0, "visibleAssets": 0, "totalAssets": 0,
+            }
+        row = users.get_row(user_id)
+        scope = users.scope_for(user_id)
+        totals = users.totals()
+        return {
+            "id": f"u{user_id}",
+            "name": row["name"],
+            "role": row["role"],
+            "roleLabel": ROLE_LABELS.get(row["role"], row["role"]),
+            "canWrite": scope.can_write,
+            "restricted": scope.restricted,
+            "visibleAccounts": len(scope.accounts) if scope.accounts is not None else totals["accounts"],
+            "totalAccounts": totals["accounts"],
+            "visibleAssets": len(scope.assets) if scope.assets is not None else totals["assets"],
+            "totalAssets": totals["assets"],
+        }
+
+    @app.middleware("http")
+    async def access_control(request: Request, call_next):
+        token = request.headers.get("x-valoria-session")
+        reset = None
+        ident = sessions.identity(token) if token else None
+        if ident is not None and ident[1] == "family" and ident[0] is not None:
+            try:
+                scope = users.scope_for(ident[0])
+            except UserNotFound:
+                return JSONResponse({"detail": "Session locale absente ou expirée."}, status_code=401)
+            method, path = request.method, request.url.path
+            is_read = method in ("GET", "HEAD", "OPTIONS") or path in READ_ONLY_POSTS
+            self_service = path.startswith(SELF_SERVICE_PREFIXES) or (
+                method == "PUT" and path.startswith("/api/v1/profiles/")
+            )
+            if not is_read and not self_service and not scope.can_write:
+                return JSONResponse(
+                    {"detail": "Votre profil est en consultation seulement."}, status_code=403
+                )
+            if scope.restricted and is_read:
+                reset = _scope_view.set(lambda s=scope: snapshots.view(s))
+        try:
+            return await call_next(request)
+        finally:
+            if reset is not None:
+                _scope_view.reset(reset)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -421,15 +669,6 @@ def create_app(database: Database | None = None) -> FastAPI:
         ],
     )
 
-    legacy_database = database or Database()
-    profiles = ProfileManager(legacy_database.data_dir, legacy_database=legacy_database)
-    active_database = ActiveDatabase()
-    state: dict[str, str | None] = {"profile_id": None}
-    auth = AuthService(active_database)
-    bank_imports = BankImportWorkflowService(active_database)
-    sessions = ApiSessionStore(600)
-    bootstrap_secret = os.environ.get("VALORIA_API_BOOTSTRAP_SECRET", "")
-
     def ensure_database_exists() -> None:
         if not active_database.is_active():
             raise HTTPException(
@@ -446,31 +685,20 @@ def create_app(database: Database | None = None) -> FastAPI:
                 ),
             )
 
-    def resolve_profile_id(requested: str | None) -> str:
+    def resolve_target(requested: str | None) -> tuple[str, int | str]:
+        """Retourne ("user", id) ou ("demo", id_du_profil_démo)."""
+        ensure_ready()
         if requested:
-            if not profiles.exists(requested):
-                raise HTTPException(status_code=404, detail="Profil introuvable.")
-            return requested
-        only = profiles.only_profile_id()
+            user_id = UserStore.parse_public_id(requested)
+            if user_id is not None and users.exists(user_id):
+                return "user", user_id
+            if profiles.exists(requested) and profiles.get(requested)["kind"] == "demo":
+                return "demo", requested
+            raise HTTPException(status_code=404, detail="Profil introuvable.")
+        only = users.only_user_id()
         if only:
-            return only
-        current = state["profile_id"]
-        if current and profiles.exists(current):
-            return current
+            return "user", only
         raise HTTPException(status_code=409, detail="Choisissez un profil.")
-
-    def activate_profile(profile_id: str) -> None:
-        db = profiles.database_for(profile_id)
-        db.prepare_existing_database()
-        sessions.clear()
-        active_database.use(db)
-        state["profile_id"] = profile_id
-        try:
-            minutes = AuthService(db).session_timeout_minutes()
-        except Exception:
-            minutes = 10
-        sessions.timeout_seconds = max(60, minutes * 60)
-        profiles.touch_login(profile_id)
 
     def require_session(token: str | None) -> None:
         if not sessions.validate(token):
@@ -498,51 +726,67 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        listing = profiles.list_profiles()
-        selected = profiles.only_profile_id() or state["profile_id"]
+        listing = public_profiles()
+        has_users = users.count() > 0
+        ident = sessions.identity(x_valoria_session, touch=False)
+        active_id = None
+        if ident is not None:
+            active_id = state["demo_id"] if ident[1] == "demo" else f"u{ident[0]}"
+        selected = active_id or (listing[0]["id"] if len(listing) == 1 else None)
         current = next((p for p in listing if p["id"] == selected), None)
         retry = 0
-        if current:
-            try:
-                retry = max(0, int(float(profiles.peek_setting(current["id"], "security.locked_until") or 0)) - int(time.time()))
-            except ValueError:
-                retry = 0
+        user_id = UserStore.parse_public_id(current["id"]) if current else None
+        if user_id is not None:
+            retry = AuthService(users.settings_for(user_id)).lock_remaining_seconds()
         return {
-            "configured": bool(current and (current["configured"] or current["kind"] == "demo")),
-            "authenticated": sessions.validate(x_valoria_session, touch=False),
+            "configured": bool(has_users and current and (current["configured"] or current["kind"] == "demo")),
+            "authenticated": ident is not None,
             "timeoutSeconds": sessions.timeout_seconds,
             "retryAfterSeconds": retry,
             "recoveryKeyConfigured": bool(current and current["recoveryKeyConfigured"]),
             "profiles": listing,
-            "activeProfileId": state["profile_id"] if active_database.is_active() else None,
-            "profileRequired": current is None and len(listing) > 1,
+            "activeProfileId": active_id,
+            "profileRequired": has_users and current is None and len(listing) > 1,
+            "me": me_payload(x_valoria_session),
         }
+
+    @app.get("/api/v1/me")
+    def me(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        return {"me": me_payload(x_valoria_session)}
 
     @app.post("/api/v1/auth/setup")
     def setup(
         payload: PasswordPayload,
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
+        """Première installation : crée le premier administrateur."""
         require_bootstrap(x_valoria_bootstrap)
-        password = payload.password.get_secret_value()
-        policy = auth.password_policy(password)
-        if not policy.ok:
-            raise HTTPException(status_code=422, detail=policy.message)
-        if not profiles.list_profiles() and not payload.profile_id:
-            # Première installation : le premier profil naît avec son mot de passe.
-            profile_id = profiles.create("Mon profil", kind="personal")["id"]
-        else:
-            profile_id = resolve_profile_id(payload.profile_id)
-        service = AuthService(profiles.database_for(profile_id))
-        if service.is_configured():
+        ensure_ready()
+        if users.count() > 0:
             raise HTTPException(status_code=409, detail="Le mot de passe maître est déjà configuré.")
+        password = payload.password.get_secret_value()
+        check = policy.password_policy(password)
+        if not check.ok:
+            raise HTTPException(status_code=422, detail=check.message)
+        if not users.db_exists():
+            users.initialize_family_database()
+            state["ready"] = True
         try:
-            service.set_master_password(password)
-        except ValueError as exc:
+            created = users.create(payload.name or "Administrateur", ROLE_ADMIN)
+        except UserError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        activate_profile(profile_id)
-        token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
+        user_id = int(created["id"][1:])
+        service = AuthService(users.settings_for(user_id))
+        service.set_master_password(password)
+        recovery_key = service.generate_recovery_key()
+        service.record_event("auth.recovery_key_created", "Clé de secours créée.")
+        token, expires_in = open_session(user_id, "family")
+        return {"token": token, "expiresIn": expires_in, "profileId": created["id"], "recoveryKey": recovery_key}
 
     @app.post("/api/v1/auth/unlock")
     def unlock(
@@ -550,25 +794,25 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        profile_id = resolve_profile_id(payload.profile_id)
-        profile = profiles.get(profile_id)
-        service = AuthService(profiles.database_for(profile_id))
-        if profile["kind"] == "demo" and not service.is_configured():
-            # Profil de démonstration : données fictives, aucun mot de passe.
-            activate_profile(profile_id)
-            service.record_event("auth.unlock_success", "Ouverture du profil Démo.")
-            token, expires_in = sessions.create()
-            return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
-        if not service.is_configured():
+        ensure_ready()
+        if users.count() == 0:
             raise HTTPException(status_code=409, detail="Le mot de passe maître doit être configuré.")
+        kind, target = resolve_target(payload.profile_id)
+        if kind == "demo":
+            # Profil de démonstration : données fictives, aucun mot de passe.
+            state["demo_id"] = target
+            token, expires_in = open_session(None, "demo")
+            return {"token": token, "expiresIn": expires_in, "profileId": target}
+        service = AuthService(users.settings_for(int(target)))
+        if not service.is_configured():
+            raise HTTPException(status_code=409, detail="Le mot de passe de ce profil doit être configuré.")
         refuse_if_throttled(service)
         if not service.verify_master_password(payload.password.get_secret_value()):
             fail_with_throttle("Mot de passe incorrect.", service, status_if_not_locked=401)
         service.reset_failures()
-        activate_profile(profile_id)
+        token, expires_in = open_session(int(target), "family")
         service.record_event("auth.unlock_success", "Connexion réussie.")
-        token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
+        return {"token": token, "expiresIn": expires_in, "profileId": f"u{target}"}
 
     @app.post("/api/v1/auth/lock")
     def lock(
@@ -576,13 +820,14 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict[str, bool]:
         require_bootstrap(x_valoria_bootstrap)
-        if sessions.validate(x_valoria_session, touch=False):
-            auth.record_event("auth.lock", "Espace verrouillé.")
+        ident = sessions.identity(x_valoria_session)
+        if ident is not None and ident[0] is not None:
+            AuthService(users.settings_for(ident[0])).record_event("auth.lock", "Espace verrouillé.")
         sessions.revoke(x_valoria_session)
+        snapshots.clear()
         return {"locked": True}
 
-    def refuse_if_throttled(service: AuthService | None = None) -> None:
-        service = service or auth
+    def refuse_if_throttled(service: AuthService) -> None:
         wait = service.lock_remaining_seconds()
         if wait:
             raise HTTPException(
@@ -592,9 +837,8 @@ def create_app(database: Database | None = None) -> FastAPI:
             )
 
     def fail_with_throttle(
-        message: str, service: AuthService | None = None, status_if_not_locked: int = 403
+        message: str, service: AuthService, status_if_not_locked: int = 403
     ) -> None:
-        service = service or auth
         delay = service.register_failure()
         service.record_event(
             "auth.unlock_failure",
@@ -617,10 +861,11 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        service = auth_for(x_valoria_session)
         return {
-            "recoveryKeyConfigured": auth.has_recovery_key(),
-            "recoveryKeyCreatedAt": auth.recovery_key_created_at() or None,
-            "passwordChangedAt": active_database.get_setting("security.master_password_changed_at", "") or None,
+            "recoveryKeyConfigured": service.has_recovery_key(),
+            "recoveryKeyCreatedAt": service.recovery_key_created_at() or None,
+            "passwordChangedAt": service.db.get_setting("security.master_password_changed_at", "") or None,
         }
 
     @app.post("/api/v1/security/change-password")
@@ -632,13 +877,14 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
-        refuse_if_throttled()
+        service = auth_for(x_valoria_session)
+        refuse_if_throttled(service)
         try:
-            auth.change_master_password(
+            service.change_master_password(
                 payload.current_password.get_secret_value(), payload.new_password.get_secret_value()
             )
         except PermissionError:
-            fail_with_throttle("Mot de passe actuel incorrect.")
+            fail_with_throttle("Mot de passe actuel incorrect.", service)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"changed": True}
@@ -652,17 +898,18 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
-        refuse_if_throttled()
-        if not auth.verify_master_password(payload.password.get_secret_value()):
-            fail_with_throttle("Mot de passe incorrect.")
-        replaced = auth.has_recovery_key()
-        key = auth.generate_recovery_key()
-        auth.reset_failures()
-        auth.record_event(
+        service = auth_for(x_valoria_session)
+        refuse_if_throttled(service)
+        if not service.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", service)
+        replaced = service.has_recovery_key()
+        key = service.generate_recovery_key()
+        service.reset_failures()
+        service.record_event(
             "auth.recovery_key_created",
             "Clé de secours remplacée." if replaced else "Clé de secours créée.",
         )
-        return {"recoveryKey": key, "createdAt": auth.recovery_key_created_at()}
+        return {"recoveryKey": key, "createdAt": service.recovery_key_created_at()}
 
     @app.post("/api/v1/auth/recover")
     def recover(
@@ -670,8 +917,10 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        profile_id = resolve_profile_id(payload.profile_id)
-        service = AuthService(profiles.database_for(profile_id))
+        kind, target = resolve_target(payload.profile_id)
+        if kind != "user":
+            raise HTTPException(status_code=409, detail="Le profil Démo n’a pas de mot de passe.")
+        service = AuthService(users.settings_for(int(target)))
         if not service.has_recovery_key():
             raise HTTPException(status_code=409, detail="Aucune clé de secours n’a été créée.")
         refuse_if_throttled(service)
@@ -683,62 +932,62 @@ def create_app(database: Database | None = None) -> FastAPI:
             fail_with_throttle("Clé de secours incorrecte.", service)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        activate_profile(profile_id)
-        token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key, "profileId": profile_id}
+        token, expires_in = open_session(int(target), "family")
+        return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key, "profileId": f"u{target}"}
 
     # ------------------------------------------------------------------
-    # Profils
+    # Profils et accès
     # ------------------------------------------------------------------
-    def require_active_profile_session(token: str | None, profile_id: str) -> None:
-        require_session(token)
-        if state["profile_id"] != profile_id or not active_database.is_active():
-            raise HTTPException(status_code=403, detail="Ouvrez d’abord ce profil.")
-
-    def profile_error(exc: Exception) -> HTTPException:
-        if isinstance(exc, ProfileNotFound):
+    def user_error(exc: Exception) -> HTTPException:
+        if isinstance(exc, (UserNotFound, ProfileNotFound)):
             return HTTPException(status_code=404, detail="Profil introuvable.")
         return HTTPException(status_code=422, detail=str(exc))
 
     @app.get("/api/v1/profiles")
     def list_profiles(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        return {
-            "profiles": profiles.list_profiles(),
-            "activeProfileId": state["profile_id"] if active_database.is_active() else None,
-        }
+        ident = sessions.identity(x_valoria_session, touch=False)
+        active_id = None
+        if ident is not None:
+            active_id = state["demo_id"] if ident[1] == "demo" else f"u{ident[0]}"
+        return {"profiles": public_profiles(), "activeProfileId": active_id}
 
     @app.post("/api/v1/profiles")
     def create_profile(
         payload: ProfileCreatePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        password = payload.password.get_secret_value() if payload.password else ""
-        if payload.kind == "personal":
-            policy = auth.password_policy(password)
-            if not policy.ok:
-                raise HTTPException(status_code=422, detail=policy.message)
+        require_session(x_valoria_session)
+        require_admin(x_valoria_session)
         try:
-            profile = profiles.create(payload.name, payload.color, payload.kind)
-            if payload.avatar:
-                try:
-                    profile = profiles.set_avatar(profile["id"], payload.avatar)
-                except ProfileError:
-                    profiles.delete(profile["id"])
-                    raise
-        except (ProfileError, ProfileNotFound) as exc:
-            raise profile_error(exc) from exc
-        recovery_key = None
-        if payload.kind == "personal":
-            service = AuthService(profiles.database_for(profile["id"]))
-            service.set_master_password(password)
-            recovery_key = service.generate_recovery_key()
-            service.record_event("auth.recovery_key_created", "Clé de secours créée.")
-            profile = profiles.get(profile["id"])
-        return {"profile": profile, "recoveryKey": recovery_key}
+            if payload.kind == "demo":
+                entry = profiles.create(payload.name, payload.color, "demo")
+                return {"profile": entry, "recoveryKey": None}
+            password = payload.password.get_secret_value() if payload.password else ""
+            check = policy.password_policy(password)
+            if not check.ok:
+                raise HTTPException(status_code=422, detail=check.message)
+            created = users.create(
+                payload.name,
+                payload.role,
+                payload.color,
+                payload.avatar,
+                payload.accounts,
+                payload.assets,
+            )
+        except (UserError, ProfileError) as exc:
+            raise user_error(exc) from exc
+        user_id = int(created["id"][1:])
+        service = AuthService(users.settings_for(user_id))
+        service.set_master_password(password)
+        recovery_key = service.generate_recovery_key()
+        service.record_event("auth.recovery_key_created", "Clé de secours créée.")
+        return {"profile": users.get(user_id), "recoveryKey": recovery_key}
 
     @app.put("/api/v1/profiles/{profile_id}")
     def update_profile(
@@ -748,43 +997,82 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        require_active_profile_session(x_valoria_session, profile_id)
+        require_session(x_valoria_session)
+        user_id = UserStore.parse_public_id(profile_id)
+        if user_id is None:
+            raise HTTPException(status_code=404, detail="Profil introuvable.")
+        ident = sessions.identity(x_valoria_session)
+        is_self = ident is not None and ident[0] == user_id
+        if not is_self:
+            require_admin(x_valoria_session)
+        if payload.role is not None:
+            require_admin(x_valoria_session)
         try:
-            profile = profiles.update(profile_id, payload.name, payload.color)
-            if payload.clear_avatar:
-                profile = profiles.set_avatar(profile_id, None)
-            elif payload.avatar:
-                profile = profiles.set_avatar(profile_id, payload.avatar)
-        except (ProfileError, ProfileNotFound) as exc:
-            raise profile_error(exc) from exc
+            profile = users.update(
+                user_id, payload.name, payload.color, payload.role, payload.avatar, payload.clear_avatar
+            )
+        except (UserError, UserNotFound) as exc:
+            raise user_error(exc) from exc
         return {"profile": profile}
+
+    @app.put("/api/v1/profiles/{profile_id}/access")
+    def update_profile_access(
+        profile_id: str,
+        payload: ProfileAccessPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        require_admin(x_valoria_session)
+        user_id = UserStore.parse_public_id(profile_id)
+        if user_id is None:
+            raise HTTPException(status_code=404, detail="Profil introuvable.")
+        try:
+            users.set_grants(user_id, payload.accounts, payload.assets)
+        except UserNotFound as exc:
+            raise user_error(exc) from exc
+        return {"profile": users.get(user_id)}
+
+    @app.get("/api/v1/access")
+    def access_matrix(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        require_admin(x_valoria_session)
+        return users.access_matrix()
 
     @app.post("/api/v1/profiles/{profile_id}/delete")
     def delete_profile(
         profile_id: str,
         payload: ProfileDeletePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
+        """Suppression d'un profil : confirmée par le mot de passe de l'administrateur connecté."""
         require_bootstrap(x_valoria_bootstrap)
-        if not profiles.exists(profile_id):
-            raise HTTPException(status_code=404, detail="Profil introuvable.")
-        profile = profiles.get(profile_id)
-        if not profile["removable"]:
-            raise HTTPException(status_code=409, detail="Le profil d’origine ne peut pas être supprimé dans cette version.")
-        service = AuthService(profiles.database_for(profile_id))
-        if service.is_configured():
-            refuse_if_throttled(service)
-            if not service.verify_master_password(payload.password.get_secret_value()):
-                fail_with_throttle("Mot de passe incorrect.", service)
-            service.reset_failures()
-        if state["profile_id"] == profile_id:
-            sessions.clear()
-            active_database.release()
-            state["profile_id"] = None
+        require_session(x_valoria_session)
+        require_admin(x_valoria_session)
+        admin = auth_for(x_valoria_session)
+        refuse_if_throttled(admin)
+        if not admin.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", admin)
+        admin.reset_failures()
+        user_id = UserStore.parse_public_id(profile_id)
         try:
-            profiles.delete(profile_id)
-        except (ProfileError, ProfileNotFound) as exc:
-            raise profile_error(exc) from exc
+            if user_id is None:
+                if not profiles.exists(profile_id) or profiles.get(profile_id)["kind"] != "demo":
+                    raise HTTPException(status_code=404, detail="Profil introuvable.")
+                profiles.delete(profile_id)
+            else:
+                ident = sessions.identity(x_valoria_session)
+                if ident is not None and ident[0] == user_id:
+                    raise HTTPException(status_code=409, detail="Vous ne pouvez pas supprimer le profil ouvert.")
+                users.delete(user_id)
+        except (UserError, UserNotFound, ProfileError, ProfileNotFound) as exc:
+            raise user_error(exc) from exc
         return {"deleted": True}
 
     @app.get("/api/v1/security/journal")
@@ -795,7 +1083,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
-        return {"events": auth.recent_events(30)}
+        require_admin(x_valoria_session)
+        return {"events": AuthService(active_database.real()).recent_events(30)}
 
     @app.get("/api/v1/dashboard")
     def dashboard(
@@ -832,7 +1121,9 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         try:
-            return AccountsReadService(active_database).create(payload.model_dump())
+            result = AccountsReadService(active_database).create(payload.model_dump())
+            grant_creator(x_valoria_session, "account", result.get("accountId", 0))
+            return result
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -846,6 +1137,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, account_id)
         try:
             return AccountsReadService(active_database).update(account_id, payload.model_dump())
         except KeyError as exc:
@@ -863,6 +1155,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, account_id)
         try:
             return AccountsReadService(active_database).change_status(account_id, payload.status)
         except KeyError as exc:
@@ -879,6 +1172,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, account_id)
         try:
             return AccountsReadService(active_database).delete(account_id)
         except KeyError as exc:
@@ -896,6 +1190,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, account_id)
         try:
             return AccountsReadService(active_database).update_reference(
                 account_id,
@@ -926,6 +1221,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, payload.account_id)
         try:
             return TransactionsReadService(active_database).create(payload.model_dump())
         except ValueError as exc:
@@ -941,6 +1237,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_transactions(x_valoria_session, [transaction_id])
+        guard_account(x_valoria_session, payload.account_id)
         try:
             return TransactionsReadService(active_database).update(transaction_id, payload.model_dump())
         except KeyError as exc:
@@ -958,6 +1256,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_transactions(x_valoria_session, [transaction_id])
         try:
             return SettingsReadService(active_database).create_rule_from_transaction(
                 transaction_id,
@@ -976,6 +1275,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_transactions(x_valoria_session, payload.transaction_ids)
         try:
             return TransactionsReadService(active_database).bulk_update(
                 payload.transaction_ids,
@@ -1015,6 +1315,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, payload.account_id)
         try:
             return bank_imports.commit(
                 x_valoria_session or "",
@@ -1046,6 +1347,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_rows(x_valoria_session, "SELECT DISTINCT account_id FROM import_batches WHERE id IN ({marks})", [batch_id])
         try:
             return bank_imports.cancel(batch_id)
         except KeyError as exc:
@@ -1114,6 +1416,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, payload.occurrence_ids)
         result = ReconciliationReadService(active_database).reschedule_occurrences(
             payload.occurrence_ids,
             payload.target_date,
@@ -1150,6 +1453,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, [occurrence_id])
         return _occurrence_action(RecurrenceOccurrencesService(active_database).update(occurrence_id, payload.model_dump()))
 
     @app.post("/api/v1/recurrences/occurrences/shift")
@@ -1161,6 +1465,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, payload.occurrence_ids)
         return _occurrence_action(
             RecurrenceOccurrencesService(active_database).shift(payload.occurrence_ids, payload.target_date)
         )
@@ -1174,6 +1479,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, payload.occurrence_ids)
         return _occurrence_action(RecurrenceOccurrencesService(active_database).postpone(payload.occurrence_ids))
 
     @app.post("/api/v1/recurrences/occurrences/delete")
@@ -1185,6 +1491,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, payload.occurrence_ids)
         return _occurrence_action(RecurrenceOccurrencesService(active_database).delete(payload.occurrence_ids))
 
     @app.post("/api/v1/recurrences/occurrences/{occurrence_id}/restore")
@@ -1196,6 +1503,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, [occurrence_id])
         return _occurrence_action(RecurrenceOccurrencesService(active_database).restore(occurrence_id))
 
     @app.post("/api/v1/recurrences")
@@ -1207,6 +1515,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, payload.account_id)
         try:
             return RecurrenceWriteService(active_database).create(payload.model_dump())
         except ValueError as exc:
@@ -1222,6 +1531,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_recurrences(x_valoria_session, [item_id])
+        guard_account(x_valoria_session, payload.account_id)
         try:
             return RecurrenceWriteService(active_database).update(item_id, payload.model_dump())
         except ValueError as exc:
@@ -1236,6 +1547,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_recurrences(x_valoria_session, [item_id])
         try:
             return RecurrenceWriteService(active_database).delete(item_id)
         except ValueError as exc:
@@ -1346,6 +1658,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_account(x_valoria_session, payload.account_id)
         try:
             event_id = ScenarioEventService(active_database).add_event(scenario_id, payload.model_dump())
             return {"success": True, "message": "Hypothèse ajoutée.", "eventId": event_id, "scenarioId": scenario_id}
@@ -1362,6 +1675,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_rows(x_valoria_session, "SELECT DISTINCT account_id FROM scenario_events WHERE id IN ({marks})", [event_id])
+        guard_account(x_valoria_session, payload.account_id)
         try:
             ScenarioEventService(active_database).update_event(event_id, payload.model_dump())
             return {"success": True, "message": "Hypothèse mise à jour.", "eventId": event_id}
@@ -1377,6 +1692,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_rows(x_valoria_session, "SELECT DISTINCT account_id FROM scenario_events WHERE id IN ({marks})", [event_id])
         ScenarioEventService(active_database).delete_event(event_id)
         return {"success": True, "message": "Hypothèse supprimée.", "eventId": event_id}
 
@@ -1471,6 +1787,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         data = payload.model_dump()
         data["details_json"] = data.pop("details")
         asset_id = active_database.add_asset(data)
+        grant_creator(x_valoria_session, "asset", asset_id)
         return {"success": True, "message": "Élément patrimonial ajouté.", "assetId": asset_id}
 
     @app.post("/api/v1/assets/{asset_id}")
@@ -1483,6 +1800,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_asset(x_valoria_session, asset_id)
         if not payload.name.strip():
             raise HTTPException(status_code=422, detail="Le nom de l’élément est obligatoire.")
         data = payload.model_dump()
@@ -1502,6 +1820,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_asset(x_valoria_session, asset_id)
         if active_database.get_asset(asset_id) is None:
             raise HTTPException(status_code=404, detail="Élément patrimonial introuvable.")
         active_database.delete_asset(asset_id)
@@ -1526,6 +1845,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_admin(x_valoria_session)
         try:
             return SettingsReadService(active_database).update_general(payload.model_dump())
         except ValueError as exc:
@@ -1651,6 +1971,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_proposal(x_valoria_session, proposal_id)
         return reconciliation_action(ReconciliationReadService(active_database).confirm_proposal(proposal_id))
 
     @app.post("/api/v1/reconciliation/proposals/{proposal_id}/reject")
@@ -1662,6 +1983,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_proposal(x_valoria_session, proposal_id)
         return reconciliation_action(ReconciliationReadService(active_database).reject_proposal(proposal_id))
 
     @app.post("/api/v1/reconciliation/manual-match")
@@ -1673,6 +1995,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_transactions(x_valoria_session, [payload.transaction_id])
+        guard_occurrences(x_valoria_session, [payload.occurrence_id])
         return reconciliation_action(
             ReconciliationReadService(active_database).confirm_manual_match(
                 payload.occurrence_id,
@@ -1708,6 +2032,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        guard_occurrences(x_valoria_session, [payload.occurrence_id])
+        guard_transactions(x_valoria_session, [payload.transaction_id] if payload.transaction_id else [])
         return reconciliation_action(
             ReconciliationReadService(active_database).cancel_reconciliation(
                 payload.occurrence_id,

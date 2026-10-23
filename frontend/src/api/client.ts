@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { Profile, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { Me, Profile, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -65,16 +65,25 @@ export function openSession(profileId: string, password: string): Promise<AuthSe
   });
 }
 
-export function createProfile(payload: ProfileCreatePayload): Promise<{ profile: Profile; recoveryKey: string | null }> {
-  return request<{ profile: Profile; recoveryKey: string | null }>("/api/v1/profiles", { method: "POST", body: payload });
+/** Première installation : crée le premier administrateur et ouvre sa session. */
+export function setupAdministrator(name: string, password: string): Promise<AuthSession & { recoveryKey: string }> {
+  return request<AuthSession & { recoveryKey: string }>("/api/v1/auth/setup", { method: "POST", body: { name, password } });
+}
+
+export function getMe(token: string): Promise<{ me: Me | null }> {
+  return request<{ me: Me | null }>("/api/v1/me", { token });
+}
+
+export function createProfile(token: string, payload: ProfileCreatePayload): Promise<{ profile: Profile; recoveryKey: string | null }> {
+  return request<{ profile: Profile; recoveryKey: string | null }>("/api/v1/profiles", { method: "POST", token, body: payload });
 }
 
 export function updateProfile(token: string, profileId: string, payload: ProfileUpdatePayload): Promise<{ profile: Profile }> {
   return request<{ profile: Profile }>(`/api/v1/profiles/${encodeURIComponent(profileId)}`, { method: "PUT", token, body: payload });
 }
 
-export function deleteProfile(profileId: string, password: string): Promise<{ deleted: boolean }> {
-  return request<{ deleted: boolean }>(`/api/v1/profiles/${encodeURIComponent(profileId)}/delete`, { method: "POST", body: { password } });
+export function deleteProfile(token: string, profileId: string, password: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/api/v1/profiles/${encodeURIComponent(profileId)}/delete`, { method: "POST", token, body: { password } });
 }
 
 export function getSecurityJournal(token: string, signal?: AbortSignal): Promise<{ events: SecurityEvent[] }> {

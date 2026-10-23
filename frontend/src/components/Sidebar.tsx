@@ -53,7 +53,7 @@ export function Sidebar({ active, onNavigate, onLock, onSwitchProfile, profile }
         {profile && (
           <button className="profile-chip" onClick={onSwitchProfile} title="Changer de profil" type="button">
             <ProfileAvatar profile={profile} size={32} />
-            <span><strong>{profile.name}</strong><small>Changer de profil</small></span>
+            <span><strong>{profile.name}</strong><small>{profile.roleLabel ? `${profile.roleLabel} · changer` : "Changer de profil"}</small></span>
           </button>
         )}
         <ThemeSwitch variant="sidebar" />

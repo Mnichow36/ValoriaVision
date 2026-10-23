@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.api.main import PasswordPayload, create_app
 from app.database import Database
 from app.security.auth_service import AuthService
+from app.security.users import UserStore
 
 
 def _database(root: str) -> Database:
@@ -21,6 +22,12 @@ def _database(root: str) -> Database:
 
 def _route(app, path: str, method: str):
     return next(r.endpoint for r in app.routes if r.path == path and method in r.methods)
+
+
+def _user_auth(app, database) -> AuthService:
+    """Le mot de passe d'une installation existante devient celui du 1er administrateur."""
+    _route(app, "/api/v1/auth/status", "GET")(None, None)
+    return AuthService(UserStore(database).settings_for(1))
 
 
 class PasswordPolicyTest(unittest.TestCase):
@@ -82,15 +89,15 @@ class LockoutTest(unittest.TestCase):
 
     def test_success_resets_counter_and_is_journaled(self):
         app = create_app(self.database)
+        user_auth = _user_auth(app, self.database)
         unlock = _route(app, "/api/v1/auth/unlock", "POST")
         with self.assertRaises(HTTPException):
             unlock(PasswordPayload(password="mauvais"), None)
         result = unlock(PasswordPayload(password="MotDePasse123!"), None)
         self.assertIn("token", result)
-        self.assertEqual(self.auth.failed_attempts(), 0)
-        types = [e["type"] for e in self.auth.recent_events()]
+        self.assertEqual(user_auth.failed_attempts(), 0)
+        types = [e["type"] for e in user_auth.recent_events()]
         self.assertEqual(types[:2], ["auth.unlock_success", "auth.unlock_failure"])
-        self.assertIn("auth.setup", types)
 
     def test_journal_route_needs_a_session_and_never_exposes_secrets(self):
         app = create_app(self.database)
@@ -112,6 +119,7 @@ class PasswordChangeAndRecoveryTest(unittest.TestCase):
         self.auth = AuthService(self.database)
         self.auth.set_master_password("MotDePasse123!")
         self.app = create_app(self.database)
+        self.auth = _user_auth(self.app, self.database)
         self.token = _route(self.app, "/api/v1/auth/unlock", "POST")(PasswordPayload(password="MotDePasse123!"), None)["token"]
 
     def tearDown(self):
@@ -143,7 +151,7 @@ class PasswordChangeAndRecoveryTest(unittest.TestCase):
         key = create(RecoveryKeyRequestPayload(password="MotDePasse123!"), self.token, None)["recoveryKey"]
         self.assertRegex(key, r"^([A-Z2-9]{4}-){5}[A-Z2-9]{4}$")
         with self.database.connect() as conn:
-            stored = " ".join(r["value"] for r in conn.execute("SELECT value FROM settings"))
+            stored = " ".join(r["value"] for r in conn.execute("SELECT value FROM user_settings"))
         self.assertNotIn(key.replace("-", ""), stored)
         status = _route(self.app, "/api/v1/security/status", "GET")(self.token, None)
         self.assertTrue(status["recoveryKeyConfigured"])

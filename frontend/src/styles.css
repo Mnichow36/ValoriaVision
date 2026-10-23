@@ -685,7 +685,7 @@ button { cursor: pointer; }
 .transaction-notice { align-items: center; background: var(--s-ecfdf5); border: 1px solid var(--s-bbf7d0); border-radius: 10px; color: var(--t-15803d); display: flex; font-size: 12px; font-weight: 800; gap: 8px; padding: 10px 14px; }
 .transaction-notice span { align-items: center; background: #16a34a; border-radius: 50%; color: #fff; display: inline-flex; height: 18px; justify-content: center; width: 18px; }
 .transactions-journal { min-height: 527px; padding: 20px; }
-.transactions-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 14px; }
+.transactions-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 18px; }
 .transaction-filters { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(210px, 1.45fr) minmax(150px, .9fr) 146px 146px 132px minmax(115px, .75fr); margin-bottom: 24px; }
 .transaction-filters > input,
 .transaction-filters > select,
@@ -1980,7 +1980,7 @@ button { cursor: pointer; }
   border-top: 1px solid var(--s-edf2f7);
   display: grid;
   gap: 8px;
-  margin: 0 0 14px;
+  margin: 0 0 18px;
   padding-top: 13px;
 }
 .account-lifecycle-actions > span {
@@ -2884,7 +2884,7 @@ button { cursor: pointer; }
 .occurrence-note { color: var(--t-6b7a99); display: block; font-size: 12px; font-weight: 600; margin-top: 2px; }
 .occurrence-row--deleted { opacity: 0.55; }
 .occurrence-hint { color: var(--t-6b7a99); font-size: 13px; margin: 12px 4px 0; }
-.drawer-help { color: var(--t-52627d); font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
+.drawer-help { color: var(--t-52627d); font-size: 13px; line-height: 1.5; margin: 0 0 18px; }
 .drawer-quick { display: flex; gap: 8px; margin-bottom: 12px; }
 .drawer-list { color: var(--t-334155); font-size: 13px; margin: 8px 0 0; max-height: 240px; overflow: auto; padding-left: 18px; }
 
@@ -2904,7 +2904,7 @@ button { cursor: pointer; }
 .occurrence-overdue-chip { background: var(--s-fff1f2); border: 1px solid var(--s-fecdd3); border-radius: 999px; color: var(--t-dc2626); cursor: pointer; font-size: 12px; font-weight: 800; padding: 5px 11px; }
 .occurrence-overdue-chip:hover { background: var(--s-ffe4e6); }
 .transaction-filters--occurrences .occurrence-overdue-chip { grid-column: 1 / -1; justify-self: start; }
-.drawer-choice { display: grid; gap: 8px; margin: 0 0 14px; }
+.drawer-choice { display: grid; gap: 8px; margin: 0 0 18px; }
 .drawer-choice label { align-items: center; display: flex; font-size: 13px; font-weight: 700; gap: 8px; }
 .context-menu__note { border-top: 1px solid var(--s-e2e8f0); color: var(--t-667691); font-size: 12px; line-height: 1.4; margin: 6px 0 0; padding: 8px 12px 4px; }
 
@@ -3393,3 +3393,6 @@ button.forecast-kpi { cursor: pointer; }
 .dashboard-empty p { color: var(--muted); line-height: 1.55; margin: 0; }
 .dashboard-empty ol { color: var(--navy); display: grid; gap: 8px; line-height: 1.5; margin: 0; padding-left: 20px; }
 .dashboard-empty__actions { display: flex; gap: 10px; margin-top: 6px; }
+.profile-badge--reader { background: #ede9fe; color: #4c1d95; }
+.scope-banner { align-items: center; background: #ede9fe; border: 1px solid #cdbff7; border-radius: 12px; color: #4c1d95; display: flex; flex-wrap: wrap; font-size: 13px; gap: 6px 12px; margin: 0 0 18px; padding: 10px 14px; }
+.scope-banner strong { white-space: nowrap; }

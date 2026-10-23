@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent, MouseEvent } from "react";
+import type { FormEvent } from "react";
 
 import type { Profile } from "../api/contracts";
-import { ContextMenu } from "./ContextMenu";
-import type { ContextMenuState } from "./ContextMenu";
 import { RecoverAccessDrawer } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
-import { DeleteProfileDrawer, ProfileFormDrawer } from "./ProfileDrawers";
+import { ProfileFormDrawer } from "./ProfileDrawers";
 import { SideDrawer } from "./SideDrawer";
 
 interface AuthScreenProps {
@@ -21,7 +19,7 @@ interface AuthScreenProps {
   onProfilesChanged: () => Promise<void>;
 }
 
-type Drawer = { kind: "create" } | { kind: "recover"; profile: Profile } | { kind: "delete"; profile: Profile } | null;
+type Drawer = { kind: "create" } | { kind: "recover"; profile: Profile } | null;
 
 function lastLogin(profile: Profile): string {
   if (!profile.lastLoginAt) return "Jamais connecté";
@@ -38,10 +36,8 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
   const [password, setPassword] = useState("");
   const [wait, setWait] = useState(retryAfter ?? 0);
   const [drawer, setDrawer] = useState<Drawer>(null);
-  const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
   const selected = useMemo(() => profiles.find((p) => p.id === selectedId) ?? null, [profiles, selectedId]);
-  const hasDemo = profiles.some((p) => p.kind === "demo");
 
   useEffect(() => { setWait(retryAfter ?? 0); }, [retryAfter, error]);
   useEffect(() => {
@@ -58,18 +54,6 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
     setPassword("");
     if (profile.kind === "demo" && !profile.configured) void onUnlock(profile.id, "");
     else setSelectedId(profile.id);
-  }
-
-  function openMenu(event: MouseEvent, profile: Profile) {
-    event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items: [
-        { label: "Ouvrir", onSelect: () => choose(profile) },
-        { label: "Supprimer le profil…", danger: true, disabled: !profile.removable, hint: profile.removable ? undefined : "Le profil d’origine ne peut pas être supprimé.", onSelect: () => setDrawer({ kind: "delete", profile }) },
-      ],
-    });
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -103,33 +87,35 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
           <div className="auth-brand"><span>V</span><strong>Valoria Vision</strong></div>
           <div className="profile-picker__intro">
             <p className="eyebrow">Données financières locales</p>
-            <h1>{profiles.length ? "Qui utilise Valoria aujourd’hui ?" : "Créons votre premier profil"}</h1>
-            <p>Chaque profil a son propre coffre, son mot de passe et sa clé de secours.</p>
+            <h1>{profiles.length ? "Qui utilise Valoria aujourd’hui ?" : "Créons le profil administrateur"}</h1>
+            <p>Une seule base familiale. Votre profil détermine ce que vous voyez et ce que vous pouvez modifier.</p>
           </div>
           {error && <p className="auth-error" role="alert">{error}</p>}
           <div className="profile-grid">
             {profiles.map((profile) => (
-              <button className="profile-card" disabled={busy} key={profile.id} onClick={() => choose(profile)} onContextMenu={(event) => openMenu(event, profile)} type="button">
+              <button className="profile-card" disabled={busy} key={profile.id} onClick={() => choose(profile)} type="button">
                 <ProfileAvatar profile={profile} size={84} />
                 <strong>{profile.name}</strong>
                 <span className="profile-card__meta">{profile.kind === "demo" ? "Données fictives · sans mot de passe" : lastLogin(profile)}</span>
                 {profile.kind === "demo"
                   ? <span className="profile-badge profile-badge--info">Mode démonstration</span>
-                  : <span className={`profile-badge ${profile.recoveryKeyConfigured ? "profile-badge--ok" : "profile-badge--warn"}`}>{profile.recoveryKeyConfigured ? "Clé de secours créée" : "Pas de clé de secours"}</span>}
+                  : <span className={`profile-badge ${profile.role === "admin" ? "profile-badge--info" : profile.role === "reader" ? "profile-badge--reader" : "profile-badge--ok"}`}>{roleBadge(profile)}</span>}
               </button>
             ))}
-            <button className="profile-card profile-card--add" onClick={() => setDrawer({ kind: "create" })} type="button">
-              <span className="profile-add-circle" aria-hidden="true">+</span>
-              <strong>Ajouter un profil</strong>
-            </button>
+            {profiles.length === 0 && (
+              <button className="profile-card profile-card--add" onClick={() => setDrawer({ kind: "create" })} type="button">
+                <span className="profile-add-circle" aria-hidden="true">+</span>
+                <strong>Créer l’administrateur</strong>
+              </button>
+            )}
           </div>
-          {profiles.length > 0 && <small>Clic droit sur un profil pour le supprimer · aucune connexion bancaire, tout reste sur cet ordinateur</small>}
+          <small>Aucune connexion bancaire · tout reste sur cet ordinateur</small>
         </section>
       )}
 
       {drawer?.kind === "create" && (
         <ProfileFormDrawer
-          hasDemo={hasDemo}
+          firstRun
           mode="create"
           onClose={() => setDrawer(null)}
           onCreated={(profile, pwd) => {
@@ -143,12 +129,18 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
           ? <RecoverAccessDrawer onClose={() => setDrawer(null)} onRecovered={onRecovered} profileId={drawer.profile.id} />
           : <NoRecoveryKey onClose={() => setDrawer(null)} />
       )}
-      {drawer?.kind === "delete" && (
-        <DeleteProfileDrawer onClose={() => setDrawer(null)} onDeleted={() => { setDrawer(null); void onProfilesChanged(); }} profile={drawer.profile} />
-      )}
-      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </main>
   );
+}
+
+function roleBadge(profile: Profile): string {
+  const label = profile.roleLabel ?? "Profil";
+  if (profile.role && profile.role !== "admin" && profile.totalAccounts !== undefined) {
+    const visible = (profile.scopeAccounts ?? 0) + (profile.scopeAssets ?? 0);
+    const total = (profile.totalAccounts ?? 0) + (profile.totalAssets ?? 0);
+    return `${label} · ${visible} sur ${total}`;
+  }
+  return label;
 }
 
 function NoRecoveryKey({ onClose }: { onClose: () => void }) {

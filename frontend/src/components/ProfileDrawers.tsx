@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { createProfile, deleteProfile, updateProfile } from "../api/client";
+import { createProfile, deleteProfile, setupAdministrator, updateProfile } from "../api/client";
 import type { Profile } from "../api/contracts";
 import { PasswordStrengthMeter } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
@@ -20,7 +20,9 @@ interface ProfileFormProps {
   mode: "create" | "edit";
   profile?: Profile;
   hasDemo?: boolean;
-  /** Jeton du profil ouvert (modification). */
+  /** Première installation : crée l'administrateur de la base familiale (aucun jeton requis). */
+  firstRun?: boolean;
+  /** Jeton du profil ouvert (modification ou création par un administrateur). */
   token?: string;
   onClose: () => void;
   /** Modification enregistrée. */
@@ -29,7 +31,7 @@ interface ProfileFormProps {
   onCreated?: (profile: Profile, password: string) => void;
 }
 
-export function ProfileFormDrawer({ mode, profile, hasDemo = false, token, onClose, onSaved, onCreated }: ProfileFormProps) {
+export function ProfileFormDrawer({ mode, profile, hasDemo = false, firstRun = false, token, onClose, onSaved, onCreated }: ProfileFormProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(profile?.name ?? "");
   const [color, setColor] = useState(profile?.color ?? PROFILE_COLORS[1]);
@@ -86,7 +88,17 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, token, onClo
         onSaved?.(result.profile);
         return;
       }
-      const result = await createProfile({
+      if (firstRun) {
+        const result = await setupAdministrator(name.trim(), password);
+        const firstProfile: Profile = {
+          id: result.profileId ?? "u1", name: name.trim(), color, kind: "personal", avatar: null, lastLoginAt: null,
+          configured: true, recoveryKeyConfigured: true, removable: false, role: "admin", roleLabel: "Administrateur",
+        };
+        setCreated({ profile: firstProfile, recoveryKey: result.recoveryKey });
+        return;
+      }
+      if (!token) throw new Error("Ouvrez d’abord votre session.");
+      const result = await createProfile(token, {
         name,
         color,
         kind,
@@ -113,7 +125,7 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, token, onClo
   }
 
   return (
-    <SideDrawer eyebrow="Profils" onClose={onClose} title={mode === "create" ? "Nouveau profil" : "Modifier le profil"}
+    <SideDrawer eyebrow="Profils" onClose={onClose} title={mode === "create" ? (firstRun ? "Créer l’administrateur" : "Nouveau profil") : "Modifier le profil"}
       footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-primary" disabled={busy} form="profile-form" type="submit">{busy ? "Enregistrement…" : mode === "create" ? "Créer le profil" : "Enregistrer"}</button></>}>
       <form className="drawer-form" id="profile-form" onSubmit={submit}>
         <label>Nom du profil<input autoFocus maxLength={40} onChange={(e) => setName(e.target.value)} value={name} /></label>
@@ -146,11 +158,15 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, token, onClo
 
         {mode === "create" && (
           <>
-            <div className="drawer-form__label">Type de profil</div>
+            {firstRun
+              ? <p className="drawer-note">Ce premier profil est l’<strong>administrateur</strong> : il voit tout et crée ensuite les profils de la famille avec leurs accès.</p>
+              : <div className="drawer-form__label">Type de profil</div>}
+            {!firstRun && (
             <div className="kind-options">
-              <button aria-pressed={kind === "personal"} onClick={() => setKind("personal")} type="button"><strong>Personnel</strong><span>Coffre vide et chiffré, mot de passe obligatoire.</span></button>
+              <button aria-pressed={kind === "personal"} onClick={() => setKind("personal")} type="button"><strong>Personnel</strong><span>Accès à la base familiale, mot de passe obligatoire.</span></button>
               <button aria-pressed={kind === "demo"} disabled={hasDemo} onClick={() => setKind("demo")} title={hasDemo ? "Un profil Démo existe déjà." : undefined} type="button"><strong>Démo</strong><span>{hasDemo ? "Déjà créé." : "Données fictives, sans mot de passe."}</span></button>
             </div>
+            )}
             {!isDemo && (
               <>
                 <label>Mot de passe du profil<input autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} type="password" value={password} /></label>
@@ -167,18 +183,18 @@ export function ProfileFormDrawer({ mode, profile, hasDemo = false, token, onClo
   );
 }
 
-export function DeleteProfileDrawer({ profile, onClose, onDeleted }: { profile: Profile; onClose: () => void; onDeleted: () => void }) {
+export function DeleteProfileDrawer({ profile, token, onClose, onDeleted }: { profile: Profile; token: string; onClose: () => void; onDeleted: () => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const needsPassword = profile.configured;
+  const needsPassword = true;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await deleteProfile(profile.id, password);
+      await deleteProfile(token, profile.id, password);
       onDeleted();
     } catch (reason: unknown) {
       setError(message(reason));
@@ -191,9 +207,11 @@ export function DeleteProfileDrawer({ profile, onClose, onDeleted }: { profile: 
       footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-danger" disabled={busy || (needsPassword && !password)} form="delete-profile-form" type="submit">{busy ? "Suppression…" : "Supprimer définitivement"}</button></>}>
       <form className="drawer-form" id="delete-profile-form" onSubmit={submit}>
         <div className="delete-profile-who"><ProfileAvatar profile={profile} size={56} /><strong>{profile.name}</strong></div>
-        <p className="security-warning-note">Toutes les données de ce profil (comptes, transactions, budgets, patrimoine) seront <strong>effacées définitivement</strong>. Cette action est irréversible.</p>
+        <p className="security-warning-note">{profile.kind === "demo"
+          ? <>Les données fictives du profil Démo seront <strong>effacées</strong>.</>
+          : <>Ce profil n’aura plus accès à Valoria. Les comptes, transactions et le patrimoine de la base familiale <strong>ne sont pas touchés</strong>.</>}</p>
         {needsPassword && (
-          <label>Mot de passe de ce profil<input autoComplete="current-password" autoFocus onChange={(e) => setPassword(e.target.value)} type="password" value={password} /></label>
+          <label>Votre mot de passe d’administrateur<input autoComplete="current-password" autoFocus onChange={(e) => setPassword(e.target.value)} type="password" value={password} /></label>
         )}
         {error && <p className="auth-error" role="alert">{error}</p>}
       </form>
