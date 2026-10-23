@@ -105,6 +105,31 @@ class AccountsReadServiceTest(unittest.TestCase):
         self.assertEqual(snapshot["accounts"][0]["transactions"][0]["category"], "Revenus")
         self.assertEqual(database.requested_account_id, 7)
 
+    def test_exposes_balance_history_and_movement_count(self):
+        snapshot = AccountsReadService(StubDatabase()).snapshot()
+        account = snapshot["accounts"][0]
+
+        self.assertEqual(account["transactionCount"], 1)
+        # Référence au 01/10 : seul le mois d'octobre existe, avec 1000 + 125,50.
+        self.assertEqual(account["balanceHistory"], [{"month": "2026-10", "balance": 1125.5}])
+
+    def test_balance_history_spans_twelve_months_and_ignores_pre_reference_months(self):
+        history = AccountsReadService._balance_history(
+            100.0,
+            "2025-01-15",
+            "2026-10-13",
+            [
+                {"tx_date": "2025-01-10", "amount": 999},  # déjà dans le solde initial
+                {"tx_date": "2026-03-05", "amount": 50},
+                {"tx_date": "2026-10-02", "amount": -20},
+            ],
+        )
+
+        self.assertEqual(len(history), 12)
+        self.assertEqual(history[0]["month"], "2025-11")
+        self.assertEqual(history[0]["balance"], 100.0)
+        self.assertEqual(history[-1], {"month": "2026-10", "balance": 130.0})
+
     def test_creates_account_through_existing_database_method(self):
         database = StubDatabase()
         service = AccountsReadService(

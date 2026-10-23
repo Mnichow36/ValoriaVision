@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import re
 from typing import Any, Callable
@@ -279,6 +279,13 @@ class AccountsReadService:
             "movementTotal": _number(_field(row, "post_reference_movements", 0)),
             "currentBalance": _number(_field(row, "calculated_balance", initial_balance)),
             "currentDate": str(_field(row, "calculated_date", initial_date) or ""),
+            "transactionCount": len(transactions),
+            "balanceHistory": self._balance_history(
+                _number(initial_balance),
+                str(initial_date or ""),
+                str(_field(row, "calculated_date", initial_date) or ""),
+                transactions,
+            ),
             "transactions": [
                 self._transaction(
                     item,
@@ -287,6 +294,45 @@ class AccountsReadService:
                 for item in transactions[:12]
             ],
         }
+
+    @staticmethod
+    def _balance_history(
+        initial_balance: float,
+        initial_date: str,
+        current_date: str,
+        transactions: list[Any],
+        months: int = 12,
+    ) -> list[dict[str, Any]]:
+        """Month-end balances over the last ``months`` months (same rule as balance_at_date)."""
+        try:
+            end = date.fromisoformat(current_date)
+            start_reference = date.fromisoformat(initial_date)
+        except ValueError:
+            return []
+        entries = sorted(
+            (str(_field(item, "tx_date", "") or ""), _number(_field(item, "amount", 0)))
+            for item in transactions
+        )
+        history: list[dict[str, Any]] = []
+        year, month = end.year, end.month
+        points: list[tuple[int, int]] = []
+        for _ in range(months):
+            points.append((year, month))
+            month -= 1
+            if month == 0:
+                year, month = year - 1, 12
+        for year, month in reversed(points):
+            next_first = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+            cutoff = min(next_first - timedelta(days=1), end)
+            if cutoff < start_reference:
+                continue
+            total = initial_balance + sum(
+                amount
+                for tx_date, amount in entries
+                if initial_date < tx_date <= cutoff.isoformat()
+            )
+            history.append({"month": f"{year:04d}-{month:02d}", "balance": round(total, 2)})
+        return history
 
     @staticmethod
     def _transaction(row: Any, links: list[dict[str, Any]] | None = None) -> dict[str, Any]:

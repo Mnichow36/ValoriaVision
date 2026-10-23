@@ -89,6 +89,7 @@ export function App() {
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
   const [assetEditorRequestKey, setAssetEditorRequestKey] = useState(0);
   const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
+  const [transactionAccountFocus, setTransactionAccountFocus] = useState<{ accountId: number; key: number }>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,8 +155,15 @@ export function App() {
       setActiveModule("transactions");
       return;
     }
+    setTransactionAccountFocus(undefined);
     if (destination === "transactions" && ["import", "history"].includes(transactionsView)) setTransactionsView("journal");
     setActiveModule(destination);
+  }
+
+  function showAccountOperations(accountId: number) {
+    setTransactionAccountFocus((current) => ({ accountId, key: (current?.key ?? 0) + 1 }));
+    setActiveModule("transactions");
+    setTransactionsView("journal");
   }
 
   function openBankImport(accountId?: number) {
@@ -275,12 +283,14 @@ export function App() {
               editorRequestKey={accountEditorRequestKey}
               onAccountChanged={() => void refreshDashboard()}
               onAttachImport={openBankImport}
+              onShowOperations={showAccountOperations}
               statusFilter={accountStatusFilter}
               token={state.token}
             />
           )}
           {activeModule === "transactions" && (
             <TransactionsPage
+              accountFocus={transactionAccountFocus}
               createRequestKey={transactionCreateRequestKey}
               importRequestKey={transactionImportRequestKey}
               onDataChanged={() => {

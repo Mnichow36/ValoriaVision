@@ -1,10 +1,10 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ReconciledPill } from "./ReconciledPill";
 import { createAccount, deleteAccount, getAccounts, updateAccount, updateAccountReference, updateAccountStatus } from "../api/client";
 import type { AccountActionResult, AccountOverview, AccountPayload, AccountsSnapshot } from "../api/contracts";
 
-type AccountsView = "accounts" | "balances" | "imports";
 type AccountStatus = "Actif" | "Archivé" | "Clos";
 type AccountEditorState = { mode: "create" } | { mode: "edit"; account: AccountOverview };
 
@@ -12,6 +12,7 @@ interface AccountsPageProps {
   editorRequestKey: number;
   onAccountChanged: () => void;
   onAttachImport: (accountId: number) => void;
+  onShowOperations: (accountId: number) => void;
   statusFilter: string;
   token: string;
 }
@@ -26,10 +27,11 @@ const currencyFormatter = new Intl.NumberFormat("fr-FR", {
 const shortDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
 const longDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImport, statusFilter, token }: AccountsPageProps) {
+export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImport, onShowOperations, statusFilter, token }: AccountsPageProps) {
   const [snapshot, setSnapshot] = useState<AccountsSnapshot>();
   const [selectedId, setSelectedId] = useState<number>();
-  const [view, setView] = useState<AccountsView>("accounts");
+  const [menu, setMenu] = useState<ContextMenuState>();
+  const [collapsed, setCollapsed] = useState<string[]>(["Investissements", "Crédits"]);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -103,43 +105,53 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
     return <div className="loading-state"><span aria-hidden="true" />Chargement des comptes depuis le moteur Python…</div>;
   }
 
+  function openMenu(event: MouseEvent, account: AccountOverview) {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedId(account.id);
+    const hasMovements = account.transactionCount > 0;
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: "Modifier le compte…", onSelect: () => setEditor({ mode: "edit", account }) },
+        { label: "Modifier le solde de référence…", onSelect: () => setReferenceAccount(account) },
+        { label: "Rattacher un import…", disabled: account.status !== "Actif", hint: account.status !== "Actif" ? "Seul un compte actif peut recevoir un import." : undefined, onSelect: () => onAttachImport(account.id) },
+        { label: "Voir les opérations", onSelect: () => onShowOperations(account.id) },
+        ...(account.status !== "Actif" ? [{ label: "Restaurer", onSelect: () => setStatusChange({ account, target: "Actif" as AccountStatus }) }] : [{ label: "Archiver", onSelect: () => setStatusChange({ account, target: "Archivé" as AccountStatus }) }]),
+        ...(account.status !== "Clos" ? [{ label: "Clôturer…", onSelect: () => setStatusChange({ account, target: "Clos" as AccountStatus }) }] : []),
+        { label: "Supprimer définitivement…", danger: true, disabled: hasMovements, onSelect: () => setDeletionAccount(account) },
+      ],
+      note: hasMovements ? "Suppression impossible : ce compte a des opérations. Archivez-le pour conserver l’historique." : undefined,
+    });
+  }
+
+  const liquidity = snapshot.accounts
+    .filter((account) => account.status === "Actif" && isLiquidType(account.type))
+    .reduce((sum, account) => sum + account.currentBalance, 0);
+  const liquidityCount = snapshot.accounts.filter((account) => account.status === "Actif" && isLiquidType(account.type)).length;
+
   return (
-    <div className="accounts-page">
+    <div className="cpt-page">
       {notice && <div className="account-notice" role="status"><span aria-hidden="true">✓</span>{notice}</div>}
 
-      <section className="accounts-toolbar" aria-label="Vues des comptes">
-        <div className="account-tabs" role="tablist" aria-label="Présentation des comptes">
-          <Tab active={view === "accounts"} onClick={() => setView("accounts")}>Vue comptes</Tab>
-          <Tab active={view === "balances"} onClick={() => setView("balances")}>Soldes à date</Tab>
-          <Tab active={view === "imports"} onClick={() => setView("imports")}>Imports associés</Tab>
-        </div>
-      </section>
+      {visibleAccounts.length > 0 && selected ? (
+        <section className="cpt-workspace" aria-label="Gestion du compte sélectionné">
+          <AccountRail
+            accounts={visibleAccounts}
+            collapsed={collapsed}
+            liquidity={liquidity}
+            liquidityCount={liquidityCount}
+            onContextMenu={openMenu}
+            onSelect={setSelectedId}
+            onToggle={(group) => setCollapsed((current) => current.includes(group) ? current.filter((item) => item !== group) : [...current, group])}
+            selectedId={selected.id}
+          />
+          <AccountView account={selected} onContextMenu={(event) => openMenu(event, selected)} onShowOperations={() => onShowOperations(selected.id)} />
+        </section>
+      ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />}
 
-      {view === "accounts" && (
-        visibleAccounts.length > 0 && selected ? (
-          <section className="accounts-workspace" aria-label="Gestion du compte sélectionné">
-            <AccountRail
-              accounts={visibleAccounts}
-              onCreate={() => setEditor({ mode: "create" })}
-              onSelect={setSelectedId}
-              selectedId={selected.id}
-            />
-            <AccountActivity account={selected} />
-            <AccountDetail
-              account={selected}
-              onAttachImport={() => onAttachImport(selected.id)}
-              onDelete={() => setDeletionAccount(selected)}
-              onEdit={() => setEditor({ mode: "edit", account: selected })}
-              onReference={() => setReferenceAccount(selected)}
-              onStatusChange={(target) => setStatusChange({ account: selected, target })}
-            />
-          </section>
-        ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />
-      )}
-
-      {view === "balances" && <BalancesView accounts={visibleAccounts} />}
-      {view === "imports" && <ImportsView accounts={visibleAccounts} />}
-
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
       {editor && (
         <AccountEditor
           account={editor.mode === "edit" ? editor.account : undefined}
@@ -161,130 +173,80 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
   );
 }
 
-function Tab({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
-  return <button aria-selected={active} className={active ? "account-tab account-tab--active" : "account-tab"} onClick={onClick} role="tab" type="button">{children}</button>;
+const ACCOUNT_GROUPS = ["Comptes courants", "Épargne", "Investissements", "Crédits", "Autres"] as const;
+
+function isLiquidType(type: string): boolean {
+  return groupOf(type) === "Comptes courants" || groupOf(type) === "Épargne";
 }
 
-function AccountRail({
-  accounts,
-  onCreate,
-  onSelect,
-  selectedId,
-}: {
+function groupOf(type: string): (typeof ACCOUNT_GROUPS)[number] {
+  const normalized = type.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr-FR");
+  if (normalized.includes("courant")) return "Comptes courants";
+  if (normalized.includes("epargne")) return "Épargne";
+  if (normalized.includes("invest")) return "Investissements";
+  if (normalized.includes("credit")) return "Crédits";
+  return "Autres";
+}
+
+function AccountRail({ accounts, collapsed, liquidity, liquidityCount, onContextMenu, onSelect, onToggle, selectedId }: {
   accounts: AccountOverview[];
-  onCreate: () => void;
+  collapsed: string[];
+  liquidity: number;
+  liquidityCount: number;
+  onContextMenu: (event: MouseEvent, account: AccountOverview) => void;
   onSelect: (accountId: number) => void;
+  onToggle: (group: string) => void;
   selectedId: number;
 }) {
-  const total = accounts.reduce((sum, account) => sum + account.currentBalance, 0);
+  const groups = ACCOUNT_GROUPS
+    .map((name) => ({ name, items: accounts.filter((account) => groupOf(account.type) === name) }))
+    .filter((group) => group.items.length > 0);
   return (
-    <aside className="card accounts-rail">
-      <div className="accounts-rail__heading">
-        <div><span className="eyebrow">Mes comptes</span><strong>{accounts.length} compte{accounts.length > 1 ? "s" : ""}</strong></div>
-        <button aria-label="Ajouter un compte" onClick={onCreate} title="Ajouter un compte" type="button">+</button>
+    <aside className="card cpt-rail">
+      <div className="cpt-rail__total">
+        <span>Liquidités · {liquidityCount} compte{liquidityCount > 1 ? "s" : ""}</span>
+        <strong>{formatMoney(liquidity)}</strong>
+        <small>Comptes courants et épargne actifs</small>
       </div>
-      <div className="accounts-rail__total">
-        <span>Solde cumulé affiché</span>
-        <strong className={total < 0 ? "amount amount--negative" : "amount"}>{formatMoney(total)}</strong>
-      </div>
-      <nav className="accounts-rail__list" aria-label="Sélection du compte">
-        {accounts.map((account) => (
-          <AccountCard
-            account={account}
-            active={account.id === selectedId}
-            key={account.id}
-            onSelect={() => onSelect(account.id)}
-          />
-        ))}
+      <nav className="cpt-rail__list" aria-label="Sélection du compte">
+        {groups.map((group) => {
+          const closed = collapsed.includes(group.name) && !group.items.some((account) => account.id === selectedId);
+          const subtotal = group.items.reduce((sum, account) => sum + account.currentBalance, 0);
+          return (
+            <div className="cpt-group" key={group.name}>
+              <button aria-expanded={!closed} className="cpt-group__head" onClick={() => onToggle(group.name)} type="button">
+                <span>{closed ? "▸" : "▾"} {group.name} · {group.items.length}</span>
+                <b className={subtotal < 0 ? "amount--negative" : undefined}>{formatCompact(subtotal)}</b>
+              </button>
+              {!closed && group.items.map((account) => (
+                <button
+                  aria-current={account.id === selectedId ? "true" : undefined}
+                  className={account.id === selectedId ? "cpt-row cpt-row--active" : "cpt-row"}
+                  key={account.id}
+                  onClick={() => onSelect(account.id)}
+                  onContextMenu={(event) => onContextMenu(event, account)}
+                  type="button"
+                >
+                  <BankBadge bank={account.bank} />
+                  <span className="cpt-row__name" title={account.name}>{account.name}{account.status !== "Actif" && <small>{account.status}</small>}</span>
+                  <b className={account.currentBalance < 0 ? "amount--negative" : undefined}>{formatCompact(account.currentBalance)}</b>
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );
 }
 
-function AccountCard({ account, active, onSelect }: { account: AccountOverview; active: boolean; onSelect: () => void }) {
-  return (
-    <button
-      aria-current={active ? "true" : undefined}
-      className={active ? "account-list-card account-list-card--active" : "account-list-card"}
-      onClick={onSelect}
-      type="button"
-    >
-      <BankBadge bank={account.bank} />
-      <span className="account-list-card__copy">
-        <strong>{account.name}</strong>
-        <small>{account.bank || "Banque non renseignée"} · {account.type}</small>
-        <span className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</span>
-      </span>
-      <span className="account-list-card__chevron" aria-hidden="true">›</span>
-    </button>
-  );
-}
-
-function AccountActivity({ account }: { account: AccountOverview }) {
-  const credits = account.transactions
-    .filter((transaction) => transaction.amount > 0)
-    .reduce((sum, transaction) => sum + transaction.amount, 0);
-  const debits = Math.abs(account.transactions
-    .filter((transaction) => transaction.amount < 0)
-    .reduce((sum, transaction) => sum + transaction.amount, 0));
-
-  return (
-    <article className="card account-activity">
-      <header className="account-activity__heading">
-        <div>
-          <span className="eyebrow">Opérations du compte</span>
-          <h2>{account.name}</h2>
-          <p>{account.bank} · {account.type} · solde calculé au {formatDate(account.currentDate, true)}</p>
-        </div>
-        <span className={`status-chip status-chip--${statusTone(account)}`}>{account.status}</span>
-      </header>
-      <div className="account-activity__summary" aria-label="Résumé des opérations affichées">
-        <div><span>Solde actuel</span><strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong></div>
-        <div><span>Entrées affichées</span><strong className="amount amount--positive">+ {formatMoney(credits)}</strong></div>
-        <div><span>Sorties affichées</span><strong className="amount amount--negative">- {formatMoney(debits)}</strong></div>
-      </div>
-      <TransactionsTable account={account} />
-    </article>
-  );
-}
-
-function TransactionsTable({ account }: { account: AccountOverview }) {
-  if (account.transactions.length === 0) {
-    return (
-      <div className="account-operations-empty">
-        <span aria-hidden="true">↕</span>
-        <strong>Aucune opération enregistrée</strong>
-        <p>Les mouvements apparaîtront ici après un import ou une saisie.</p>
-      </div>
-    );
-  }
-  return (
-    <div className="account-table-wrap account-table-wrap--operations">
-      <table className="account-table account-table--operations">
-        <thead><tr><th>Date</th><th>Opération</th><th>Catégorie</th><th>Montant</th></tr></thead>
-        <tbody>
-          {account.transactions.map((transaction) => (
-            <tr key={transaction.id}>
-              <td>{formatDate(transaction.date, false)}</td>
-              <td><strong>{transaction.label}</strong><small>{transaction.status || "Enregistrée"}</small> <ReconciledPill badge={transaction.reconciliation} /></td>
-              <td><span className={`category-chip ${transaction.category === "À catégoriser" ? "category-chip--warning" : ""}`}>{transaction.category}</span></td>
-              <td className={transaction.amount < 0 ? "amount amount--negative" : "amount amount--positive"}>{signedMoney(transaction.amount)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function AccountDetail({ account, onAttachImport, onDelete, onEdit, onReference, onStatusChange }: {
+function AccountView({ account, onContextMenu, onShowOperations }: {
   account: AccountOverview;
-  onAttachImport: () => void;
-  onDelete: () => void;
-  onEdit: () => void;
-  onReference: () => void;
-  onStatusChange: (status: AccountStatus) => void;
+  onContextMenu: (event: MouseEvent) => void;
+  onShowOperations: () => void;
 }) {
+  const credits = account.transactions.filter((item) => item.amount > 0).reduce((sum, item) => sum + item.amount, 0);
+  const debits = Math.abs(account.transactions.filter((item) => item.amount < 0).reduce((sum, item) => sum + item.amount, 0));
   const fields = [
     ["Type de compte", account.type],
     ["Identifiant import", maskIdentifier(account.identifier)],
@@ -293,38 +255,91 @@ function AccountDetail({ account, onAttachImport, onDelete, onEdit, onReference,
     ["Date de référence", formatDate(account.initialDate, true)],
     ["Mouvements cumulés", signedMoney(account.movementTotal)],
     ["Calcul arrêté au", formatDate(account.currentDate, true)],
+    ["Opérations", String(account.transactionCount)],
   ];
   return (
-    <aside className="card account-inspector">
-      <div className="account-inspector__bank">
+    <article className="card cpt-view" onContextMenu={onContextMenu}>
+      <header className="cpt-view__head">
         <BankBadge bank={account.bank} large />
-        <div>
-          <span className="eyebrow">Informations du compte</span>
-          <h2>{account.name}</h2>
-          <p>{account.bank || "Banque non renseignée"}</p>
+        <div className="cpt-view__title">
+          <div><h2>{account.name}</h2><span className={`status-chip status-chip--${statusTone(account)}`}>{account.status}</span></div>
+          <p>{account.bank || "Banque non renseignée"} · {account.type} · clic droit pour les actions</p>
         </div>
-        <button className="account-edit-link" onClick={onEdit} type="button">Modifier</button>
-      </div>
-      <div className="account-inspector__balance">
-        <span>Solde calculé</span>
-        <strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong>
-        <small>Compte {account.status.toLocaleLowerCase("fr-FR")}</small>
-      </div>
-      <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <div className="account-lifecycle-actions">
-        <span>Gestion du statut</span>
-        <div>
-          {account.status !== "Actif" && <button className="account-status-button account-status-button--restore" onClick={() => onStatusChange("Actif")} type="button">Restaurer</button>}
-          {account.status === "Actif" && <button className="account-status-button" onClick={() => onStatusChange("Archivé")} type="button">Archiver</button>}
-          {account.status !== "Clos" && <button className="account-status-button account-status-button--close" onClick={() => onStatusChange("Clos")} type="button">Clôturer</button>}
+        <div className="cpt-view__balance">
+          <span>Solde actuel</span>
+          <strong className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</strong>
+        </div>
+      </header>
+
+      <div className="cpt-view__metrics">
+        <BalanceBars history={account.balanceHistory} />
+        <div className="cpt-flows">
+          <div><span>Entrées récentes</span><b className="amount--positive">+ {formatMoney(credits)}</b></div>
+          <div><span>Sorties récentes</span><b className="amount--negative">- {formatMoney(debits)}</b></div>
+          <div><span>Solde calculé au</span><b>{formatDate(account.currentDate, true)}</b></div>
         </div>
       </div>
-      <div className="account-detail__actions">
-        <button onClick={onReference} type="button">Modifier le solde de référence</button>
-        <button className="primary-button" disabled={account.status !== "Actif"} onClick={onAttachImport} type="button">Rattacher un import</button>
-        <button className="account-delete-button" onClick={onDelete} type="button">Supprimer définitivement</button>
+
+      <section className="cpt-fiche" aria-label="Fiche du compte">
+        <h3>Fiche du compte</h3>
+        <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      </section>
+
+      <section className="cpt-ops" aria-label="Dernières opérations">
+        <div className="cpt-ops__head">
+          <h3>{Math.min(5, account.transactions.length)} dernière{account.transactions.length > 1 ? "s" : ""} opération{account.transactions.length > 1 ? "s" : ""}</h3>
+          {account.transactionCount > 0 && <button onClick={onShowOperations} type="button">Voir toutes les opérations de ce compte ›</button>}
+        </div>
+        {account.transactions.length === 0 ? (
+          <p className="cpt-ops__empty">Aucune opération enregistrée. Les mouvements apparaîtront ici après un import ou une saisie.</p>
+        ) : (
+          <table className="cpt-ops__table">
+            <tbody>
+              {account.transactions.slice(0, 5).map((transaction) => (
+                <tr key={transaction.id}>
+                  <td>{formatDate(transaction.date, false)}</td>
+                  <td title={transaction.label}>{transaction.label} <ReconciledPill badge={transaction.reconciliation} /></td>
+                  <td><span className={`category-chip ${transaction.category === "À catégoriser" ? "category-chip--warning" : ""}`}>{transaction.category}</span></td>
+                  <td className={transaction.amount < 0 ? "amount amount--negative" : "amount amount--positive"}>{signedMoney(transaction.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </article>
+  );
+}
+
+function shiftMonth(month: string, delta: number): string {
+  const [year, number] = month.split("-").map(Number);
+  const index = year * 12 + (number - 1) + delta;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+}
+
+function BalanceBars({ history }: { history: { month: string; balance: number }[] }) {
+  if (history.length === 0) {
+    return <div className="cpt-chart cpt-chart--empty">Pas encore d’historique de solde.</div>;
+  }
+  const low = Math.min(0, ...history.map((point) => point.balance));
+  const high = Math.max(0, ...history.map((point) => point.balance));
+  const span = high - low || 1;
+  const monthLabel = (month: string) => new Date(`${month}-15T12:00:00`).toLocaleDateString("fr-FR", { month: "short" });
+  return (
+    <div className="cpt-chart" role="img" aria-label="Évolution du solde sur 12 mois">
+      <span className="cpt-chart__title">Évolution du solde · 12 mois</span>
+      <div className="cpt-chart__bars">
+        {Array.from({ length: Math.max(0, 12 - history.length) }, (_, index) => (
+          <div className="cpt-chart__col" key={`empty-${index}`} title="Pas encore d’historique"><i className="is-empty" style={{ alignSelf: "flex-end", height: "3px" }} /></div>
+        ))}
+        {history.map((point, index) => (
+          <div className="cpt-chart__col" key={point.month} title={`${monthLabel(point.month)} ${point.month.slice(0, 4)} : ${formatMoney(point.balance)}`}>
+            <i className={`${index === history.length - 1 ? "is-last" : ""} ${point.balance < 0 ? "is-negative" : ""}`} style={{ height: `${Math.max(3, (Math.abs(point.balance) / span) * 100)}%`, alignSelf: point.balance < 0 ? "flex-start" : "flex-end" }} />
+          </div>
+        ))}
       </div>
-    </aside>
+      <div className="cpt-chart__axis"><span>{monthLabel(shiftMonth(history[history.length - 1].month, -11))}</span><span>{monthLabel(history[history.length - 1].month)}</span></div>
+    </div>
   );
 }
 
@@ -595,37 +610,6 @@ function ReferenceEditor({ account, onClose, onCompleted, token }: {
   );
 }
 
-function BalancesView({ accounts }: { accounts: AccountOverview[] }) {
-  if (accounts.length === 0) return <EmptyAccounts />;
-  return (
-    <section className="card account-wide-panel">
-      <div className="panel-heading"><div><h2>Soldes à date</h2><p>Traçabilité du solde initial jusqu’au solde calculé.</p></div></div>
-      <div className="account-table-wrap">
-        <table className="account-table account-table--balances">
-          <thead><tr><th>Compte</th><th>Solde initial</th><th>Date initiale</th><th>Mouvements</th><th>Solde calculé</th><th>Calculé au</th></tr></thead>
-          <tbody>{accounts.map((account) => <tr key={account.id}><td><strong>{account.name}</strong><small>{account.bank}</small></td><td>{formatMoney(account.initialBalance)}</td><td>{formatDate(account.initialDate, true)}</td><td>{signedMoney(account.movementTotal)}</td><td className={account.currentBalance < 0 ? "amount amount--negative" : "amount"}>{formatMoney(account.currentBalance)}</td><td>{formatDate(account.currentDate, true)}</td></tr>)}</tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function ImportsView({ accounts }: { accounts: AccountOverview[] }) {
-  if (accounts.length === 0) return <EmptyAccounts />;
-  return (
-    <section className="import-associations">
-      {accounts.map((account) => (
-        <article className="card import-association" key={account.id}>
-          <span className="account-card__title">{account.name}</span>
-          <small>{account.bank} · {account.type}</small>
-          <dl><div><dt>Identifiant import</dt><dd>{maskIdentifier(account.identifier)}</dd></div></dl>
-          <span className={account.identifier ? "status-chip status-chip--success" : "status-chip status-chip--warning"}>{account.identifier ? "Association disponible" : "À compléter"}</span>
-        </article>
-      ))}
-    </section>
-  );
-}
-
 function EmptyAccounts({ onCreate }: { onCreate?: () => void }) {
   return <section className="card account-empty"><strong>Aucun compte pour ce filtre</strong><p>Ajoutez un compte ou choisissez un autre statut.</p>{onCreate && <button onClick={onCreate} type="button">Ajouter un compte</button>}</section>;
 }
@@ -642,6 +626,10 @@ function maskIdentifier(value: string): string {
   if (!normalized) return "non renseigné";
   if (normalized.length <= 4) return normalized;
   return `****${normalized.slice(-4)}`;
+}
+
+function formatCompact(value: number): string {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value);
 }
 
 function formatMoney(value: number): string {

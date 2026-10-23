@@ -11,6 +11,7 @@ import { RecurrenceRulesTab } from "./RecurrenceRulesTab";
 import { ReconciliationPage } from "./ReconciliationPage";
 
 interface TransactionsPageProps {
+  accountFocus?: { accountId: number; key: number };
   createRequestKey: number;
   importRequestKey: number;
   onDataChanged: () => void;
@@ -39,12 +40,12 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-export function TransactionsPage({ createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, reconciliationBadge = 0, reconciliationRefreshKey = 0, ruleCreateRequestKey, token, view }: TransactionsPageProps) {
+export function TransactionsPage({ accountFocus, createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, reconciliationBadge = 0, reconciliationRefreshKey = 0, ruleCreateRequestKey, token, view }: TransactionsPageProps) {
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState("");
-  const [accountId, setAccountId] = useState("all");
+  const [accountId, setAccountId] = useState(accountFocus ? String(accountFocus.accountId) : "all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [allDates, setAllDates] = useState(true);
@@ -53,6 +54,14 @@ export function TransactionsPage({ createRequestKey, importRequestKey, onDataCha
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [editing, setEditing] = useState<TransactionRow>();
   const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    if (!accountFocus) return;
+    setAccountId(String(accountFocus.accountId));
+    setSearch("");
+    setCategoryFilter("all");
+    setStatusFilter("all");
+    setAllDates(true);
+  }, [accountFocus]);
   const [menu, setMenu] = useState<ContextMenuState>();
   const [deleting, setDeleting] = useState<TransactionRow[]>();
   const [reconAccountId, setReconAccountId] = useState("all");

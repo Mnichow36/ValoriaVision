@@ -3539,3 +3539,68 @@ button.forecast-kpi { cursor: pointer; }
 .dash-tile--big span { font-size: 13px; }
 .dash-tile:not(.dash-tile--big) { padding: 7px 8px; }
 .side-drawer .settings-table { min-width: 0; } .side-drawer .settings-table td:first-child { display: table-cell; }
+
+/* ===== Comptes bancaires : liste groupée + vue du compte (sans défilement de page) ===== */
+.cpt-page { display: grid; gap: 12px; grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 126px); min-height: 560px; }
+.cpt-page > .account-notice { margin: 0; }
+.cpt-page:not(:has(.account-notice)) { grid-template-rows: minmax(0, 1fr); }
+.cpt-workspace { display: grid; gap: 14px; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+.cpt-rail { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 12px; }
+.cpt-rail__total { background: #0b1b3a; border-radius: 11px; color: #fff; display: grid; gap: 2px; padding: 11px 14px; }
+.cpt-rail__total span { font-size: 10px; font-weight: 800; letter-spacing: .06em; opacity: .8; text-transform: uppercase; }
+.cpt-rail__total strong { font-size: 22px; }
+.cpt-rail__total small { font-size: 11px; opacity: .75; }
+.cpt-rail__list { display: flex; flex: 1; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; }
+.cpt-group__head { align-items: center; background: none; border: 0; color: var(--muted); cursor: pointer; display: flex; font-size: 11px; font-weight: 800; justify-content: space-between; letter-spacing: .03em; padding: 8px 6px 4px; text-transform: uppercase; width: 100%; }
+.cpt-group__head b { color: var(--navy); }
+.cpt-row { align-items: center; background: none; border: 1px solid transparent; border-radius: 9px; color: var(--navy); cursor: pointer; display: flex; font-size: 13px; gap: 9px; padding: 5px 8px; text-align: left; width: 100%; }
+.cpt-row:hover { background: var(--s-eef3fb); }
+.cpt-row--active { background: #e3ecff; border-color: #9db8f5; }
+.cpt-row--active .cpt-row__name { font-weight: 800; }
+.cpt-row .bank-badge { flex: none; height: 28px; width: 28px; }
+.cpt-row__name { display: flex; flex: 1; flex-direction: column; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-row__name small { color: var(--muted); font-size: 10px; }
+.cpt-row b { flex: none; }
+.cpt-group .amount--negative, .cpt-row .amount--negative { color: var(--danger); }
+.cpt-view { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; overflow: hidden; padding: 14px 20px; }
+.cpt-view__head { align-items: center; display: flex; gap: 12px; }
+.cpt-view__title { flex: 1; min-width: 0; }
+.cpt-view__title > div { align-items: center; display: flex; gap: 8px; }
+.cpt-view__title h2 { font-size: 19px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-view__title p { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
+.cpt-view__balance { display: grid; justify-items: end; }
+.cpt-view__balance span { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.cpt-view__balance strong { font-size: 26px; }
+.cpt-view__metrics { display: grid; gap: 12px; grid-template-columns: 1.6fr 1fr; }
+.cpt-chart { border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px 14px; }
+.cpt-chart--empty { color: var(--muted); font-size: 12px; justify-content: center; }
+.cpt-chart__title { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.cpt-chart__bars { align-items: stretch; display: flex; gap: 6px; height: 74px; }
+.cpt-chart__col { display: flex; flex: 1; min-width: 0; }
+.cpt-chart__col i { background: #c4d4f8; border-radius: 3px 3px 0 0; display: block; width: 100%; }
+.cpt-chart__col i.is-last { background: var(--primary); }
+.cpt-chart__col i.is-negative { background: #f3a99a; border-radius: 0 0 3px 3px; }
+.cpt-chart__axis { color: var(--muted); display: flex; font-size: 10px; justify-content: space-between; }
+.cpt-flows { display: grid; gap: 6px; grid-template-rows: repeat(3, 1fr); }
+.cpt-flows > div { align-items: center; border: 1px solid var(--border); border-radius: 10px; display: flex; font-size: 12px; justify-content: space-between; padding: 4px 12px; }
+.cpt-flows span { color: var(--muted); }
+.cpt-flows b { font-size: 13px; }
+.cpt-fiche { border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px 10px; }
+.cpt-fiche h3, .cpt-ops h3 { color: var(--muted); font-size: 11px; font-weight: 800; margin: 0 0 6px; text-transform: uppercase; }
+.cpt-fiche dl { display: grid; gap: 6px 18px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.cpt-fiche dt { color: var(--muted); font-size: 11px; }
+.cpt-fiche dd { font-size: 12px; font-weight: 800; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-ops { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.cpt-ops__head { align-items: baseline; display: flex; justify-content: space-between; }
+.cpt-ops__head button { background: none; border: 0; color: var(--primary); cursor: pointer; font-size: 12px; font-weight: 800; padding: 0; }
+.cpt-ops__empty { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.cpt-ops__table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.cpt-ops__table td { border-top: 1px solid var(--s-edf2f7); padding: 5px 6px 5px 0; }
+.cpt-ops__table td:first-child { width: 52px; }
+.cpt-ops__table td:nth-child(2) { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.cpt-ops__table td:last-child { font-weight: 800; padding-right: 0; text-align: right; white-space: nowrap; }
+@media (max-width: 1180px) {
+  .cpt-workspace { grid-template-columns: 250px minmax(0, 1fr); }
+  .cpt-fiche dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.cpt-chart__col i.is-empty { background: var(--border); }

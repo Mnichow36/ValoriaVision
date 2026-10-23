@@ -136,6 +136,8 @@ export interface AccountOverview {
   movementTotal: number;
   currentBalance: number;
   currentDate: string;
+  transactionCount: number;
+  balanceHistory: { month: string; balance: number }[];
   transactions: AccountTransaction[];
 }
 
