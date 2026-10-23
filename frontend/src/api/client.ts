@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccessMatrix, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -751,4 +751,31 @@ export function simulateForecast(
       scenario: payload.scenario,
     },
   });
+}
+
+export function listBackups(token: string, signal?: AbortSignal): Promise<BackupList> {
+  return request<BackupList>("/api/v1/backups", { token, signal });
+}
+
+export function createBackup(token: string, passphrase: string, confirm: string): Promise<BackupFile> {
+  return request<BackupFile>("/api/v1/backups", { method: "POST", token, body: { passphrase, confirm } });
+}
+
+export function downloadBackup(token: string, name: string): Promise<BackupFile> {
+  return request<BackupFile>("/api/v1/backups/download", { method: "POST", token, body: { name } });
+}
+
+export function deleteBackup(token: string, name: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>("/api/v1/backups/delete", { method: "POST", token, body: { name } });
+}
+
+/** Une sauvegarde est désignée par le nom d'une copie locale ou par le contenu (base64) d'un fichier choisi. */
+export type BackupSource = { name: string } | { data: string };
+
+export function inspectBackup(token: string, source: BackupSource, passphrase: string): Promise<BackupInspection> {
+  return request<BackupInspection>("/api/v1/backups/inspect", { method: "POST", token, body: { ...source, passphrase } });
+}
+
+export function restoreBackup(token: string, source: BackupSource, passphrase: string, password: string): Promise<{ restored: boolean; safetyCopy: string }> {
+  return request<{ restored: boolean; safetyCopy: string }>("/api/v1/backups/restore", { method: "POST", token, body: { ...source, passphrase, password } });
 }

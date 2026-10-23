@@ -26,6 +26,7 @@ import type {
 } from "../api/contracts";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { BackupAdmin } from "./BackupAdmin";
 import { AccessAdmin } from "./AccessAdmin";
 import { ProfileFormDrawer } from "./ProfileDrawers";
 import type { NavigationId } from "./Sidebar";
@@ -104,7 +105,7 @@ const emptyRule = (): RuleForm => ({
   confidence: 100,
 });
 
-export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void }) {
+export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onSessionEnded }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void; onSessionEnded: () => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
   const [securityView, setSecurityView] = useState<SecurityView>("access");
@@ -437,7 +438,7 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
             <button aria-pressed={securityView === view.id} key={view.id} onClick={() => setSecurityView(view.id)} type="button">{view.label}</button>
           ))}
         </nav>
-        <form className={securityView === "access" ? "settings-overview-grid settings-overview-grid--3" : securityView === "protection" ? "settings-overview-grid" : "settings-overview-grid settings-overview-grid--1"} id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveSecurity(); }}>
+        <form className={securityView === "access" ? "settings-overview-grid settings-overview-grid--3" : securityView === "protection" && !isAdmin ? "settings-overview-grid" : "settings-overview-grid settings-overview-grid--1"} id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveSecurity(); }}>
           {securityView === "access" && (
             <>
           {profile && (
@@ -490,14 +491,19 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
             )}
           </article>
           )}
-          {securityView === "protection" && (
-            <>
+          {securityView === "protection" && isAdmin && (
+            <BackupAdmin onNotice={setNotice} onRestored={onSessionEnded} token={token}>
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
-            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes chiffrées</dt><dd><Status value={snapshot.security.encryptedBackups} /></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
+            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes</dt><dd><span className="status-chip status-chip--success">Phrase secrète</span></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
           </article>
-          <article className="card settings-summary-card settings-backup-card"><div className="panel-heading"><div><h2>Sauvegardes</h2><p>Format chiffré Valoria .vvb.</p></div></div><strong>{fileName(snapshot.security.lastBackup) || "Aucune sauvegarde enregistrée"}</strong><small title={snapshot.security.lastBackup}>{snapshot.security.lastBackup || "La création/restauration reste pilotée par le moteur local sécurisé."}</small></article>
-            </>
+            </BackupAdmin>
+          )}
+          {securityView === "protection" && !isAdmin && (
+          <article className="card settings-summary-card">
+            <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
+            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes</dt><dd><span className="status-chip status-chip--success">Phrase secrète</span></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
+          </article>
           )}
         </form>
         </>

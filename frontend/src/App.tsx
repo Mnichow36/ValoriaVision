@@ -318,7 +318,7 @@ export function App() {
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
           {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
-          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onProfileChanged={() => void refreshProfiles()} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onProfileChanged={() => void refreshProfiles()} onSessionEnded={() => { setState({ status: "locked", busy: false, preferredProfileId: null }); void refreshProfiles(); }} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
           {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>

@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import base64
+import sqlite3
+import unittest
+
+from app.security.backup_service import BackupError, BackupService, WrongPassphrase, passphrase_problem
+from tests.api.test_access_control import ADMIN_PASSWORD, LEA_PASSWORD, AccessControlBase
+
+PHRASE = "le vieux phare sous la pluie"
+
+
+class BackupApiTests(AccessControlBase):
+    def create(self, phrase=PHRASE, confirm=None):
+        return self.admin.post("/api/v1/backups", {"passphrase": phrase, "confirm": phrase if confirm is None else confirm})
+
+    def account_count(self) -> int:
+        with sqlite3.connect(self.database.path) as conn:
+            return conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+
+    def test_create_download_and_list(self):
+        response = self.create()
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        blob = base64.b64decode(body["data"])
+        self.assertTrue(blob.startswith(b"VALORIA-VVB-v2"))
+        self.assertGreater(body["info"]["accounts"], 0)
+        listing = self.admin.get("/api/v1/backups").json()
+        self.assertEqual(listing["backups"][0]["name"], body["name"])
+        self.assertIsNotNone(listing["lastBackupAt"])
+        again = self.admin.post("/api/v1/backups/download", {"name": body["name"]}).json()
+        self.assertEqual(again["data"], body["data"])
+
+    def test_passphrase_rules(self):
+        self.assertEqual(self.create("court").status_code, 422)
+        self.assertEqual(self.create(PHRASE, "autre phrase secrete").status_code, 422)
+        self.assertIsNotNone(passphrase_problem("aaaaaaaaaaaaaaa"))
+
+    def test_file_is_not_plain_sqlite_and_wrong_phrase_fails(self):
+        body = self.create().json()
+        blob = base64.b64decode(body["data"])
+        self.assertNotIn(b"SQLite format 3", blob)
+        self.assertNotIn(b"Compte courant", blob)
+        bad = self.admin.post(
+            "/api/v1/backups/inspect", {"data": body["data"], "passphrase": "ce n'est pas la bonne phrase"}
+        )
+        self.assertEqual(bad.status_code, 403)
+        good = self.admin.post("/api/v1/backups/inspect", {"data": body["data"], "passphrase": PHRASE})
+        self.assertEqual(good.status_code, 200, good.text)
+        self.assertTrue(good.json()["backup"]["verified"])
+        self.assertEqual(good.json()["backup"]["accounts"], good.json()["current"]["accounts"])
+
+    def test_tampered_file_is_refused(self):
+        body = self.create().json()
+        blob = bytearray(base64.b64decode(body["data"]))
+        blob[-20] ^= 0xFF
+        response = self.admin.post(
+            "/api/v1/backups/inspect", {"data": base64.b64encode(bytes(blob)).decode(), "passphrase": PHRASE}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            self.admin.post("/api/v1/backups/inspect", {"data": base64.b64encode(b"n'importe quoi").decode(), "passphrase": PHRASE}).status_code,
+            422,
+        )
+
+    def test_restore_replaces_data_and_closes_sessions(self):
+        body = self.create().json()
+        before = self.account_count()
+        self.as_admin()
+        extra = self.admin.post("/api/v1/accounts", {
+            "name": "Compte test", "bank": "Banque", "account_type": "Compte courant", "initial_balance": 10,
+            "initial_date": "2026-01-01",
+        })
+        self.assertIn(extra.status_code, (200, 201), extra.text)
+        self.assertEqual(self.account_count(), before + 1)
+        wrong = self.admin.post("/api/v1/backups/restore", {"name": body["name"], "passphrase": PHRASE, "password": "mauvais"})
+        self.assertEqual(wrong.status_code, 403)
+        self.assertEqual(self.account_count(), before + 1)
+        done = self.admin.post(
+            "/api/v1/backups/restore", {"name": body["name"], "passphrase": PHRASE, "password": ADMIN_PASSWORD}
+        )
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertEqual(self.account_count(), before)
+        self.assertEqual(self.admin.get("/api/v1/accounts").status_code, 401)
+        # la copie d'avant restauration existe et contient le compte ajouté
+        safety = done.json()["safetyCopy"]
+        service = BackupService(self.database.path, self.database.backup_dir)
+        self.assertEqual(service.inspect(service.resolve(safety).read_bytes(), PHRASE)["accounts"], before + 1)
+        # on peut se reconnecter avec les profils de la sauvegarde
+        self.login("u1", ADMIN_PASSWORD)
+
+    def test_restore_wrong_backup_phrase_changes_nothing(self):
+        body = self.create().json()
+        before = self.account_count()
+        response = self.admin.post(
+            "/api/v1/backups/restore",
+            {"name": body["name"], "passphrase": "une autre phrase secrete", "password": ADMIN_PASSWORD},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.account_count(), before)
+
+    def test_only_admin_can_use_backups(self):
+        body = self.create().json()
+        lea = self.as_user(self.lea, LEA_PASSWORD)
+        self.assertEqual(lea.get("/api/v1/backups").status_code, 403)
+        self.assertEqual(lea.post("/api/v1/backups", {"passphrase": PHRASE, "confirm": PHRASE}).status_code, 403)
+        self.assertEqual(lea.post("/api/v1/backups/download", {"name": body["name"]}).status_code, 403)
+
+    def test_names_cannot_escape_the_backup_folder(self):
+        for name in ("../valoria.db", "..\\valoria.db", "/etc/passwd", "a/b.vvb", "x.db"):
+            r = self.admin.post("/api/v1/backups/download", {"name": name})
+            self.assertEqual(r.status_code, 422, name)
+        self.assertEqual(self.admin.post("/api/v1/backups/delete", {"name": "../valoria.db"}).status_code, 422)
+
+    def test_delete_local_copy(self):
+        body = self.create().json()
+        self.assertEqual(self.admin.post("/api/v1/backups/delete", {"name": body["name"]}).status_code, 200)
+        self.assertEqual(self.admin.get("/api/v1/backups").json()["backups"], [])
+
+
+class BackupServiceTests(unittest.TestCase):
+    def test_kdf_parameters_are_bounded(self):
+        import json, struct, tempfile
+        from pathlib import Path
+        from app.security import backup_service as bs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "v.db"
+            conn = sqlite3.connect(db)
+            conn.execute("create table accounts(id)")
+            conn.execute("create table transactions(id)")
+            conn.commit(); conn.close()
+            service = BackupService(db, Path(tmp) / "b")
+            blob, _ = service.build(PHRASE)
+            offset = len(bs.MAGIC_V2)
+            length = struct.unpack(">I", blob[offset : offset + 4])[0]
+            header = json.loads(blob[offset + 4 : offset + 4 + length])
+            header["kdf"]["n"] = 2**24
+            raw = json.dumps(header).encode()
+            forged = bs.MAGIC_V2 + struct.pack(">I", len(raw)) + raw + blob[offset + 4 + length :]
+            with self.assertRaises(BackupError):
+                service.open(forged, PHRASE)
+            with self.assertRaises(WrongPassphrase):
+                service.open(blob, "pas la bonne phrase du tout")
+
+
+if __name__ == "__main__":
+    unittest.main()

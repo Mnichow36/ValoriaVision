@@ -1232,3 +1232,39 @@ export interface RecurrenceOccurrenceActionResult {
   message: string;
   updatedCount?: number;
 }
+
+export interface BackupCounts {
+  accounts?: number;
+  assets?: number;
+  transactions?: number;
+  users?: number;
+  budgets?: number;
+}
+
+export interface BackupInfo extends BackupCounts {
+  name: string;
+  size: number;
+  modifiedAt: string;
+  createdAt?: string;
+  /** manual | pre-restore | legacy | unknown */
+  kind: string;
+  legacy?: boolean;
+  damaged?: boolean;
+}
+
+export interface BackupList {
+  backups: BackupInfo[];
+  lastBackupAt: string | null;
+  reminderDays: number;
+}
+
+export interface BackupFile {
+  name: string;
+  data: string;
+  info?: BackupCounts & { createdAt: string };
+}
+
+export interface BackupInspection {
+  backup: BackupCounts & { createdAt?: string; kind?: string; legacy: boolean; verified: boolean };
+  current: BackupCounts;
+}

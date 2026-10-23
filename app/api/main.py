@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import os
 from contextvars import ContextVar
@@ -13,6 +15,7 @@ from pydantic import BaseModel, SecretStr
 from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
+from app.security.backup_service import BackupError, BackupService, WrongPassphrase, count_content
 from app.security.profiles import LEGACY_PROFILE_ID, ProfileError, ProfileManager, ProfileNotFound
 from app.security.users import (
     ROLE_ADMIN,
@@ -112,6 +115,20 @@ class ProfileAccessPayload(BaseModel):
 
 
 class ProfileDeletePayload(BaseModel):
+    password: SecretStr = SecretStr("")
+
+
+class BackupCreatePayload(BaseModel):
+    passphrase: SecretStr = SecretStr("")
+    confirm: SecretStr = SecretStr("")
+
+
+class BackupSourcePayload(BaseModel):
+    """Sauvegarde désignée soit par son nom (copie locale), soit par son contenu (base64)."""
+
+    name: str | None = None
+    data: str | None = None
+    passphrase: SecretStr = SecretStr("")
     password: SecretStr = SecretStr("")
 
 
@@ -1085,6 +1102,152 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_session(x_valoria_session)
         require_admin(x_valoria_session)
         return {"events": AuthService(active_database.real()).recent_events(30)}
+
+    # ------------------------------------------------------------------
+    # Sauvegardes chiffrées (phrase secrète) — administrateur, base familiale
+    # ------------------------------------------------------------------
+    BACKUP_MAX_BYTES = 256 * 1024 * 1024
+
+    def backup_service() -> BackupService:
+        return BackupService(
+            legacy_database.path,
+            legacy_database.backup_dir,
+            legacy_decrypt=legacy_database.crypto.decrypt_bytes,
+        )
+
+    def require_family_admin(token: str | None) -> None:
+        require_session(token)
+        ident = sessions.identity(token)
+        if ident is None or ident[1] != "family":
+            raise HTTPException(
+                status_code=409,
+                detail="Les sauvegardes concernent la base familiale ; elles ne sont pas disponibles en mode Démo.",
+            )
+        require_admin(token)
+
+    def backup_failure(exc: BackupError) -> HTTPException:
+        return HTTPException(status_code=422 if not isinstance(exc, WrongPassphrase) else 403, detail=str(exc))
+
+    def load_backup_blob(payload: BackupSourcePayload, service: BackupService) -> bytes:
+        try:
+            if payload.name:
+                return service.resolve(payload.name).read_bytes()
+            if payload.data:
+                if len(payload.data) > BACKUP_MAX_BYTES * 4 // 3 + 16:
+                    raise BackupError("Fichier trop volumineux pour être une sauvegarde Valoria.")
+                return base64.b64decode(payload.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise BackupError("Fichier de sauvegarde illisible.") from exc
+        raise BackupError("Aucune sauvegarde indiquée.")
+
+    @app.get("/api/v1/backups")
+    def list_backups(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        rows = backup_service().list_local()
+        manual = [row for row in rows if row.get("kind") == "manual" and row.get("createdAt")]
+        recorded = legacy_database.get_setting("backup.last_at", "")
+        candidates = [row["createdAt"] for row in manual] + ([recorded] if recorded else [])
+        return {"backups": rows, "lastBackupAt": max(candidates) if candidates else None, "reminderDays": 30}
+
+    @app.post("/api/v1/backups")
+    def create_backup(
+        payload: BackupCreatePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        phrase = payload.passphrase.get_secret_value()
+        if phrase != payload.confirm.get_secret_value():
+            raise HTTPException(status_code=422, detail="Les deux phrases secrètes ne sont pas identiques.")
+        service = backup_service()
+        try:
+            blob, info = service.build(phrase)
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        path = service.save_local(blob)
+        legacy_database.set_setting("backup.last_at", info["createdAt"])
+        auth_for(x_valoria_session).record_event("backup.created", f"Sauvegarde chiffrée créée ({path.name}).", {})
+        return {"name": path.name, "data": base64.b64encode(blob).decode("ascii"), "info": info}
+
+    @app.post("/api/v1/backups/download")
+    def download_backup(
+        payload: BackupSourcePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        service = backup_service()
+        try:
+            path = service.resolve(payload.name or "")
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        return {"name": path.name, "data": base64.b64encode(path.read_bytes()).decode("ascii")}
+
+    @app.post("/api/v1/backups/delete")
+    def delete_backup(
+        payload: BackupSourcePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        try:
+            backup_service().delete_local(payload.name or "")
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        return {"deleted": True}
+
+    @app.post("/api/v1/backups/inspect")
+    def inspect_backup(
+        payload: BackupSourcePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        service = backup_service()
+        try:
+            blob = load_backup_blob(payload, service)
+            info = service.inspect(blob, payload.passphrase.get_secret_value())
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        return {"backup": info, "current": count_content(legacy_database.path)}
+
+    @app.post("/api/v1/backups/restore")
+    def restore_backup(
+        payload: BackupSourcePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Remplace la base familiale ; confirmée par le mot de passe de l'administrateur connecté."""
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        admin = auth_for(x_valoria_session)
+        refuse_if_throttled(admin)
+        if not admin.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", admin)
+        admin.reset_failures()
+        service = backup_service()
+        try:
+            blob = load_backup_blob(payload, service)
+            safety = service.restore(blob, payload.passphrase.get_secret_value())
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        # La base a changé sous les pieds de l'application : on repart d'un état propre.
+        sessions.clear()
+        snapshots.clear()
+        active_database.release()
+        state["ready"] = False
+        legacy_database.prepare_existing_database()
+        ensure_ready()
+        legacy_database.seal_database_to_encrypted_vault()
+        return {"restored": True, "safetyCopy": safety.name}
 
     @app.get("/api/v1/dashboard")
     def dashboard(
