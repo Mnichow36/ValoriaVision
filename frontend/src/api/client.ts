@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -67,6 +67,33 @@ export function openSession(password: string, configured: boolean): Promise<Auth
 
 export function getSecurityJournal(token: string, signal?: AbortSignal): Promise<{ events: SecurityEvent[] }> {
   return request<{ events: SecurityEvent[] }>("/api/v1/security/journal", { token, signal });
+}
+
+export function getSecurityStatus(token: string, signal?: AbortSignal): Promise<SecurityStatus> {
+  return request<SecurityStatus>("/api/v1/security/status", { token, signal });
+}
+
+export function changePassword(token: string, currentPassword: string, newPassword: string): Promise<{ changed: boolean }> {
+  return request<{ changed: boolean }>("/api/v1/security/change-password", {
+    method: "POST",
+    token,
+    body: { current_password: currentPassword, new_password: newPassword },
+  });
+}
+
+export function createRecoveryKey(token: string, password: string): Promise<{ recoveryKey: string; createdAt: string }> {
+  return request<{ recoveryKey: string; createdAt: string }>("/api/v1/security/recovery-key", {
+    method: "POST",
+    token,
+    body: { password },
+  });
+}
+
+export function recoverAccess(recoveryKey: string, newPassword: string): Promise<RecoveryRequestResult> {
+  return request<RecoveryRequestResult>("/api/v1/auth/recover", {
+    method: "POST",
+    body: { recovery_key: recoveryKey, new_password: newPassword },
+  });
 }
 
 export function closeSession(token: string): Promise<{ locked: boolean }> {

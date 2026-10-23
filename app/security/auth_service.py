@@ -17,6 +17,11 @@ MIN_PASSWORD_LENGTH = 10
 # l'application ne remet donc pas les essais à zéro.
 LOCKOUT_STEPS: tuple[tuple[int, int], ...] = ((3, 30), (4, 60), (5, 300), (6, 900))
 
+# Clé de secours : 24 caractères (120 bits), sans caractères ambigus (0/O, 1/I).
+RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+RECOVERY_KEY_LENGTH = 24
+RECOVERY_ITERATIONS = 200_000
+
 COMMON_PASSWORDS = frozenset(
     {
         "password", "password1", "motdepasse", "motdepasse1", "motdepasse123",
@@ -75,6 +80,11 @@ class AuthService:
         )
 
     def set_master_password(self, password: str) -> None:
+        self._store_password(password)
+        self.reset_failures()
+        self.record_event("auth.setup", "Mot de passe maître créé.")
+
+    def _store_password(self, password: str) -> None:
         policy = self.password_policy(password)
         if not policy.ok:
             raise ValueError(policy.message)
@@ -87,8 +97,11 @@ class AuthService:
         self.db.set_setting("security.master_password_salt", base64.b64encode(salt).decode("ascii"))
         self.db.set_setting("security.master_password_hash", base64.b64encode(digest).decode("ascii"))
         self.db.set_setting("security.session_timeout_minutes", self.db.get_setting("security.session_timeout_minutes", "10"))
-        self.reset_failures()
-        self.record_event("auth.setup", "Mot de passe maître créé.")
+        self.db.set_setting("security.master_password_changed_at", self._now_iso())
+
+    @staticmethod
+    def _now_iso() -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
     def verify_master_password(self, password: str) -> bool:
         if not self.is_configured():
@@ -101,6 +114,62 @@ class AuthService:
             return False
         actual = self._derive(password, salt, iterations)
         return hmac.compare_digest(actual, expected)
+
+    # ------------------------------------------------------------------
+    # Changement de mot de passe et clé de secours
+    # ------------------------------------------------------------------
+    def change_master_password(self, current: str, new: str) -> None:
+        if not self.verify_master_password(current):
+            raise PermissionError("Mot de passe actuel incorrect.")
+        self._store_password(new)
+        self.reset_failures()
+        self.record_event("auth.password_changed", "Mot de passe maître modifié.")
+
+    @staticmethod
+    def _normalize_recovery_key(key: str) -> str:
+        return re.sub(r"[\s-]", "", key or "").upper()
+
+    def has_recovery_key(self) -> bool:
+        return bool(self.db.get_setting("security.recovery_hash", ""))
+
+    def recovery_key_created_at(self) -> str:
+        return self.db.get_setting("security.recovery_created_at", "")
+
+    def generate_recovery_key(self) -> str:
+        """Crée (ou remplace) la clé de secours et la retourne UNE SEULE FOIS.
+
+        Seul un hachage salé est conservé : la clé ne peut pas être relue.
+        """
+        raw = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(RECOVERY_KEY_LENGTH))
+        salt = secrets.token_bytes(32)
+        digest = self._derive(raw, salt, RECOVERY_ITERATIONS)
+        self.db.set_setting("security.recovery_salt", base64.b64encode(salt).decode("ascii"))
+        self.db.set_setting("security.recovery_hash", base64.b64encode(digest).decode("ascii"))
+        self.db.set_setting("security.recovery_iterations", str(RECOVERY_ITERATIONS))
+        self.db.set_setting("security.recovery_created_at", self._now_iso())
+        return "-".join(raw[i : i + 4] for i in range(0, len(raw), 4))
+
+    def verify_recovery_key(self, key: str) -> bool:
+        if not self.has_recovery_key():
+            return False
+        try:
+            salt = base64.b64decode(self.db.get_setting("security.recovery_salt", ""))
+            expected = base64.b64decode(self.db.get_setting("security.recovery_hash", ""))
+            iterations = int(self.db.get_setting("security.recovery_iterations", str(RECOVERY_ITERATIONS)))
+        except Exception:
+            return False
+        actual = self._derive(self._normalize_recovery_key(key), salt, iterations)
+        return hmac.compare_digest(actual, expected)
+
+    def reset_with_recovery_key(self, key: str, new_password: str) -> str:
+        """Remplace le mot de passe grâce à la clé de secours et en renvoie une nouvelle."""
+        if not self.verify_recovery_key(key):
+            raise PermissionError("Clé de secours incorrecte.")
+        self._store_password(new_password)
+        self.reset_failures()
+        new_key = self.generate_recovery_key()
+        self.record_event("auth.recovered", "Mot de passe réinitialisé avec la clé de secours.")
+        return new_key
 
     # ------------------------------------------------------------------
     # Protection contre les essais répétés

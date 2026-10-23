@@ -3297,3 +3297,23 @@ button.forecast-kpi { cursor: pointer; }
 .security-journal li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .security-journal li span { color: var(--muted); }
 .security-journal li[data-kind="bad"] strong { color: #dc2626; }
+
+/* ---- Sécurité : mot de passe, clé de secours ---- */
+.drawer-form { display: grid; gap: 8px; }
+.drawer-form label, .recovery-confirm { color: var(--t-45516c); font-size: 12px; font-weight: 700; display: grid; gap: 5px; }
+.drawer-form input { border: 1px solid var(--s-d9dfeb); border-radius: 9px; color: var(--navy); outline: 0; padding: 11px 12px; background: var(--s-ffffff); }
+.drawer-form input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(92, 120, 255, .12); }
+.security-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.security-warning { color: #b45309; font-weight: 800; }
+.security-warning-note { background: var(--s-fff1f1); border-radius: 8px; color: var(--t-a33a3a); font-size: 12px; margin: 10px 0 0; padding: 9px 11px; }
+.auth-card .auth-link { background: transparent; color: var(--primary); font-size: 11px; font-weight: 700; margin: 14px auto 0; padding: 4px; display: block; }
+.recovery-panel { display: grid; gap: 14px; }
+.recovery-sheet { border: 2px dashed var(--border); border-radius: 12px; display: grid; gap: 8px; padding: 18px; text-align: center; }
+.recovery-sheet code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 17px; font-weight: 800; letter-spacing: .06em; color: var(--navy); word-break: break-all; }
+.recovery-actions { display: flex; gap: 8px; }
+.recovery-confirm { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+@media print {
+  body * { visibility: hidden !important; }
+  .recovery-sheet, .recovery-sheet * { visibility: visible !important; color: #000 !important; }
+  .recovery-sheet { position: fixed; inset: 40px 40px auto 40px; border: 2px solid #000; background: #fff; }
+}

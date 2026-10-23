@@ -17,7 +17,7 @@ import { InteractiveDonutChart } from "./components/InteractiveCharts";
 
 type AppState =
   | { status: "booting" }
-  | { status: "locked"; configured: boolean; busy: boolean; error?: string; retryAfter?: number }
+  | { status: "locked"; configured: boolean; busy: boolean; error?: string; retryAfter?: number; recoveryKeyConfigured?: boolean }
   | { status: "ready"; snapshot: DashboardSnapshot; token: string }
   | { status: "error"; message: string };
 
@@ -90,7 +90,7 @@ export function App() {
     const controller = new AbortController();
     waitForEngine(controller.signal)
       .then(() => getAuthStatus(controller.signal))
-      .then((auth) => setState({ status: "locked", configured: auth.configured, busy: false, retryAfter: auth.retryAfterSeconds || undefined }))
+      .then((auth) => setState({ status: "locked", configured: auth.configured, busy: false, retryAfter: auth.retryAfterSeconds || undefined, recoveryKeyConfigured: auth.recoveryKeyConfigured }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setState({ status: "error", message: errorMessage(error) });
@@ -108,7 +108,16 @@ export function App() {
       const snapshot = await getDashboard(session.token);
       setState({ status: "ready", snapshot, token: session.token });
     } catch (error: unknown) {
-      setState({ status: "locked", configured, busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter });
+      setState({ status: "locked", configured, busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter, recoveryKeyConfigured: state.recoveryKeyConfigured });
+    }
+  }
+
+  async function openAfterRecovery(token: string) {
+    try {
+      const snapshot = await getDashboard(token);
+      setState({ status: "ready", snapshot, token });
+    } catch (error: unknown) {
+      setState({ status: "locked", configured: true, busy: false, error: errorMessage(error) });
     }
   }
 
@@ -117,6 +126,9 @@ export function App() {
     const token = state.token;
     setState({ status: "locked", configured: true, busy: false });
     await closeSession(token).catch(() => undefined);
+    getAuthStatus()
+      .then((auth) => setState((current) => current.status === "locked" ? { ...current, recoveryKeyConfigured: auth.recoveryKeyConfigured } : current))
+      .catch(() => undefined);
   }
 
   // « reconciliation » n'est plus un module : c'est un onglet de Transactions.
@@ -158,7 +170,7 @@ export function App() {
   }
 
   if (state.status === "locked") {
-    return <AuthScreen configured={state.configured} busy={state.busy} error={state.error} retryAfter={state.retryAfter} onSubmit={authenticate} />;
+    return <AuthScreen configured={state.configured} busy={state.busy} error={state.error} retryAfter={state.retryAfter} recoveryKeyConfigured={state.recoveryKeyConfigured} onRecovered={openAfterRecovery} onSubmit={authenticate} />;
   }
 
   if (state.status === "error") {

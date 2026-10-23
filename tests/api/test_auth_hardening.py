@@ -104,5 +104,83 @@ class LockoutTest(unittest.TestCase):
         self.assertNotIn("MotDePasse123", str(events))
 
 
+
+class PasswordChangeAndRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.database = _database(self.tmp.name)
+        self.auth = AuthService(self.database)
+        self.auth.set_master_password("MotDePasse123!")
+        self.app = create_app(self.database)
+        self.token = _route(self.app, "/api/v1/auth/unlock", "POST")(PasswordPayload(password="MotDePasse123!"), None)["token"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_change_password_requires_current_and_applies_policy(self):
+        from app.api.main import ChangePasswordPayload
+
+        change = _route(self.app, "/api/v1/security/change-password", "POST")
+        with self.assertRaises(HTTPException) as ctx:
+            change(ChangePasswordPayload(current_password="faux", new_password="NouveauMdp456!"), self.token, None)
+        self.assertEqual(ctx.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as ctx:
+            change(ChangePasswordPayload(current_password="MotDePasse123!", new_password="faible"), self.token, None)
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertEqual(
+            change(ChangePasswordPayload(current_password="MotDePasse123!", new_password="NouveauMdp456!"), self.token, None),
+            {"changed": True},
+        )
+        self.assertTrue(self.auth.verify_master_password("NouveauMdp456!"))
+        self.assertFalse(self.auth.verify_master_password("MotDePasse123!"))
+
+    def test_recovery_key_is_shown_once_and_only_its_hash_is_stored(self):
+        from app.api.main import RecoveryKeyRequestPayload
+
+        create = _route(self.app, "/api/v1/security/recovery-key", "POST")
+        with self.assertRaises(HTTPException):
+            create(RecoveryKeyRequestPayload(password="faux"), self.token, None)
+        key = create(RecoveryKeyRequestPayload(password="MotDePasse123!"), self.token, None)["recoveryKey"]
+        self.assertRegex(key, r"^([A-Z2-9]{4}-){5}[A-Z2-9]{4}$")
+        with self.database.connect() as conn:
+            stored = " ".join(r["value"] for r in conn.execute("SELECT value FROM settings"))
+        self.assertNotIn(key.replace("-", ""), stored)
+        status = _route(self.app, "/api/v1/security/status", "GET")(self.token, None)
+        self.assertTrue(status["recoveryKeyConfigured"])
+        # régénérer invalide l'ancienne clé
+        key2 = create(RecoveryKeyRequestPayload(password="MotDePasse123!"), self.token, None)["recoveryKey"]
+        self.assertNotEqual(key, key2)
+        self.assertFalse(self.auth.verify_recovery_key(key))
+        self.assertTrue(self.auth.verify_recovery_key(key2.lower().replace("-", " ")))
+
+    def test_recover_resets_password_rotates_key_and_is_throttled(self):
+        from app.api.main import RecoverPayload
+
+        key = self.auth.generate_recovery_key()
+        recover = _route(self.app, "/api/v1/auth/recover", "POST")
+        with self.assertRaises(HTTPException) as ctx:
+            recover(RecoverPayload(recovery_key="AAAA-BBBB", new_password="NouveauMdp456!"), None)
+        self.assertEqual(ctx.exception.status_code, 403)
+        result = recover(RecoverPayload(recovery_key=key, new_password="NouveauMdp456!"), None)
+        self.assertIn("token", result)
+        self.assertNotEqual(result["recoveryKey"], key)
+        self.assertTrue(self.auth.verify_master_password("NouveauMdp456!"))
+        self.assertFalse(self.auth.verify_recovery_key(key))
+        for _ in range(3):
+            with self.assertRaises(HTTPException) as ctx:
+                recover(RecoverPayload(recovery_key="ZZZZ", new_password="NouveauMdp456!"), None)
+        self.assertEqual(ctx.exception.status_code, 429)
+        types = [e["type"] for e in self.auth.recent_events(50)]
+        self.assertIn("auth.recovered", types)
+
+    def test_recover_without_a_key_is_refused(self):
+        from app.api.main import RecoverPayload
+
+        recover = _route(self.app, "/api/v1/auth/recover", "POST")
+        with self.assertRaises(HTTPException) as ctx:
+            recover(RecoverPayload(recovery_key="AAAA", new_password="NouveauMdp456!"), None)
+        self.assertEqual(ctx.exception.status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

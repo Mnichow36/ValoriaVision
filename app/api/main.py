@@ -57,6 +57,20 @@ class PasswordPayload(BaseModel):
     password: SecretStr
 
 
+class ChangePasswordPayload(BaseModel):
+    current_password: SecretStr
+    new_password: SecretStr
+
+
+class RecoveryKeyRequestPayload(BaseModel):
+    password: SecretStr
+
+
+class RecoverPayload(BaseModel):
+    recovery_key: SecretStr
+    new_password: SecretStr
+
+
 class ReconciliationManualMatchPayload(BaseModel):
     occurrence_id: int
     transaction_id: int
@@ -415,6 +429,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             "authenticated": sessions.validate(x_valoria_session, touch=False),
             "timeoutSeconds": sessions.timeout_seconds,
             "retryAfterSeconds": auth.lock_remaining_seconds(),
+            "recoveryKeyConfigured": auth.has_recovery_key(),
         }
 
     @app.post("/api/v1/auth/setup")
@@ -478,6 +493,106 @@ def create_app(database: Database | None = None) -> FastAPI:
             auth.record_event("auth.lock", "Espace verrouillé.")
         sessions.revoke(x_valoria_session)
         return {"locked": True}
+
+    def refuse_if_throttled() -> None:
+        wait = auth.lock_remaining_seconds()
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop d’essais. Réessayez dans {wait} s.",
+                headers={"Retry-After": str(wait)},
+            )
+
+    def fail_with_throttle(message: str) -> None:
+        delay = auth.register_failure()
+        auth.record_event(
+            "auth.unlock_failure",
+            f"{message}" + (f" Verrouillage de {delay} s." if delay else ""),
+            {"attempts": auth.failed_attempts(), "lock_seconds": delay},
+        )
+        if delay:
+            raise HTTPException(
+                status_code=429,
+                detail=f"{message} Trop d’essais : réessayez dans {delay} s.",
+                headers={"Retry-After": str(delay)},
+            )
+        raise HTTPException(status_code=403, detail=message)
+
+    @app.get("/api/v1/security/status")
+    def security_status(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return {
+            "recoveryKeyConfigured": auth.has_recovery_key(),
+            "recoveryKeyCreatedAt": auth.recovery_key_created_at() or None,
+            "passwordChangedAt": active_database.get_setting("security.master_password_changed_at", "") or None,
+        }
+
+    @app.post("/api/v1/security/change-password")
+    def change_password(
+        payload: ChangePasswordPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict[str, bool]:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        refuse_if_throttled()
+        try:
+            auth.change_master_password(
+                payload.current_password.get_secret_value(), payload.new_password.get_secret_value()
+            )
+        except PermissionError:
+            fail_with_throttle("Mot de passe actuel incorrect.")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"changed": True}
+
+    @app.post("/api/v1/security/recovery-key")
+    def create_recovery_key(
+        payload: RecoveryKeyRequestPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        refuse_if_throttled()
+        if not auth.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.")
+        replaced = auth.has_recovery_key()
+        key = auth.generate_recovery_key()
+        auth.reset_failures()
+        auth.record_event(
+            "auth.recovery_key_created",
+            "Clé de secours remplacée." if replaced else "Clé de secours créée.",
+        )
+        return {"recoveryKey": key, "createdAt": auth.recovery_key_created_at()}
+
+    @app.post("/api/v1/auth/recover")
+    def recover(
+        payload: RecoverPayload,
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        if not auth.has_recovery_key():
+            raise HTTPException(status_code=409, detail="Aucune clé de secours n’a été créée.")
+        refuse_if_throttled()
+        try:
+            new_key = auth.reset_with_recovery_key(
+                payload.recovery_key.get_secret_value(), payload.new_password.get_secret_value()
+            )
+        except PermissionError:
+            fail_with_throttle("Clé de secours incorrecte.")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        token, expires_in = sessions.create()
+        return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key}
 
     @app.get("/api/v1/security/journal")
     def security_journal(

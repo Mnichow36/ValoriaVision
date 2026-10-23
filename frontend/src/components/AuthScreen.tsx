@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { SideDrawer } from "./SideDrawer";
+import { RecoverAccessDrawer } from "./PasswordDrawers";
 import { evaluatePassword, MIN_PASSWORD_LENGTH } from "./passwordStrength";
 
 interface AuthScreenProps {
@@ -7,10 +9,13 @@ interface AuthScreenProps {
   busy: boolean;
   error?: string;
   retryAfter?: number;
+  recoveryKeyConfigured?: boolean;
+  onRecovered: (token: string) => void;
   onSubmit: (password: string) => Promise<void>;
 }
 
-export function AuthScreen({ configured, busy, error, retryAfter, onSubmit }: AuthScreenProps) {
+export function AuthScreen({ configured, busy, error, retryAfter, recoveryKeyConfigured, onRecovered, onSubmit }: AuthScreenProps) {
+  const [recovering, setRecovering] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [localError, setLocalError] = useState("");
@@ -87,8 +92,28 @@ export function AuthScreen({ configured, busy, error, retryAfter, onSubmit }: Au
             {busy ? "Vérification…" : wait > 0 ? `Patientez ${wait} s` : configured ? "Déverrouiller" : "Créer et continuer"}
           </button>
         </form>
+        {configured && (
+          <button className="auth-link" onClick={() => setRecovering(true)} type="button">
+            Mot de passe oublié ?
+          </button>
+        )}
         <small>Session temporaire · aucune conservation du mot de passe dans l’interface</small>
       </section>
+      {recovering && (
+        recoveryKeyConfigured === false
+          ? <NoRecoveryKey onClose={() => setRecovering(false)} />
+          : <RecoverAccessDrawer onClose={() => setRecovering(false)} onRecovered={onRecovered} />
+      )}
     </main>
+  );
+}
+
+function NoRecoveryKey({ onClose }: { onClose: () => void }) {
+  return (
+    <SideDrawer eyebrow="Accès" onClose={onClose} title="Mot de passe oublié"
+      footer={<button className="settings-primary" onClick={onClose} type="button">Compris</button>}>
+      <p>Aucune clé de secours n’a été créée sur cet ordinateur, la réinitialisation est donc impossible.</p>
+      <p>Pour l’avenir : créez-la dès maintenant dans <strong>Paramètres › Sécurité</strong> une fois connecté, et conservez-la hors de cet ordinateur.</p>
+    </SideDrawer>
   );
 }

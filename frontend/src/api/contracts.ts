@@ -1100,6 +1100,17 @@ export interface AuthStatus {
   authenticated: boolean;
   timeoutSeconds: number;
   retryAfterSeconds?: number;
+  recoveryKeyConfigured?: boolean;
+}
+
+export interface SecurityStatus {
+  recoveryKeyConfigured: boolean;
+  recoveryKeyCreatedAt: string | null;
+  passwordChangedAt: string | null;
+}
+
+export interface RecoveryRequestResult extends AuthSession {
+  recoveryKey: string;
 }
 
 export interface SecurityEvent {

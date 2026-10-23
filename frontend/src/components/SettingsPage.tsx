@@ -11,16 +11,19 @@ import {
   updateSettingsGeneral,
   updateSettingsRule,
   getSecurityJournal,
+  getSecurityStatus,
 } from "../api/client";
 import type {
   SettingsCategory,
   SecurityEvent,
+  SecurityStatus,
   SettingsCategoryPayload,
   SettingsRule,
   SettingsRulePayload,
   SettingsRulesPreview,
   SettingsSnapshot,
 } from "../api/contracts";
+import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
 import type { NavigationId } from "./Sidebar";
 import { ThemeSwitch } from "./ThemeSwitch";
 
@@ -103,6 +106,9 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<SettingsRulesPreview | null>(null);
   const [journal, setJournal] = useState<SecurityEvent[]>([]);
+  const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
+  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | null>(null);
+  const [securityRefresh, setSecurityRefresh] = useState(0);
 
   async function refresh(signal?: AbortSignal, preferred?: { categoryId?: number; ruleId?: number }) {
     const next = await getSettings(token, signal);
@@ -129,8 +135,9 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
     if (activeTab !== "security") return;
     const controller = new AbortController();
     getSecurityJournal(token, controller.signal).then((r) => setJournal(r.events)).catch(() => undefined);
+    getSecurityStatus(token, controller.signal).then(setSecurityStatus).catch(() => undefined);
     return () => controller.abort();
-  }, [activeTab, token]);
+  }, [activeTab, token, securityRefresh]);
 
   const selectedCategory = useMemo(
     () => snapshot?.categories.find((item) => item.id === selectedCategoryId) ?? null,
@@ -420,6 +427,18 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
             <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
             <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
           </article>
+          <article className="card settings-summary-card">
+            <div className="panel-heading"><div><h2>Mot de passe et récupération</h2><p>Changez votre mot de passe et gardez un accès de secours.</p></div></div>
+            <dl className="settings-kv-list">
+              <div><dt>Mot de passe modifié le</dt><dd>{securityStatus?.passwordChangedAt ? formatJournalDate(securityStatus.passwordChangedAt) : "Jamais depuis la création"}</dd></div>
+              <div><dt>Clé de secours</dt><dd>{securityStatus?.recoveryKeyConfigured ? `Créée le ${formatJournalDate(securityStatus.recoveryKeyCreatedAt ?? "")}` : <span className="security-warning">Non créée</span>}</dd></div>
+            </dl>
+            {securityStatus && !securityStatus.recoveryKeyConfigured && <p className="security-warning-note">Sans clé de secours, un mot de passe oublié ne peut pas être récupéré.</p>}
+            <div className="security-card-actions">
+              <button className="settings-secondary" onClick={() => setSecurityDrawer("password")} type="button">Changer le mot de passe</button>
+              <button className="settings-secondary" onClick={() => setSecurityDrawer("recovery")} type="button">{securityStatus?.recoveryKeyConfigured ? "Remplacer la clé de secours" : "Créer la clé de secours"}</button>
+            </div>
+          </article>
           <article className="card settings-summary-card security-journal-card">
             <div className="panel-heading"><div><h2>Journal de sécurité</h2><p>Dernières connexions, échecs et verrouillages.</p></div></div>
             {journal.length === 0 ? <small>Aucun événement enregistré.</small> : (
@@ -434,6 +453,12 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
           </article>
           <article className="card settings-summary-card settings-backup-card"><div className="panel-heading"><div><h2>Sauvegardes</h2><p>Format chiffré Valoria .vvb.</p></div></div><strong>{fileName(snapshot.security.lastBackup) || "Aucune sauvegarde enregistrée"}</strong><small title={snapshot.security.lastBackup}>{snapshot.security.lastBackup || "La création/restauration reste pilotée par le moteur local sécurisé."}</small></article>
         </form>
+      )}
+      {securityDrawer === "password" && (
+        <ChangePasswordDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} token={token} />
+      )}
+      {securityDrawer === "recovery" && (
+        <RecoveryKeyDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} replacing={Boolean(securityStatus?.recoveryKeyConfigured)} token={token} />
       )}
     </section>
   );
