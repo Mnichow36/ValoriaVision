@@ -190,3 +190,25 @@ class ResetApiTests(AccessControlBase):
         token = setup.json()["token"]
         accounts = self.client.get("/api/v1/accounts", headers={"X-Valoria-Session": token}).json()["accounts"]
         self.assertEqual(accounts, [])
+
+    def test_locked_database_file_is_wiped_in_place(self):
+        """Sous Windows le fichier peut rester verrouillé : la base est alors vidée par SQLite."""
+        from pathlib import Path
+        from unittest import mock
+
+        real_unlink = Path.unlink
+        locked = Path(self.database.path)
+
+        def fake_unlink(path, *args, **kwargs):
+            if Path(path) == locked:
+                raise PermissionError("verrouillé")
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "unlink", fake_unlink), mock.patch("time.sleep"):
+            done = self.reset()
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertFalse(self.client.get("/api/v1/auth/status").json()["configured"])
+        setup = self.client.post("/api/v1/auth/setup", json={"password": ADMIN_PASSWORD, "name": "Nouveau"})
+        self.assertEqual(setup.status_code, 200, setup.text)
+        accounts = self.client.get("/api/v1/accounts", headers={"X-Valoria-Session": setup.json()["token"]}).json()["accounts"]
+        self.assertEqual(accounts, [])

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import gc
 import hmac
 import os
+import sqlite3
+import time
 from contextvars import ContextVar
 from pathlib import Path
 
@@ -1286,6 +1289,40 @@ def create_app(database: Database | None = None) -> FastAPI:
         legacy_database.seal_database_to_encrypted_vault()
         return {"restored": True, "safetyCopy": safety.name}
 
+    def wipe_family_database() -> None:
+        """Supprime la base familiale (et son coffre) ; sous Windows, un fichier peut rester
+        verrouillé un instant : on libère les connexions, on réessaie, puis on vide la base en place."""
+        database_path = Path(legacy_database.path)
+        vault = Path(legacy_database.encrypted_db_path)
+        # Le coffre d'abord : s'il restait seul, la base serait recréée depuis lui au prochain démarrage.
+        ordered = [vault] + [database_path.with_name(database_path.name + suffix) for suffix in ("-wal", "-shm")] + [database_path]
+        for target in ordered:
+            for attempt in range(8):
+                gc.collect()
+                try:
+                    target.unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    if attempt == 7:
+                        if target != database_path:
+                            raise
+                        wipe_in_place(database_path)
+                    else:
+                        time.sleep(0.25)
+        users._schema_for = None
+
+    def wipe_in_place(database_path: Path) -> None:
+        """Dernier recours : remplace le contenu par une base vide en passant par SQLite lui-même."""
+        empty = sqlite3.connect(":memory:")
+        target = sqlite3.connect(database_path)
+        try:
+            empty.backup(target)
+        finally:
+            target.close()
+            empty.close()
+        users._schema_for = None
+        users.initialize_family_database()
+
     @app.post("/api/v1/system/reset")
     def reset_everything(
         payload: ResetPayload,
@@ -1317,18 +1354,13 @@ def create_app(database: Database | None = None) -> FastAPI:
         snapshots.clear()
         active_database.release()
         state["ready"] = False
-        database_path = Path(legacy_database.path)
-        targets = [database_path, Path(legacy_database.encrypted_db_path)]
-        targets += [database_path.with_name(database_path.name + suffix) for suffix in ("-wal", "-shm")]
         try:
-            for target in targets:
-                target.unlink(missing_ok=True)
+            wipe_family_database()
         except OSError as exc:
             raise HTTPException(
                 status_code=409,
-                detail="Impossible de supprimer la base (fichier utilisé par un autre programme). Fermez les autres fenêtres Valoria puis réessayez ; une copie de sécurité a été créée.",
+                detail="Impossible de supprimer certains fichiers (utilisés par un autre programme). Fermez les autres fenêtres Valoria puis réessayez ; une copie de sécurité a été créée.",
             ) from exc
-        users._schema_for = None
         return {"reset": True, "safetyCopy": safety.name}
 
     @app.get("/api/v1/dashboard")
