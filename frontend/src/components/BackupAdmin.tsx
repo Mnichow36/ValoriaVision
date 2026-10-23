@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, MouseEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { createBackup, deleteBackup, downloadBackup, inspectBackup, listBackups, restoreBackup } from "../api/client";
+import { createBackup, deleteBackup, downloadBackup, inspectBackup, listBackups, resetEverything, restoreBackup } from "../api/client";
 import type { BackupSource } from "../api/client";
 import type { BackupCounts, BackupInfo, BackupInspection, BackupList } from "../api/contracts";
 import { ContextMenu } from "./ContextMenu";
@@ -40,7 +40,7 @@ function contentText(counts: BackupCounts): string {
 function kindLabel(backup: BackupInfo): string {
   if (backup.damaged) return "Illisible";
   if (backup.legacy || backup.kind === "legacy") return "Ancien format";
-  return backup.kind === "pre-restore" ? "Avant restauration" : "Manuelle";
+  return backup.kind === "pre-restore" ? "Avant restauration" : backup.kind === "pre-reset" ? "Avant remise à zéro" : "Manuelle";
 }
 
 function toBase64(buffer: ArrayBuffer): string {
@@ -77,7 +77,7 @@ function passphraseStrength(value: string): { score: number; text: string } {
   return { score: 2, text: "Correct. Une phrase de 4 mots ou plus serait plus solide." };
 }
 
-type Drawer = { kind: "create" } | { kind: "restore"; source?: BackupInfo } | null;
+type Drawer = { kind: "create" } | { kind: "restore"; source?: BackupInfo } | { kind: "reset" } | null;
 
 /** Paramètres › Sécurité › Protection des données : sauvegarde et restauration chiffrées (administrateur). */
 export function BackupAdmin({ token, onNotice, onRestored, children }: { token: string; onNotice: (text: string) => void; onRestored: () => void; children?: ReactNode }) {
@@ -133,6 +133,11 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
           <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
           <div className="security-card-actions"><button className="settings-secondary" onClick={() => setDrawer({ kind: "restore" })} type="button">Restaurer depuis un fichier…</button></div>
         </article>
+        <article className="card settings-summary-card backup-danger-card">
+          <div className="panel-heading"><div><h2>Remise à zéro</h2><p>Efface toutes les données et les profils : l’application repart comme à la première installation. Une copie chiffrée est créée avant.</p></div></div>
+          <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
+          <div className="security-card-actions"><button className="settings-secondary settings-danger" onClick={() => setDrawer({ kind: "reset" })} type="button">Tout remettre à zéro…</button></div>
+        </article>
         {children}
       </div>
       <article className="card settings-summary-card backup-list-card">
@@ -162,6 +167,9 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
         )}
         {drawer?.kind === "restore" && (
           <RestoreBackupDrawer onClose={() => setDrawer(null)} onRestored={onRestored} source={drawer.source} token={token} />
+        )}
+        {drawer?.kind === "reset" && (
+          <ResetDrawer onClose={() => setDrawer(null)} onDone={onRestored} token={token} />
         )}
       </>, document.body)}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
@@ -219,6 +227,60 @@ function CreateBackupDrawer({ token, onClose, onDone }: { token: string; onClose
           <li>Le fichier est téléchargé et une copie reste dans le dossier local de sauvegardes.</li>
           <li>Après création, le fichier est relu et vérifié.</li>
         </ul>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+      </form>
+    </SideDrawer>
+  );
+}
+
+const RESET_PHRASE = "REMETTRE À ZÉRO";
+
+function ResetDrawer({ token, onClose, onDone }: { token: string; onClose: () => void; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [typed, setTyped] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [safety, setSafety] = useState<string | null>(null);
+  const valid = password !== "" && typed.trim().toUpperCase() === RESET_PHRASE && passphrase.length >= MIN_PASSPHRASE && passphrase === confirm;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await resetEverything(token, password, typed, passphrase);
+      setSafety(result.safetyCopy);
+    } catch (failure: unknown) {
+      setError(reason(failure));
+      setBusy(false);
+    }
+  }
+
+  if (safety) {
+    return (
+      <SideDrawer eyebrow="Protection des données" onClose={() => { onDone(); window.location.reload(); }} title="Remise à zéro effectuée"
+        footer={<button className="settings-primary" onClick={() => { onDone(); window.location.reload(); }} type="button">Recommencer l’installation</button>}>
+        <p className="backup-lead">Toutes les données ont été effacées. Vous allez créer un nouvel administrateur.</p>
+        <p className="drawer-note">Copie de sécurité conservée sur cet ordinateur : <strong>{safety}</strong>. Elle se restaure avec la phrase secrète que vous venez de choisir.</p>
+      </SideDrawer>
+    );
+  }
+
+  return (
+    <SideDrawer eyebrow="Protection des données" onClose={onClose} title="Tout remettre à zéro"
+      footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-primary backup-danger-btn" disabled={busy || !valid} form="backup-reset-form" type="submit">{busy ? "Effacement…" : "Effacer toutes les données"}</button></>}>
+      <form className="drawer-form" id="backup-reset-form" onSubmit={submit}>
+        <p className="drawer-note"><strong>Action irréversible.</strong> Comptes, opérations, récurrences, budgets, patrimoine, scénarios, catégories, règles, profils et mots de passe seront supprimés. L’application demandera ensuite de créer un nouvel administrateur.</p>
+        <p className="backup-lead">Avant d’effacer, une copie chiffrée est créée automatiquement : choisissez sa phrase secrète.</p>
+        <label>Phrase secrète de la copie de sécurité<input autoComplete="new-password" onChange={(e) => setPassphrase(e.target.value)} type="password" value={passphrase} /></label>
+        <PassphraseMeter value={passphrase} />
+        <label>Confirmer la phrase secrète<input autoComplete="new-password" onChange={(e) => setConfirm(e.target.value)} type="password" value={confirm} /></label>
+        {confirm && passphrase !== confirm && <small className="security-warning">Les deux phrases ne sont pas identiques.</small>}
+        <label>Mot de passe de l’administrateur<input autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} type="password" value={password} /></label>
+        <label>Pour confirmer, tapez « {RESET_PHRASE} »<input autoComplete="off" onChange={(e) => setTyped(e.target.value)} value={typed} /></label>
         {error && <p className="auth-error" role="alert">{error}</p>}
       </form>
     </SideDrawer>

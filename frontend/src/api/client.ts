@@ -800,6 +800,10 @@ export function restoreBackup(token: string, source: BackupSource, passphrase: s
   return request<{ restored: boolean; safetyCopy: string }>("/api/v1/backups/restore", { method: "POST", token, body: { ...source, passphrase, password } });
 }
 
+export function resetEverything(token: string, password: string, confirmation: string, passphrase: string): Promise<{ reset: boolean; safetyCopy: string }> {
+  return request<{ reset: boolean; safetyCopy: string }>("/api/v1/system/reset", { method: "POST", token, body: { password, confirmation, passphrase } });
+}
+
 export function getRuleSuggestions(token: string, minReliability: number, signal?: AbortSignal): Promise<RuleSuggestionsSnapshot> {
   return request<RuleSuggestionsSnapshot>(`/api/v1/rule-suggestions?min_reliability=${minReliability}`, { token, signal });
 }

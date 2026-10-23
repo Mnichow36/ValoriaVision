@@ -124,6 +124,17 @@ class BackupCreatePayload(BaseModel):
     confirm: SecretStr = SecretStr("")
 
 
+class ResetPayload(BaseModel):
+    """Remise à zéro : mot de passe de l'administrateur, phrase de confirmation et phrase de la copie de sécurité."""
+
+    password: SecretStr = SecretStr("")
+    confirmation: str = ""
+    passphrase: SecretStr = SecretStr("")
+
+
+RESET_CONFIRMATION = "REMETTRE À ZÉRO"
+
+
 class BackupSourcePayload(BaseModel):
     """Sauvegarde désignée soit par son nom (copie locale), soit par son contenu (base64)."""
 
@@ -1274,6 +1285,51 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_ready()
         legacy_database.seal_database_to_encrypted_vault()
         return {"restored": True, "safetyCopy": safety.name}
+
+    @app.post("/api/v1/system/reset")
+    def reset_everything(
+        payload: ResetPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Remise à zéro complète : copie de sécurité chiffrée, puis suppression de la base familiale.
+
+        Après l'opération, l'application repart comme à la première installation
+        (création de l'administrateur). Le profil Démo, séparé, n'est pas touché.
+        """
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        admin = auth_for(x_valoria_session)
+        refuse_if_throttled(admin)
+        if not admin.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", admin)
+        admin.reset_failures()
+        if payload.confirmation.strip().upper() != RESET_CONFIRMATION:
+            raise HTTPException(status_code=422, detail=f"Tapez exactement « {RESET_CONFIRMATION} » pour confirmer.")
+        service = backup_service()
+        try:
+            blob, _ = service.build(payload.passphrase.get_secret_value(), kind="pre-reset")
+        except BackupError as exc:
+            raise backup_failure(exc) from exc
+        # La copie est écrite avant toute suppression : si elle échoue, rien n'est touché.
+        safety = service.save_local(blob, kind="pre-reset")
+        sessions.clear()
+        snapshots.clear()
+        active_database.release()
+        state["ready"] = False
+        database_path = Path(legacy_database.path)
+        targets = [database_path, Path(legacy_database.encrypted_db_path)]
+        targets += [database_path.with_name(database_path.name + suffix) for suffix in ("-wal", "-shm")]
+        try:
+            for target in targets:
+                target.unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Impossible de supprimer la base (fichier utilisé par un autre programme). Fermez les autres fenêtres Valoria puis réessayez ; une copie de sécurité a été créée.",
+            ) from exc
+        users._schema_for = None
+        return {"reset": True, "safetyCopy": safety.name}
 
     @app.get("/api/v1/dashboard")
     def dashboard(

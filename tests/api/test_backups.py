@@ -146,3 +146,47 @@ class BackupServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResetApiTests(AccessControlBase):
+    PHRASE_OK = "REMETTRE À ZÉRO"
+
+    def reset(self, password=ADMIN_PASSWORD, confirmation=PHRASE_OK, passphrase=PHRASE):
+        return self.admin.post(
+            "/api/v1/system/reset", {"password": password, "confirmation": confirmation, "passphrase": passphrase}
+        )
+
+    def test_wrong_password_or_confirmation_changes_nothing(self):
+        self.assertEqual(self.reset(password="mauvais").status_code, 403)
+        self.as_admin()
+        self.assertEqual(self.reset(confirmation="oui").status_code, 422)
+        self.assertEqual(self.reset(passphrase="court").status_code, 422)
+        self.assertTrue(self.database.path.exists())
+        self.assertEqual(self.admin.get("/api/v1/backups").json()["backups"], [])
+
+    def test_only_admin_can_reset(self):
+        lea = self.as_user(self.lea, LEA_PASSWORD)
+        response = lea.post(
+            "/api/v1/system/reset", {"password": LEA_PASSWORD, "confirmation": self.PHRASE_OK, "passphrase": PHRASE}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(self.database.path.exists())
+
+    def test_reset_keeps_a_safety_copy_and_restarts_from_first_installation(self):
+        done = self.reset()
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertFalse(self.database.path.exists())
+        status = self.client.get("/api/v1/auth/status").json()
+        self.assertFalse(status["configured"])
+        self.assertEqual(self.admin.get("/api/v1/accounts").status_code, 401)
+        # la copie de sécurité contient toujours les données d'avant
+        service = BackupService(self.database.path, self.database.backup_dir)
+        safety = service.resolve(done.json()["safetyCopy"])
+        self.assertIn("avant_remise_a_zero", safety.name)
+        self.assertGreater(service.inspect(safety.read_bytes(), PHRASE)["accounts"], 0)
+        # nouvelle installation : base vide, nouvel administrateur
+        setup = self.client.post("/api/v1/auth/setup", json={"password": ADMIN_PASSWORD, "name": "Nouveau"})
+        self.assertEqual(setup.status_code, 200, setup.text)
+        token = setup.json()["token"]
+        accounts = self.client.get("/api/v1/accounts", headers={"X-Valoria-Session": token}).json()["accounts"]
+        self.assertEqual(accounts, [])

@@ -1279,7 +1279,7 @@ export interface BackupInfo extends BackupCounts {
   size: number;
   modifiedAt: string;
   createdAt?: string;
-  /** manual | pre-restore | legacy | unknown */
+  /** manual | pre-restore | pre-reset | legacy | unknown */
   kind: string;
   legacy?: boolean;
   damaged?: boolean;

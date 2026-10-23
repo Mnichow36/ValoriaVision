@@ -186,7 +186,10 @@ class BackupService:
     def save_local(self, blob: bytes, kind: str = "manual") -> Path:
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = "valoria_vision_backup" if kind == "manual" else "valoria_vision_avant_restauration"
+        prefix = {
+            "manual": "valoria_vision_backup",
+            "pre-reset": "valoria_vision_avant_remise_a_zero",
+        }.get(kind, "valoria_vision_avant_restauration")
         target = self.backup_dir / f"{prefix}_{stamp}.vvb"
         counter = 1
         while target.exists():
