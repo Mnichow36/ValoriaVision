@@ -3604,3 +3604,28 @@ button.forecast-kpi { cursor: pointer; }
   .cpt-fiche dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .cpt-chart__col i.is-empty { background: var(--border); }
+
+/* Comptes : catégories + indicateurs */
+.cpt-insights { display: grid; flex: none; gap: 12px; grid-template-columns: 1.15fr 1fr; }
+.cpt-cats { border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px 10px; }
+.cpt-cats h3 { color: var(--muted); display: flex; font-size: 11px; font-weight: 800; justify-content: space-between; margin: 0 0 6px; text-transform: uppercase; }
+.cpt-cats ul { display: grid; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.cpt-cats li { align-items: center; display: grid; font-size: 12px; gap: 8px; grid-template-columns: 96px minmax(0, 1fr) 92px; }
+.cpt-cats li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-cats li > i { background: var(--s-e6ecf6); border-radius: 4px; display: block; height: 12px; }
+.cpt-cats li > i b { background: var(--primary); border-radius: 4px; display: block; height: 12px; }
+.cpt-cats li > i b.is-other { background: #6b7a99; }
+.cpt-cats li > strong { font-size: 11.5px; text-align: right; white-space: nowrap; }
+.cpt-tiles { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cpt-tile { border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 6px 11px; }
+.cpt-tile span { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.cpt-tile b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-tile small { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpt-tile--positive { color: var(--success); }
+.cpt-tile--negative { color: var(--danger); }
+.cpt-tile--warning { color: #b45309; }
+.cpt-view > .cpt-view__head, .cpt-view__metrics, .cpt-fiche { flex: none; }
+@media (max-width: 1180px) { .cpt-cats li { grid-template-columns: 80px minmax(0, 1fr) 84px; } }
+.cpt-insights { grid-template-columns: 1fr 1fr; }
+.cpt-tile b { font-size: 16px; }
+.cpt-ops__table td { height: 33px; padding-bottom: 0; padding-top: 0; }

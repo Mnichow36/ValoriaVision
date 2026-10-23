@@ -1,9 +1,9 @@
-import { type FormEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ReconciledPill } from "./ReconciledPill";
 import { createAccount, deleteAccount, getAccounts, updateAccount, updateAccountReference, updateAccountStatus } from "../api/client";
-import type { AccountActionResult, AccountOverview, AccountPayload, AccountsSnapshot } from "../api/contracts";
+import type { AccountActionResult, AccountInsights, AccountOverview, AccountPayload, AccountsSnapshot } from "../api/contracts";
 
 type AccountStatus = "Actif" | "Archivé" | "Clos";
 type AccountEditorState = { mode: "create" } | { mode: "edit"; account: AccountOverview };
@@ -257,6 +257,18 @@ function AccountView({ account, onContextMenu, onShowOperations }: {
     ["Calcul arrêté au", formatDate(account.currentDate, true)],
     ["Opérations", String(account.transactionCount)],
   ];
+  const opsRef = useRef<HTMLElement>(null);
+  const [rowCount, setRowCount] = useState(5);
+  useLayoutEffect(() => {
+    const node = opsRef.current;
+    if (!node) return undefined;
+    const measure = () => setRowCount(Math.max(1, Math.min(5, Math.floor((node.clientHeight - 34) / 33))));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [account.id]);
+
   return (
     <article className="card cpt-view" onContextMenu={onContextMenu}>
       <header className="cpt-view__head">
@@ -285,9 +297,11 @@ function AccountView({ account, onContextMenu, onShowOperations }: {
         <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       </section>
 
-      <section className="cpt-ops" aria-label="Dernières opérations">
+      <AccountInsightsPanel insights={account.insights} />
+
+      <section className="cpt-ops" aria-label="Dernières opérations" ref={opsRef}>
         <div className="cpt-ops__head">
-          <h3>{Math.min(5, account.transactions.length)} dernière{account.transactions.length > 1 ? "s" : ""} opération{account.transactions.length > 1 ? "s" : ""}</h3>
+          <h3>{Math.min(rowCount, account.transactions.length)} dernière{Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""} opération{Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""}</h3>
           {account.transactionCount > 0 && <button onClick={onShowOperations} type="button">Voir toutes les opérations de ce compte ›</button>}
         </div>
         {account.transactions.length === 0 ? (
@@ -295,7 +309,7 @@ function AccountView({ account, onContextMenu, onShowOperations }: {
         ) : (
           <table className="cpt-ops__table">
             <tbody>
-              {account.transactions.slice(0, 5).map((transaction) => (
+              {account.transactions.slice(0, rowCount).map((transaction) => (
                 <tr key={transaction.id}>
                   <td>{formatDate(transaction.date, false)}</td>
                   <td title={transaction.label}>{transaction.label} <ReconciledPill badge={transaction.reconciliation} /></td>
@@ -315,6 +329,46 @@ function shiftMonth(month: string, delta: number): string {
   const [year, number] = month.split("-").map(Number);
   const index = year * 12 + (number - 1) + delta;
   return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+}
+
+function AccountInsightsPanel({ insights }: { insights: AccountInsights }) {
+  const max = Math.max(1, ...insights.categories.map((item) => item.amount));
+  const largest = insights.largestExpense;
+  const tiles: { label: string; value: string; sub: string; tone?: string }[] = [
+    { label: "Dépense moy./mois", value: euro(insights.averageMonthlyExpense), sub: `sur ${insights.monthsCovered} mois` },
+    { label: "Revenu moy./mois", value: euro(insights.averageMonthlyIncome), sub: `sur ${insights.monthsCovered} mois`, tone: "positive" },
+    { label: "Plus grosse dépense", value: largest ? `− ${euro(Math.abs(largest.amount))}` : "—", sub: largest ? `${largest.label.slice(0, 22)} · ${formatDate(largest.date, false)}` : "aucune dépense", tone: largest ? "negative" : undefined },
+    { label: "À catégoriser", value: String(insights.uncategorizedCount), sub: insights.uncategorizedCount > 0 ? "opérations à traiter" : "tout est classé", tone: insights.uncategorizedCount > 0 ? "warning" : undefined },
+    { label: "Rapprochées", value: String(insights.reconciledCount), sub: "opérations liées à une échéance" },
+    { label: "Dernier import", value: insights.lastImportDate ? formatDate(insights.lastImportDate, true) : "—", sub: insights.lastImportDate ? "relevé importé" : "aucun import" },
+  ];
+  return (
+    <div className="cpt-insights">
+      <section className="cpt-cats" aria-label="Dépenses par catégorie">
+        <h3><span>Dépenses par catégorie · 12 mois</span><span>total {formatCompact(insights.expensesTotal)}</span></h3>
+        {insights.categories.length === 0 ? <p className="cpt-ops__empty">Aucune dépense sur la période.</p> : (
+          <ul>
+            {insights.categories.map((item) => (
+              <li key={item.name}>
+                <span title={item.name}>{item.name}</span>
+                <i><b className={item.name === "Autres" ? "is-other" : undefined} style={{ width: `${(item.amount / max) * 100}%` }} /></i>
+                <strong>{formatCompact(item.amount)} · {Math.round(item.share * 100)} %</strong>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <div className="cpt-tiles">
+        {tiles.map((tile) => (
+          <div className="cpt-tile" key={tile.label}>
+            <span>{tile.label}</span>
+            <b className={tile.tone ? `cpt-tile--${tile.tone}` : undefined}>{tile.value}</b>
+            <small title={tile.sub}>{tile.sub}</small>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function BalanceBars({ history }: { history: { month: string; balance: number }[] }) {
@@ -626,6 +680,10 @@ function maskIdentifier(value: string): string {
   if (!normalized) return "non renseigné";
   if (normalized.length <= 4) return normalized;
   return `****${normalized.slice(-4)}`;
+}
+
+function euro(value: number): string {
+  return `${formatCompact(value)} €`;
 }
 
 function formatCompact(value: number): string {

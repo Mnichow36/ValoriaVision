@@ -123,6 +123,18 @@ export interface AccountTransaction {
   reconciliation?: ReconciliationBadge;
 }
 
+export interface AccountInsights {
+  categories: { name: string; amount: number; share: number }[];
+  expensesTotal: number;
+  averageMonthlyExpense: number;
+  averageMonthlyIncome: number;
+  monthsCovered: number;
+  largestExpense: { label: string; amount: number; date: string } | null;
+  uncategorizedCount: number;
+  reconciledCount: number;
+  lastImportDate: string;
+}
+
 export interface AccountOverview {
   id: number;
   name: string;
@@ -138,6 +150,7 @@ export interface AccountOverview {
   currentDate: string;
   transactionCount: number;
   balanceHistory: { month: string; balance: number }[];
+  insights: AccountInsights;
   transactions: AccountTransaction[];
 }
 

@@ -130,6 +130,34 @@ class AccountsReadServiceTest(unittest.TestCase):
         self.assertEqual(history[0]["balance"], 100.0)
         self.assertEqual(history[-1], {"month": "2026-10", "balance": 130.0})
 
+    def test_insights_rank_expense_categories_and_averages(self):
+        rows = [
+            {"id": 1, "tx_date": "2026-10-02", "label": "Loyer", "category": "Logement", "amount": -800, "status": "Validée"},
+            {"id": 2, "tx_date": "2026-10-03", "label": "Lidl", "category": "Alimentation", "amount": -200, "status": "Validée"},
+            {"id": 3, "tx_date": "2026-09-20", "label": "Salaire", "category": "Revenus", "amount": 2000, "status": "Validée"},
+            {"id": 4, "tx_date": "2026-09-21", "label": "Epargne", "category": "Transferts", "amount": -500, "status": "Validée"},
+            {"id": 5, "tx_date": "2026-09-22", "label": "Inconnu", "category": "", "amount": -50, "status": "Validée", "import_batch_id": 3, "created_at": "2026-09-23 10:00:00"},
+            {"id": 6, "tx_date": "2024-01-01", "label": "Trop ancien", "category": "Logement", "amount": -999, "status": "Validée"},
+        ]
+        insights = AccountsReadService._insights("2026-10-13", rows, {2: [{"match_type": "auto"}]})
+
+        self.assertEqual([item["name"] for item in insights["categories"]], ["Logement", "Alimentation", "À catégoriser"])
+        self.assertEqual(insights["expensesTotal"], 1050.0)  # transferts et ligne trop ancienne exclus
+        self.assertEqual(insights["categories"][0]["share"], round(800 / 1050, 4))
+        self.assertEqual(insights["monthsCovered"], 2)
+        self.assertEqual(insights["averageMonthlyExpense"], 525.0)
+        self.assertEqual(insights["averageMonthlyIncome"], 1000.0)
+        self.assertEqual(insights["largestExpense"]["label"], "Loyer")
+        self.assertEqual(insights["uncategorizedCount"], 1)
+        self.assertEqual(insights["reconciledCount"], 1)
+        self.assertEqual(insights["lastImportDate"], "2026-09-23")
+
+    def test_insights_are_empty_without_transactions(self):
+        insights = AccountsReadService._insights("2026-10-13", [], {})
+        self.assertEqual(insights["categories"], [])
+        self.assertIsNone(insights["largestExpense"])
+        self.assertEqual(insights["averageMonthlyExpense"], 0.0)
+
     def test_creates_account_through_existing_database_method(self):
         database = StubDatabase()
         service = AccountsReadService(

@@ -5,6 +5,7 @@ import math
 import re
 from typing import Any, Callable
 
+from app.services.business_rules import is_current_expense, is_true_income, is_uncategorized_transaction
 from app.services.transactions_read_service import reconciliation_badge
 
 
@@ -286,6 +287,11 @@ class AccountsReadService:
                 str(_field(row, "calculated_date", initial_date) or ""),
                 transactions,
             ),
+            "insights": self._insights(
+                str(_field(row, "calculated_date", initial_date) or ""),
+                transactions,
+                getattr(self, "_reconciliation_links", {}),
+            ),
             "transactions": [
                 self._transaction(
                     item,
@@ -293,6 +299,70 @@ class AccountsReadService:
                 )
                 for item in transactions[:12]
             ],
+        }
+
+    @staticmethod
+    def _insights(current_date: str, transactions: list[Any], links: dict[int, Any]) -> dict[str, Any]:
+        """Indicateurs du compte : catégories de dépenses, moyennes et qualité (12 derniers mois)."""
+        try:
+            end = date.fromisoformat(current_date)
+        except ValueError:
+            end = date.today()
+        window_start = date(end.year - 1, end.month, 1)
+        window_start = (window_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        rows = [
+            (str(_field(item, "tx_date", "") or ""), item)
+            for item in transactions
+        ]
+        recent = [(tx_date, item) for tx_date, item in rows if window_start.isoformat() <= tx_date <= end.isoformat()]
+
+        by_category: dict[str, float] = {}
+        expenses_total = income_total = 0.0
+        largest: dict[str, Any] | None = None
+        for tx_date, item in recent:
+            amount = _number(_field(item, "amount", 0))
+            category = str(_field(item, "category", "") or "").strip() or "À catégoriser"
+            if is_current_expense(category, amount):
+                by_category[category] = by_category.get(category, 0.0) + abs(amount)
+                expenses_total += abs(amount)
+                if largest is None or abs(amount) > abs(largest["amount"]):
+                    largest = {"label": str(_field(item, "label", "") or ""), "amount": amount, "date": tx_date}
+            elif is_true_income(category, amount):
+                income_total += amount
+
+        ranked = sorted(by_category.items(), key=lambda pair: pair[1], reverse=True)
+        top = ranked[:5]
+        others = sum(value for _, value in ranked[5:])
+        categories = [{"name": name, "amount": round(value, 2)} for name, value in top]
+        if others > 0:
+            categories.append({"name": "Autres", "amount": round(others, 2)})
+        for entry in categories:
+            entry["share"] = round(entry["amount"] / expenses_total, 4) if expenses_total else 0.0
+
+        first = min((tx_date for tx_date, _ in recent), default=end.isoformat())
+        try:
+            first_date = date.fromisoformat(first)
+        except ValueError:
+            first_date = end
+        months = max(1, min(12, (end.year - first_date.year) * 12 + end.month - first_date.month + 1))
+        imported = [
+            str(_field(item, "created_at", "") or "")[:10]
+            for _, item in rows
+            if _field(item, "import_batch_id", None)
+        ]
+        return {
+            "categories": categories,
+            "expensesTotal": round(expenses_total, 2),
+            "averageMonthlyExpense": round(expenses_total / months, 2),
+            "averageMonthlyIncome": round(income_total / months, 2),
+            "monthsCovered": months,
+            "largestExpense": largest,
+            "uncategorizedCount": sum(
+                1 for _, item in rows
+                if is_uncategorized_transaction(_field(item, "category", ""), _field(item, "status", ""))
+            ),
+            "reconciledCount": sum(1 for _, item in rows if links.get(int(_field(item, "id", 0) or 0))),
+            "lastImportDate": max((value for value in imported if value), default=""),
         }
 
     @staticmethod
