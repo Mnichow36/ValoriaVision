@@ -247,14 +247,20 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
       </article>
 
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
-      {drawer?.kind === "edit" && <EditDrawer categories={categories} referenceDate={snapshot.referenceDate} item={drawer.item} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
+      {drawer?.kind === "edit" && <EditDrawer categories={categories} siblings={siblingCount(snapshot, drawer.item)} skipped={skippedCount(snapshot, drawer.item)} referenceDate={snapshot.referenceDate} item={drawer.item} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
       {drawer?.kind === "shift" && <ShiftDrawer items={drawer.items} mode={drawer.mode} referenceDate={snapshot.referenceDate} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
       {drawer?.kind === "delete" && <DeleteDrawer items={drawer.items} onClose={() => setDrawer(undefined)} onDone={done} token={token} />}
     </div>
   );
 }
 
-function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }: { categories: RecurrenceOccurrencesSnapshot["categories"]; referenceDate: string; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
+function futureSiblings(snapshot: RecurrenceOccurrencesSnapshot, item: RecurrenceOccurrence) {
+  return snapshot.items.filter((other) => item.recurrenceId !== null && other.recurrenceId === item.recurrenceId && other.id !== item.id && other.date >= snapshot.referenceDate && other.canEdit && other.status !== "cancelled");
+}
+const siblingCount = (snapshot: RecurrenceOccurrencesSnapshot, item: RecurrenceOccurrence) => futureSiblings(snapshot, item).filter((other) => !other.edited).length;
+const skippedCount = (snapshot: RecurrenceOccurrencesSnapshot, item: RecurrenceOccurrence) => futureSiblings(snapshot, item).filter((other) => other.edited).length;
+
+function EditDrawer({ categories, item, onClose, onDone, referenceDate, siblings, skipped, token }: { categories: RecurrenceOccurrencesSnapshot["categories"]; siblings: number; skipped: number; referenceDate: string; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
   const [date, setDate] = useState(item.date);
   const [label, setLabel] = useState(item.label);
   const [category, setCategory] = useState(item.category);
@@ -262,6 +268,8 @@ function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }:
   const [amount, setAmount] = useState(String(Math.abs(item.amount)).replace(".", ","));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [applyToRule, setApplyToRule] = useState(false);
+  const categoryChanged = category !== item.category && item.recurrenceId !== null;
 
   // Seules les catégories compatibles avec le sens (dépense / recette) sont proposées.
   const expectedDirection = kind === "credit" ? "Recette" : "Dépense";
@@ -283,7 +291,7 @@ function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }:
     setBusy(true);
     setError(undefined);
     try {
-      const result = await updateRecurrenceOccurrence(token, item.id, { date, label, category, amount: kind === "credit" ? value : -value });
+      const result = await updateRecurrenceOccurrence(token, item.id, { date, label, category, amount: kind === "credit" ? value : -value, apply_to_rule: categoryChanged && applyToRule });
       onDone(result.message);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : "La modification a échoué.");
@@ -302,6 +310,15 @@ function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }:
       <label className="account-field"><span>Date</span><input min={referenceDate} onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
       <label className="account-field"><span>Libellé</span><input onChange={(event) => setLabel(event.target.value)} value={label} /></label>
       <label className="account-field"><span>Catégorie</span><select onChange={(event) => setCategory(event.target.value)} value={category}>{options.map((entry) => <option key={entry.id} value={entry.name}>{entry.name}</option>)}</select></label>
+      {categoryChanged && (
+        <label className="occurrence-propagate">
+          <input checked={applyToRule} onChange={(event) => setApplyToRule(event.target.checked)} type="checkbox" />
+          <span>
+            <b>Appliquer aussi à la règle « {item.label} » et à ses {siblings} autre{siblings > 1 ? "s" : ""} occurrence{siblings > 1 ? "s" : ""} future{siblings > 1 ? "s" : ""}</b>
+            <small>{skipped > 0 ? `${skipped} occurrence${skipped > 1 ? "s" : ""} modifiée${skipped > 1 ? "s" : ""} à la main ${skipped > 1 ? "restent" : "reste"} inchangée${skipped > 1 ? "s" : ""}. ` : ""}Les occurrences passées ou déjà rapprochées ne changent pas.</small>
+          </span>
+        </label>
+      )}
       <label className="account-field"><span>Type</span><select onChange={(event) => changeKind(event.target.value)} value={kind}><option value="debit">Dépense</option><option value="credit">Recette</option></select></label>
       <label className="account-field"><span>Montant</span><div className="rules-input"><input inputMode="decimal" onChange={(event) => setAmount(event.target.value)} value={amount} /><b>€</b></div></label>
       {item.shifted && <p className="drawer-help">Date d’origine de la règle : {formatDate(item.originalDate)}.</p>}

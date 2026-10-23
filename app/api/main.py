@@ -329,6 +329,7 @@ class OccurrenceUpdatePayload(BaseModel):
     amount: float
     label: str
     category: str = ""
+    apply_to_rule: bool = False
 
 
 class OccurrenceIdsPayload(BaseModel):

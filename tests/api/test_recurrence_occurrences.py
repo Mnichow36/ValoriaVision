@@ -56,6 +56,31 @@ class RecurrenceOccurrencesTest(unittest.TestCase):
         after = next(i for i in self.service.snapshot()["items"] if i["id"] == item["id"])
         self.assertEqual(after["category"], target["name"])
 
+    def test_category_can_be_propagated_to_rule_and_future_siblings(self):
+        item = self.future_item()
+        is_income = item["amount"] > 0
+        self.database.add_category("Catégorie test", kind="Revenu" if is_income else "Dépense")
+        siblings = [i for i in self.service.snapshot()["items"] if i["recurrenceId"] == item["recurrenceId"] and i["id"] != item["id"] and i["canEdit"] and i["date"] >= date.today().isoformat()]
+        self.assertGreater(len(siblings), 2)
+        hand_edited = siblings[0]
+        self.assertTrue(self.service.update(hand_edited["id"], {"date": hand_edited["date"], "amount": hand_edited["amount"], "label": "À la main", "category": hand_edited["category"]})["success"])
+        result = self.service.update(item["id"], {"date": item["date"], "amount": item["amount"], "label": item["label"], "category": "Catégorie test", "apply_to_rule": True})
+        self.assertTrue(result["success"], result)
+        self.assertIn("recatégorisée", result["message"])
+        after = {i["id"]: i for i in self.service.snapshot()["items"]}
+        self.assertEqual(after[item["id"]]["category"], "Catégorie test")
+        self.assertEqual(after[hand_edited["id"]]["category"], hand_edited["category"])
+        for sibling in siblings[1:]:
+            self.assertEqual(after[sibling["id"]]["category"], "Catégorie test")
+        self.assertEqual(self.database.get_recurring_item(item["recurrenceId"])["category"], "Catégorie test")
+
+    def test_category_is_not_propagated_without_request(self):
+        item = self.future_item()
+        self.database.add_category("Catégorie test", kind="Revenu" if item["amount"] > 0 else "Dépense")
+        self.service.update(item["id"], {"date": item["date"], "amount": item["amount"], "label": item["label"], "category": "Catégorie test"})
+        others = [i for i in self.service.snapshot()["items"] if i["recurrenceId"] == item["recurrenceId"] and i["id"] != item["id"]]
+        self.assertTrue(all(i["category"] != "Catégorie test" for i in others))
+
     def test_update_validates_input_with_clear_messages(self):
         item = self.future_item()
         self.assertIn("libellé", self.service.update(item["id"], {"date": item["date"], "amount": -1, "label": " ", "category": ""})["message"])

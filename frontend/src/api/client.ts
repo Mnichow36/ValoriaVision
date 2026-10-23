@@ -706,7 +706,7 @@ export function getRecurrenceOccurrences(token: string, signal?: AbortSignal): P
 export function updateRecurrenceOccurrence(
   token: string,
   occurrenceId: number,
-  payload: { date: string; amount: number; label: string; category: string },
+  payload: { date: string; amount: number; label: string; category: string; apply_to_rule?: boolean },
 ): Promise<RecurrenceOccurrenceActionResult> {
   return request<RecurrenceOccurrenceActionResult>(`/api/v1/recurrences/occurrences/${occurrenceId}`, {
     method: "PUT",

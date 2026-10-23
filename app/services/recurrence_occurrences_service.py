@@ -141,6 +141,10 @@ class RecurrenceOccurrencesService:
         return {"success": bool(ok), "message": message, **extra}
 
     def update(self, occurrence_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        with self.database.connect() as conn:
+            before = conn.execute(
+                "SELECT source_id, expected_category FROM forecast_occurrences WHERE id = ?", (int(occurrence_id),)
+            ).fetchone()
         ok, message = self.engine_factory(self.database).update_occurrence(
             occurrence_id,
             expected_date=payload.get("date"),
@@ -149,7 +153,54 @@ class RecurrenceOccurrencesService:
             category=payload.get("category", ""),
             reference_date=self._today(),
         )
+        if ok and payload.get("apply_to_rule") and before is not None and before["source_id"] is not None:
+            new_category = " ".join(str(payload.get("category") or "").split())
+            if new_category and new_category != str(before["expected_category"] or ""):
+                extra = self._propagate_category(int(before["source_id"]), int(occurrence_id), new_category)
+                message = f"Occurrence modifiée. {extra}" if extra.startswith("Règle mise à jour") else f"{message} {extra}"
         return self._result(ok, message)
+
+    def _propagate_category(self, rule_id: int, occurrence_id: int, category: str) -> str:
+        """Applique la catégorie à la règle et à ses autres occurrences futures non modifiées à la main."""
+        today = self._today().isoformat()
+        with self.database.connect() as conn:
+            rule = conn.execute("SELECT amount FROM recurring_items WHERE id = ?", (rule_id,)).fetchone()
+            cat = conn.execute(
+                "SELECT kind, direction FROM categories WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL", (category,)
+            ).fetchone()
+            if rule is None or cat is None:
+                return "La règle n’a pas pu être mise à jour."
+            direction = str(cat["direction"] or "")
+            if direction not in {"Recette", "Dépense", "Neutre"}:
+                kind = str(cat["kind"] or "Dépense")
+                direction = "Recette" if kind == "Revenu" else "Neutre" if kind == "Neutre" else "Dépense"
+            expected = "Recette" if float(rule["amount"] or 0) >= 0 else "Dépense"
+            if direction not in {expected, "Neutre"}:
+                return f"La règle reste inchangée : la catégorie « {category} » ne correspond pas au sens de la règle."
+            conn.execute(
+                "UPDATE recurring_items SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (category, rule_id)
+            )
+            cursor = conn.execute(
+                """
+                UPDATE forecast_occurrences
+                SET expected_category = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE source_type = 'recurring' AND source_id = ? AND deleted_at IS NULL
+                  AND id != ? AND COALESCE(manually_edited, 0) = 0
+                  AND status IN ('planned', 'overdue', 'to_review')
+                  AND expected_date >= ? AND actual_transaction_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM forecast_reconciliation_links l
+                                  WHERE l.occurrence_id = forecast_occurrences.id AND l.deleted_at IS NULL)
+                """,
+                (category, rule_id, int(occurrence_id), today),
+            )
+            count = int(cursor.rowcount or 0)
+            self.database.audit_event(
+                conn, "recurrence_category_propagated", "recurring_item", str(rule_id),
+                "Catégorie appliquée à la règle et à ses occurrences futures.",
+                {"category": category, "occurrences": count},
+            )
+        plural = "s" if count > 1 else ""
+        return f"Règle mise à jour et {count} autre{plural} occurrence{plural} future{plural} recatégorisée{plural}."
 
     def shift(self, occurrence_ids: list[int], target_date: str) -> dict[str, Any]:
         count, message = self.engine_factory(self.database).shift_occurrences(
