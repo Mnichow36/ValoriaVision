@@ -186,6 +186,15 @@ class SettingsRuleActivePayload(BaseModel):
     active: bool
 
 
+class SettingsRulePendingPayload(BaseModel):
+    rule_id: int | None = None
+
+
+class SettingsRuleApplyPayload(BaseModel):
+    transaction_ids: list[int]
+    rule_id: int | None = None
+
+
 class BankImportPreviewPayload(BaseModel):
     file_name: str
     content_base64: str
@@ -434,6 +443,7 @@ READ_ONLY_POSTS = frozenset(
         "/api/v1/transactions/imports/preview",
         "/api/v1/forecast/simulate",
         "/api/v1/settings/rules-preview",
+        "/api/v1/settings/rules-pending-preview",
     }
 )
 SELF_SERVICE_PREFIXES = ("/api/v1/auth/", "/api/v1/security/")
@@ -2164,6 +2174,48 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         return SettingsReadService(active_database).set_rule_active(rule_id, payload.active)
+
+    @app.post("/api/v1/settings/rules-pending-preview")
+    def preview_pending_rules(
+        payload: SettingsRulePendingPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).pending_preview(payload.rule_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/rules-apply")
+    def apply_pending_rules(
+        payload: SettingsRuleApplyPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).apply_pending(payload.transaction_ids, payload.rule_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/settings/rules/{rule_id}/delete")
+    def delete_settings_rule(
+        rule_id: int,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        try:
+            return SettingsReadService(active_database).delete_rule(rule_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/v1/settings/rules-preview")
     def preview_settings_rules(

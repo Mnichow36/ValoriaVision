@@ -1,27 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
-  createSettingsCategory,
-  createSettingsRule,
-  deleteSettingsCategory,
   getSettings,
-  previewSettingsRules,
-  setSettingsRuleActive,
-  updateSettingsCategory,
   updateSettingsGeneral,
-  updateSettingsRule,
   getSecurityJournal,
   getSecurityStatus,
 } from "../api/client";
 import type {
-  SettingsCategory,
   Profile,
   SecurityEvent,
   SecurityStatus,
-  SettingsCategoryPayload,
-  SettingsRule,
-  SettingsRulePayload,
-  SettingsRulesPreview,
   SettingsSnapshot,
 } from "../api/contracts";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
@@ -30,6 +18,8 @@ import { BackupAdmin } from "./BackupAdmin";
 import { AccessAdmin } from "./AccessAdmin";
 import { ProfileFormDrawer } from "./ProfileDrawers";
 import type { NavigationId } from "./Sidebar";
+import { SettingsCategoriesTab } from "./SettingsCategoriesTab";
+import { SettingsRulesTab } from "./SettingsRulesTab";
 import { ThemeSwitch } from "./ThemeSwitch";
 
 type SecurityView = "access" | "profiles" | "journal" | "protection";
@@ -45,7 +35,7 @@ type SettingsTab = "general" | "categories" | "rules" | "balances" | "security";
 const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "general", label: "Général" },
   { id: "categories", label: "Catégories" },
-  { id: "rules", label: "Règles auto" },
+  { id: "rules", label: "Règles de catégorisation" },
   { id: "balances", label: "Soldes" },
   { id: "security", label: "Sécurité" },
 ];
@@ -57,84 +47,29 @@ const money = new Intl.NumberFormat("fr-FR", {
   style: "currency",
 });
 
-interface CategoryForm {
-  name: string;
-  kind: string;
-  direction: string;
-  color: string;
-  budgetEnabled: boolean;
-}
-
-interface RuleForm {
-  name: string;
-  description: string;
-  active: boolean;
-  priority: number;
-  matchField: string;
-  matchOperator: string;
-  matchValue: string;
-  transactionType: string;
-  accountId: string;
-  minAmount: string;
-  maxAmount: string;
-  targetCategoryId: string;
-  confidence: number;
-}
-
-const emptyCategory = (): CategoryForm => ({
-  name: "",
-  kind: "Dépense",
-  direction: "Dépense",
-  color: "#64748B",
-  budgetEnabled: true,
-});
-
-const emptyRule = (): RuleForm => ({
-  name: "",
-  description: "",
-  active: true,
-  priority: 100,
-  matchField: "label",
-  matchOperator: "contains",
-  matchValue: "",
-  transactionType: "Tous",
-  accountId: "all",
-  minAmount: "",
-  maxAmount: "",
-  targetCategoryId: "",
-  confidence: 100,
-});
-
-export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onSessionEnded }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void; onSessionEnded: () => void }) {
+export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onSessionEnded, onTabChange, onShowCategoryOperations, onOpenSuggestions }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void; onSessionEnded: () => void; onTabChange?: (tab: string) => void; onShowCategoryOperations?: (categoryName: string) => void; onOpenSuggestions?: () => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
   const [securityView, setSecurityView] = useState<SecurityView>("access");
   const isAdmin = profile?.role === "admin" && profile.kind !== "demo";
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
-  const [selectedRuleId, setSelectedRuleId] = useState<number | null>(null);
-  const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategory);
-  const [ruleForm, setRuleForm] = useState<RuleForm>(emptyRule);
   const [currentMonth, setCurrentMonth] = useState("");
   const [sessionTimeout, setSessionTimeout] = useState(10);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<SettingsRulesPreview | null>(null);
   const [journal, setJournal] = useState<SecurityEvent[]>([]);
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
   const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | null>(null);
   const [securityRefresh, setSecurityRefresh] = useState(0);
 
-  async function refresh(signal?: AbortSignal, preferred?: { categoryId?: number; ruleId?: number }) {
+  async function refresh(signal?: AbortSignal) {
     const next = await getSettings(token, signal);
     setSnapshot(next);
     setCurrentMonth(next.general.currentMonth);
     setSessionTimeout(next.security.sessionTimeoutMinutes);
-    const categoryId = preferred?.categoryId ?? selectedCategoryId ?? next.categories[0]?.id ?? null;
-    const ruleId = preferred?.ruleId ?? selectedRuleId ?? next.rules[0]?.id ?? null;
-    selectCategory(next.categories.find((item) => item.id === categoryId) ?? null);
-    selectRule(next.rules.find((item) => item.id === ruleId) ?? null);
   }
+
+  useEffect(() => { onTabChange?.(activeTab); }, [activeTab, onTabChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,53 +89,14 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
     return () => controller.abort();
   }, [activeTab, token, securityRefresh]);
 
-  const selectedCategory = useMemo(
-    () => snapshot?.categories.find((item) => item.id === selectedCategoryId) ?? null,
-    [selectedCategoryId, snapshot],
-  );
-  const selectedRule = useMemo(
-    () => snapshot?.rules.find((item) => item.id === selectedRuleId) ?? null,
-    [selectedRuleId, snapshot],
-  );
-
-  function selectCategory(category: SettingsCategory | null) {
-    setSelectedCategoryId(category?.id ?? null);
-    setCategoryForm(category ? {
-      name: category.name,
-      kind: category.kind,
-      direction: category.direction,
-      color: category.color,
-      budgetEnabled: category.budgetEnabled,
-    } : emptyCategory());
-  }
-
-  function selectRule(rule: SettingsRule | null) {
-    setSelectedRuleId(rule?.id ?? null);
-    setRuleForm(rule ? {
-      name: rule.name,
-      description: rule.description,
-      active: rule.active,
-      priority: rule.priority,
-      matchField: rule.matchField,
-      matchOperator: rule.matchOperator,
-      matchValue: rule.matchValue,
-      transactionType: rule.transactionType || "Tous",
-      accountId: rule.accountId === null ? "all" : String(rule.accountId),
-      minAmount: rule.minAmount === null ? "" : String(rule.minAmount),
-      maxAmount: rule.maxAmount === null ? "" : String(rule.maxAmount),
-      targetCategoryId: String(rule.targetCategoryId),
-      confidence: rule.confidence,
-    } : emptyRule());
-  }
-
-  async function run(action: () => Promise<{ message: string; id?: number }>, preferred?: (result: { id?: number }) => { categoryId?: number; ruleId?: number }) {
+  async function run(action: () => Promise<{ message: string; id?: number }>) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const result = await action();
       setNotice(result.message);
-      await refresh(undefined, preferred?.(result));
+      await refresh();
     } catch (reason: unknown) {
       setError(errorMessage(reason));
     } finally {
@@ -230,79 +126,14 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
     }));
   }
 
-  async function saveCategory() {
-    const payload: SettingsCategoryPayload = {
-      name: categoryForm.name,
-      kind: categoryForm.kind,
-      direction: categoryForm.direction,
-      color: categoryForm.color,
-      budget_enabled: categoryForm.budgetEnabled,
-    };
-    await run(
-      () => selectedCategoryId === null
-        ? createSettingsCategory(token, payload)
-        : updateSettingsCategory(token, selectedCategoryId, payload),
-      (result) => ({ categoryId: result.id }),
-    );
-  }
-
-  async function removeCategory() {
-    if (selectedCategoryId === null || !selectedCategory) return;
-    const confirmed = window.confirm(
-      `Supprimer la catégorie « ${selectedCategory.name} » ? Les usages seront réaffectés par le moteur Python.`,
-    );
-    if (!confirmed) return;
-    await run(() => deleteSettingsCategory(token, selectedCategoryId), () => ({ categoryId: undefined }));
-  }
-
-  async function saveRule() {
-    const payload: SettingsRulePayload = {
-      name: ruleForm.name,
-      description: ruleForm.description,
-      is_active: ruleForm.active,
-      priority: ruleForm.priority,
-      match_field: ruleForm.matchField,
-      match_operator: ruleForm.matchOperator,
-      match_value: ruleForm.matchValue,
-      transaction_type: ruleForm.transactionType === "Tous" ? null : ruleForm.transactionType,
-      account_id: ruleForm.accountId === "all" ? null : Number(ruleForm.accountId),
-      min_amount: optionalNumber(ruleForm.minAmount),
-      max_amount: optionalNumber(ruleForm.maxAmount),
-      target_category_id: Number(ruleForm.targetCategoryId),
-      confidence: ruleForm.confidence,
-    };
-    await run(
-      () => selectedRuleId === null
-        ? createSettingsRule(token, payload)
-        : updateSettingsRule(token, selectedRuleId, payload),
-      (result) => ({ ruleId: result.id }),
-    );
-  }
-
-  async function toggleRule() {
-    if (selectedRuleId === null) return;
-    await run(
-      () => setSettingsRuleActive(token, selectedRuleId, !ruleForm.active),
-      () => ({ ruleId: selectedRuleId }),
-    );
-  }
-
-  async function testRules() {
-    setBusy(true);
+  async function afterChange(message: string) {
+    setNotice(message);
     setError("");
-    try {
-      const result = await previewSettingsRules(token);
-      setPreview(result);
-      setNotice(result.message);
-    } catch (reason: unknown) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
+    await refresh();
   }
 
   return (
-    <section className="settings-page">
+    <section className={activeTab === "categories" || activeTab === "rules" ? "settings-page settings-page--fill" : "settings-page"}>
       <nav aria-label="Sections des paramètres" className="settings-tabs">
         {tabs.map((tab) => (
           <button
@@ -351,74 +182,11 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
       )}
 
       {activeTab === "categories" && (
-        <div className="settings-split">
-          <article className="card settings-list-card">
-            <div className="settings-card-heading"><div><h2>Gestion des catégories</h2><p>Source commune aux transactions, budgets et graphiques.</p></div></div>
-            <div className="settings-table-wrap">
-              <table className="settings-table"><thead><tr><th>Catégorie</th><th>Sens</th><th>Usages</th></tr></thead><tbody>
-                {snapshot.categories.map((category) => (
-                  <tr className={category.id === selectedCategoryId ? "settings-row--active" : ""} key={category.id} onClick={() => selectCategory(category)}>
-                    <td><span className="settings-color" style={{ background: category.color }} /><strong>{category.name}</strong></td>
-                    <td>{category.direction}</td>
-                    <td>{category.usage.transactions + category.usage.recurrences + category.usage.budgets}</td>
-                  </tr>
-                ))}
-              </tbody></table>
-            </div>
-            <button className="settings-primary" onClick={() => selectCategory(null)} type="button">Nouvelle catégorie</button>
-          </article>
-          <form className="card settings-editor" id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveCategory(); }}>
-            <div className="settings-card-heading"><div><h2>{selectedCategoryId === null ? "Nouvelle catégorie" : "Volet catégorie"}</h2><p>Le sens pilote le signe des saisies manuelles.</p></div></div>
-            <label>Nom<input onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })} required value={categoryForm.name} /></label>
-            <label>Type<select onChange={(event) => setCategoryForm({ ...categoryForm, kind: event.target.value })} value={categoryForm.kind}><option>Revenu</option><option>Dépense</option><option>Neutre</option></select></label>
-            <label>Sens<select onChange={(event) => setCategoryForm({ ...categoryForm, direction: event.target.value })} value={categoryForm.direction}><option>Recette</option><option>Dépense</option><option>Neutre</option></select></label>
-            <label>Couleur<span className="settings-color-field"><input onChange={(event) => setCategoryForm({ ...categoryForm, color: event.target.value })} type="color" value={categoryForm.color} /><input onChange={(event) => setCategoryForm({ ...categoryForm, color: event.target.value })} value={categoryForm.color} /></span></label>
-            <label className="settings-check"><input checked={categoryForm.budgetEnabled} onChange={(event) => setCategoryForm({ ...categoryForm, budgetEnabled: event.target.checked })} type="checkbox" />Disponible dans les budgets</label>
-            <div className="settings-editor-actions">
-              {selectedCategoryId !== null && <button className="settings-secondary settings-danger" disabled={busy || selectedCategory?.isSystem} onClick={() => void removeCategory()} type="button">Supprimer</button>}
-              <button className="settings-primary" disabled={busy} type="submit">Enregistrer</button>
-            </div>
-          </form>
-        </div>
+        <SettingsCategoriesTab categories={snapshot.categories} onChanged={afterChange} onShowOperations={(name) => onShowCategoryOperations?.(name)} token={token} />
       )}
 
       {activeTab === "rules" && (
-        <div className="settings-split settings-split--rules">
-          <article className="card settings-list-card">
-            <div className="settings-card-heading"><div><h2>Règles de catégorisation automatique</h2><p>Règles locales appliquées aux imports et transactions.</p></div></div>
-            <div className="settings-table-wrap">
-              <table className="settings-table settings-rule-table"><thead><tr><th>Priorité</th><th>Critère</th><th>Catégorie</th><th>Statut</th></tr></thead><tbody>
-                {snapshot.rules.map((rule) => (
-                  <tr className={rule.id === selectedRuleId ? "settings-row--active" : ""} key={rule.id} onClick={() => selectRule(rule)}>
-                    <td>{rule.priority}</td><td><strong>{rule.summary}</strong><small>{rule.name}</small></td>
-                    <td><span className="category-chip">{rule.targetCategory}</span></td>
-                    <td><span className={rule.active ? "status-chip status-chip--success" : "status-chip status-chip--muted"}>{rule.active ? "Active" : "Pause"}</span></td>
-                  </tr>
-                ))}
-              </tbody></table>
-            </div>
-            <div className="settings-list-actions"><button className="settings-primary" onClick={() => selectRule(null)} type="button">Nouvelle règle</button><button className="settings-secondary" disabled={busy} onClick={() => void testRules()} type="button">Tester sur les transactions</button></div>
-            {preview && <div className="settings-preview"><strong>{preview.matchedCount} correspondance(s)</strong><span>Simulation en lecture seule — aucune transaction modifiée.</span></div>}
-          </article>
-          <form className="card settings-editor" id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveRule(); }}>
-            <div className="settings-card-heading"><div><h2>{selectedRuleId === null ? "Nouvelle règle" : "Volet règle"}</h2><p>Configuration de la règle sélectionnée.</p></div></div>
-            <label>Nom<input onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} required value={ruleForm.name} /></label>
-            <div className="settings-inline-fields">
-              <label>Champ<select onChange={(event) => setRuleForm({ ...ruleForm, matchField: event.target.value })} value={ruleForm.matchField}>{snapshot.options.matchFields.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-              <label>Opérateur<select onChange={(event) => setRuleForm({ ...ruleForm, matchOperator: event.target.value })} value={ruleForm.matchOperator}>{snapshot.options.operators.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-            </div>
-            {ruleForm.matchOperator === "amount_between" ? <div className="settings-inline-fields"><label>Montant min<input inputMode="decimal" onChange={(event) => setRuleForm({ ...ruleForm, minAmount: event.target.value })} value={ruleForm.minAmount} /></label><label>Montant max<input inputMode="decimal" onChange={(event) => setRuleForm({ ...ruleForm, maxAmount: event.target.value })} value={ruleForm.maxAmount} /></label></div> : <label>Valeur recherchée<input onChange={(event) => setRuleForm({ ...ruleForm, matchValue: event.target.value })} required value={ruleForm.matchValue} /></label>}
-            <label>Compte<select onChange={(event) => setRuleForm({ ...ruleForm, accountId: event.target.value })} value={ruleForm.accountId}><option value="all">Tous les comptes</option>{snapshot.options.accounts.map((account) => <option key={account.id} value={account.id}>{account.bank ? `${account.bank} — ` : ""}{account.name}</option>)}</select></label>
-            <label>Catégorie<select onChange={(event) => setRuleForm({ ...ruleForm, targetCategoryId: event.target.value })} required value={ruleForm.targetCategoryId}><option disabled value="">Choisir une catégorie</option>{snapshot.options.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-            <div className="settings-inline-fields"><label>Type de flux<select onChange={(event) => setRuleForm({ ...ruleForm, transactionType: event.target.value })} value={ruleForm.transactionType}>{snapshot.options.transactionTypes.map((item) => <option key={item}>{item}</option>)}</select></label><label>Priorité<input min="1" onChange={(event) => setRuleForm({ ...ruleForm, priority: Number(event.target.value) })} type="number" value={ruleForm.priority} /></label></div>
-            <label>Confiance (%)<input max="100" min="1" onChange={(event) => setRuleForm({ ...ruleForm, confidence: Number(event.target.value) })} type="number" value={ruleForm.confidence} /></label>
-            <label className="settings-check"><input checked={ruleForm.active} onChange={(event) => setRuleForm({ ...ruleForm, active: event.target.checked })} type="checkbox" />Règle active</label>
-            <div className="settings-editor-actions">
-              {selectedRuleId !== null && <button className="settings-secondary" disabled={busy} onClick={() => void toggleRule()} type="button">{ruleForm.active ? "Désactiver" : "Réactiver"}</button>}
-              <button className="settings-primary" disabled={busy} type="submit">Enregistrer</button>
-            </div>
-          </form>
-        </div>
+        <SettingsRulesTab onChanged={afterChange} onOpenSuggestions={() => onOpenSuggestions?.()} snapshot={snapshot} token={token} />
       )}
 
       {activeTab === "balances" && (
@@ -528,13 +296,6 @@ function formatJournalDate(value: string): string {
 
 function Status({ value }: { value: boolean }) {
   return <span className={value ? "status-chip status-chip--success" : "status-chip status-chip--warning"}>{value ? "Opérationnel" : "À vérifier"}</span>;
-}
-
-function optionalNumber(value: string): number | null {
-  const clean = value.trim();
-  if (!clean) return null;
-  const result = Number(clean.replace(",", "."));
-  return Number.isFinite(result) ? result : null;
 }
 
 function fileName(path: string): string {

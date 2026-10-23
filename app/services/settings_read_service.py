@@ -4,6 +4,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from app.services.business_rules import is_uncategorized_transaction
+
 
 def _field(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
@@ -64,6 +66,7 @@ class SettingsReadService:
             },
             "categories": [self._category(row) for row in categories],
             "rules": [self._rule(row) for row in rules],
+            "pendingCount": len(self._pending_transactions()),
             "options": {
                 "accounts": [
                     {
@@ -150,6 +153,9 @@ class SettingsReadService:
         return {"success": True, "message": "Catégorie mise à jour.", "id": category_id}
 
     def delete_category(self, category_id: int) -> dict[str, Any]:
+        for row in self.database.category_usage_summary():
+            if int(_field(row, "id", 0) or 0) == int(category_id) and bool(_field(row, "is_system", 0)):
+                raise ValueError("Une catégorie système ne peut pas être supprimée.")
         self.database.delete_category(category_id)
         return {"success": True, "message": "Catégorie supprimée."}
 
@@ -206,6 +212,94 @@ class SettingsReadService:
             "success": True,
             "message": "Règle activée." if active else "Règle mise en pause.",
             "id": rule_id,
+        }
+
+    def delete_rule(self, rule_id: int) -> dict[str, Any]:
+        if self.categorization.get_rule(rule_id) is None:
+            raise ValueError("Règle introuvable.")
+        self.categorization.delete_rule(rule_id)
+        return {"success": True, "message": "Règle supprimée.", "id": rule_id}
+
+    def _pending_transactions(self) -> list[Any]:
+        """Opérations « À catégoriser » encore ouvertes (comptes actifs, hors saisies manuelles validées)."""
+        with self.database.connect() as conn:
+            rows = list(conn.execute(
+                """
+                SELECT t.*, a.name AS account_name, a.bank AS bank
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                WHERE a.status = 'Actif'
+                ORDER BY t.tx_date DESC, t.id DESC
+                """
+            ))
+        locked = {"manual", "validated"}
+        return [
+            row for row in rows
+            if is_uncategorized_transaction(_field(row, "category"), _field(row, "status"))
+            and _field(row, "categorization_status") not in locked
+        ]
+
+    def pending_preview(self, rule_id: int | None = None) -> dict[str, Any]:
+        """Simulation : opérations en attente que les règles actives (ou une seule) classeraient.
+
+        Rien n'est modifié. Les opérations déjà catégorisées ne sont jamais concernées.
+        """
+        rules = list(self.categorization.active_rules())
+        if rule_id is not None:
+            rules = [rule for rule in rules if int(rule["id"]) == int(rule_id)]
+            if not rules:
+                raise ValueError("Cette règle est inactive ou introuvable.")
+        pending = self._pending_transactions()
+        items: list[dict[str, Any]] = []
+        by_rule: dict[int, dict[str, Any]] = {}
+        for transaction in pending:
+            for rule in rules:
+                ok, _ = self.categorization.rule_matches(rule, transaction)
+                if not ok:
+                    continue
+                current_id = int(rule["id"])
+                entry = by_rule.setdefault(current_id, {
+                    "ruleId": current_id,
+                    "ruleName": str(rule["name"] or ""),
+                    "summary": str(self.categorization.rule_summary(rule)),
+                    "category": str(rule["target_category"] or ""),
+                    "count": 0,
+                })
+                entry["count"] += 1
+                items.append({
+                    "id": int(transaction["id"]),
+                    "date": str(transaction["tx_date"] or ""),
+                    "label": str(transaction["label"] or ""),
+                    "amount": _number(transaction["amount"]),
+                    "account": str(transaction["account_name"] or ""),
+                    "ruleId": current_id,
+                    "category": str(rule["target_category"] or ""),
+                })
+                break
+        matched = len(items)
+        return {
+            "pendingCount": len(pending),
+            "matchedCount": matched,
+            "unmatchedCount": len(pending) - matched,
+            "byRule": sorted(by_rule.values(), key=lambda entry: (-entry["count"], entry["ruleName"])),
+            "items": items,
+        }
+
+    def apply_pending(self, transaction_ids: list[int], rule_id: int | None = None) -> dict[str, Any]:
+        """Classe les opérations choisies, parmi celles que la simulation proposait."""
+        allowed = {item["id"] for item in self.pending_preview(rule_id)["items"]}
+        wanted = [int(value) for value in transaction_ids if int(value) in allowed]
+        if not wanted:
+            raise ValueError("Aucune opération à classer.")
+        summary = self.categorization.apply_rules_to_transactions(wanted, force=False, only_rule_id=rule_id)
+        classified = int(summary["auto"]) + int(summary["to_review"])
+        self._seal()
+        plural = "s" if classified > 1 else ""
+        return {
+            "success": True,
+            "classified": classified,
+            "toReview": int(summary["to_review"]),
+            "message": f"{classified} opération{plural} classée{plural}.",
         }
 
     def preview_rules(self) -> dict[str, Any]:
@@ -283,6 +377,8 @@ class SettingsReadService:
             "targetCategoryId": int(_field(row, "target_category_id", 0) or 0),
             "targetCategory": str(_field(row, "target_category", "Sans catégorie") or "Sans catégorie"),
             "confidence": int(_field(row, "confidence", 100) or 100),
+            "usageCount": int(_field(row, "usage_count", 0) or 0),
+            "lastUsedAt": str(_field(row, "last_used_at", "") or ""),
             "summary": str(self.categorization.rule_summary(row)),
         }
 

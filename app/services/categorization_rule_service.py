@@ -232,7 +232,7 @@ class CategorizationRuleService:
             return True, f"{field_label} égal à « {rule['match_value']} »"
         return False, "Aucune correspondance"
 
-    def categorize_transaction(self, transaction_id: int, force: bool = False) -> dict:
+    def categorize_transaction(self, transaction_id: int, force: bool = False, only_rule_id: int | None = None) -> dict:
         tx = self.transaction_row(transaction_id)
         if not tx:
             return {"status": "not_found", "rule_id": None, "category": None}
@@ -244,6 +244,8 @@ class CategorizationRuleService:
                 return {"status": "skipped", "reason": "validated_manual", "rule_id": None, "category": tx["category"]}
 
         for rule in self.active_rules():
+            if only_rule_id is not None and int(rule["id"]) != int(only_rule_id):
+                continue
             ok, reason = self.rule_matches(rule, tx)
             if not ok:
                 continue
@@ -278,6 +280,10 @@ class CategorizationRuleService:
                 )
             return {"status": cat_status, "rule_id": int(rule["id"]), "category": rule["target_category"], "reason": reason}
 
+        if only_rule_id is not None:
+            # Application d'une règle précise : sans correspondance, on ne touche à rien.
+            return {"status": "skipped", "reason": "no_match", "rule_id": None, "category": tx["category"]}
+
         with self.db.connect() as conn:
             conn.execute(
                 """
@@ -292,7 +298,7 @@ class CategorizationRuleService:
         return {"status": self.STATUS_TO_CATEGORIZE, "rule_id": None, "category": None}
 
 
-    def apply_rules_to_transactions(self, transaction_ids: list[int], force: bool = True) -> dict:
+    def apply_rules_to_transactions(self, transaction_ids: list[int], force: bool = True, only_rule_id: int | None = None) -> dict:
         summary = {
             "processed": 0,
             "auto": 0,
@@ -303,7 +309,7 @@ class CategorizationRuleService:
         }
         for transaction_id in transaction_ids:
             summary["processed"] += 1
-            result = self.categorize_transaction(int(transaction_id), force=force)
+            result = self.categorize_transaction(int(transaction_id), force=force, only_rule_id=only_rule_id)
             status = result["status"]
             if status == self.STATUS_AUTO:
                 summary["auto"] += 1

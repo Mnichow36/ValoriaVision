@@ -161,7 +161,7 @@ export function BankImportPage({
       <nav aria-label="Sous-navigation des transactions" className="transactions-subnav">
         <button onClick={() => onViewChange("journal")} type="button">Transactions</button>
         <button className={view === "import" ? "active" : ""} onClick={() => onViewChange("import")} type="button">Imports</button>
-        <button onClick={onNavigateSettings} type="button">Règles auto</button>
+        <button onClick={onNavigateSettings} type="button">Règles de catégorisation</button>
         <button className={view === "history" ? "active" : ""} onClick={() => onViewChange("history")} type="button">Lots</button>
       </nav>
 

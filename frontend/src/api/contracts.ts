@@ -1015,6 +1015,8 @@ export interface SettingsRule {
   targetCategoryId: number;
   targetCategory: string;
   confidence: number;
+  usageCount: number;
+  lastUsedAt: string;
   summary: string;
 }
 
@@ -1031,6 +1033,7 @@ export interface SettingsSnapshot {
   };
   categories: SettingsCategory[];
   rules: SettingsRule[];
+  pendingCount: number;
   options: {
     accounts: Array<{ id: number; name: string; bank: string }>;
     categories: Array<{ id: number; name: string }>;
@@ -1104,6 +1107,19 @@ export interface SettingsRulesPreview extends SettingsActionResult {
   matchedCount: number;
   byRule: Array<{ ruleId: number; count: number }>;
   samples: Array<{ transactionId: number; label: string; ruleId: number; category: string }>;
+}
+
+export interface PendingRulesPreview {
+  pendingCount: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  byRule: Array<{ ruleId: number; ruleName: string; summary: string; category: string; count: number }>;
+  items: Array<{ id: number; date: string; label: string; amount: number; account: string; ruleId: number; category: string }>;
+}
+
+export interface PendingRulesApplyResult extends SettingsActionResult {
+  classified: number;
+  toReview: number;
 }
 
 export interface ApiHealth {

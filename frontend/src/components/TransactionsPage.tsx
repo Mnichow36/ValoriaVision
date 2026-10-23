@@ -12,7 +12,7 @@ import { ReconciliationPage } from "./ReconciliationPage";
 import { RuleSuggestionsTab } from "./RuleSuggestionsTab";
 
 interface TransactionsPageProps {
-  accountFocus?: { accountId: number; key: number };
+  accountFocus?: { accountId?: number; category?: string; key: number };
   createRequestKey: number;
   importRequestKey: number;
   onDataChanged: () => void;
@@ -46,7 +46,7 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState("");
-  const [accountId, setAccountId] = useState(accountFocus ? String(accountFocus.accountId) : "all");
+  const [accountId, setAccountId] = useState(accountFocus?.accountId !== undefined ? String(accountFocus.accountId) : "all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [allDates, setAllDates] = useState(true);
@@ -65,9 +65,9 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
 
   useEffect(() => {
     if (!accountFocus) return;
-    setAccountId(String(accountFocus.accountId));
+    setAccountId(accountFocus.accountId === undefined ? "all" : String(accountFocus.accountId));
     setSearch("");
-    setCategoryFilter("all");
+    setCategoryFilter(accountFocus.category ?? "all");
     setStatusFilter("all");
     setAllDates(true);
   }, [accountFocus]);
@@ -482,7 +482,7 @@ const TRANSACTION_TABS: { view: TransactionsView; label: string }[] = [
   { view: "reconciliation", label: "Rapprochements" },
   { view: "recurrences", label: "Récurrences" },
   { view: "rules", label: "Règles de récurrence" },
-  { view: "suggestions", label: "Suggestions de règles" },
+  { view: "suggestions", label: "Suggestions de catégorisation" },
 ];
 
 function TransactionsTabs({ badge = 0, onViewChange, suggestionBadge = 0, view }: { badge?: number; onViewChange: (view: TransactionsView) => void; suggestionBadge?: number; view: TransactionsView }) {

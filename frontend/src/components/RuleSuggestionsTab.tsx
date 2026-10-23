@@ -14,7 +14,7 @@ interface RuleSuggestionsTabProps {
   token: string;
 }
 
-/** Onglet « Suggestions de règles » : règles proposées d'après l'historique, validées par l'utilisateur. */
+/** Onglet « Suggestions de catégorisation » : règles proposées d'après l'historique, validées par l'utilisateur. */
 export function RuleSuggestionsTab({ categories, onApplied, token }: RuleSuggestionsTabProps) {
   const [snapshot, setSnapshot] = useState<RuleSuggestionsSnapshot>();
   const [reliability, setReliability] = useState(0.9);

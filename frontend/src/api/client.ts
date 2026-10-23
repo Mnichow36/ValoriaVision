@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { PendingRulesApplyResult, PendingRulesPreview, RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -594,6 +594,26 @@ export function setSettingsRuleActive(token: string, ruleId: number, active: boo
     method: "POST",
     token,
     body: { active },
+  });
+}
+
+export function deleteSettingsRule(token: string, ruleId: number): Promise<SettingsActionResult> {
+  return request<SettingsActionResult>(`/api/v1/settings/rules/${ruleId}/delete`, { method: "POST", token });
+}
+
+export function previewPendingRules(token: string, ruleId?: number | null): Promise<PendingRulesPreview> {
+  return request<PendingRulesPreview>("/api/v1/settings/rules-pending-preview", {
+    method: "POST",
+    token,
+    body: { rule_id: ruleId ?? null },
+  });
+}
+
+export function applyPendingRules(token: string, transactionIds: number[], ruleId?: number | null): Promise<PendingRulesApplyResult> {
+  return request<PendingRulesApplyResult>("/api/v1/settings/rules-apply", {
+    method: "POST",
+    token,
+    body: { transaction_ids: transactionIds, rule_id: ruleId ?? null },
   });
 }
 

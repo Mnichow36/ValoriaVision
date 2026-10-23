@@ -89,7 +89,8 @@ export function App() {
   const [accountEditorRequestKey, setAccountEditorRequestKey] = useState(0);
   const [assetEditorRequestKey, setAssetEditorRequestKey] = useState(0);
   const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
-  const [transactionAccountFocus, setTransactionAccountFocus] = useState<{ accountId: number; key: number }>();
+  const [settingsTab, setSettingsTab] = useState("rules");
+  const [transactionAccountFocus, setTransactionAccountFocus] = useState<{ accountId?: number; category?: string; key: number }>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -164,6 +165,18 @@ export function App() {
     setTransactionAccountFocus((current) => ({ accountId, key: (current?.key ?? 0) + 1 }));
     setActiveModule("transactions");
     setTransactionsView("journal");
+  }
+
+  function showCategoryOperations(category: string) {
+    setTransactionAccountFocus((current) => ({ category, key: (current?.key ?? 0) + 1 }));
+    setActiveModule("transactions");
+    setTransactionsView("journal");
+  }
+
+  function openRuleSuggestions() {
+    setTransactionAccountFocus(undefined);
+    setActiveModule("transactions");
+    setTransactionsView("suggestions");
   }
 
   function openBankImport(accountId?: number) {
@@ -257,6 +270,7 @@ export function App() {
             onCreateRecurrenceRule={() => setRecurrenceRuleRequestKey((key) => key + 1)}
             transactionView={transactionsView}
             onTransactionViewChange={setTransactionsView}
+            settingsTab={settingsTab}
           />
         </header>
         <div className="workspace-content">
@@ -328,7 +342,7 @@ export function App() {
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
           {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
-          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onProfileChanged={() => void refreshProfiles()} onSessionEnded={() => { setState({ status: "locked", busy: false, preferredProfileId: null }); void refreshProfiles(); }} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onOpenSuggestions={openRuleSuggestions} onShowCategoryOperations={showCategoryOperations} onTabChange={setSettingsTab} onProfileChanged={() => void refreshProfiles()} onSessionEnded={() => { setState({ status: "locked", busy: false, preferredProfileId: null }); void refreshProfiles(); }} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
           {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>
@@ -361,7 +375,9 @@ function HeaderActions({
   onCreateRecurrenceRule,
   transactionView,
   onTransactionViewChange,
+  settingsTab,
 }: {
+  settingsTab: string;
   accountStatusFilter: string;
   activeModule: NavigationId;
   budgetMonth: string;
@@ -486,6 +502,7 @@ function HeaderActions({
     );
   }
   if (activeModule === "settings") {
+    if (settingsTab === "categories" || settingsTab === "rules") return null;
     return <div className="header-actions"><button form="settings-active-form" type="submit">Sauvegarder</button></div>;
   }
   return null;
