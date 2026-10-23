@@ -31,6 +31,14 @@ import { ProfileFormDrawer } from "./ProfileDrawers";
 import type { NavigationId } from "./Sidebar";
 import { ThemeSwitch } from "./ThemeSwitch";
 
+type SecurityView = "access" | "profiles" | "journal" | "protection";
+const securityViews: { id: SecurityView; label: string; admin?: boolean }[] = [
+  { id: "access", label: "Mon accès" },
+  { id: "profiles", label: "Profils et accès", admin: true },
+  { id: "journal", label: "Journal", admin: true },
+  { id: "protection", label: "Protection des données" },
+];
+
 type SettingsTab = "general" | "categories" | "rules" | "balances" | "security";
 
 const tabs: Array<{ id: SettingsTab; label: string }> = [
@@ -99,6 +107,8 @@ const emptyRule = (): RuleForm => ({
 export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
+  const [securityView, setSecurityView] = useState<SecurityView>("access");
+  const isAdmin = profile?.role === "admin" && profile.kind !== "demo";
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedRuleId, setSelectedRuleId] = useState<number | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategory);
@@ -421,16 +431,15 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
       )}
 
       {activeTab === "security" && (
-        <form className="settings-overview-grid" id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveSecurity(); }}>
-          <article className="card settings-summary-card">
-            <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
-            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes chiffrées</dt><dd><Status value={snapshot.security.encryptedBackups} /></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
-          </article>
-          <article className="card settings-summary-card">
-            <div className="panel-heading"><div><h2>Verrouillage de session</h2><p>Le nouveau délai s’applique au prochain démarrage du moteur local.</p></div></div>
-            <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
-            <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
-          </article>
+        <>
+        <nav aria-label="Sections de la sécurité" className="settings-subtabs">
+          {securityViews.filter((view) => !view.admin || isAdmin).map((view) => (
+            <button aria-pressed={securityView === view.id} key={view.id} onClick={() => setSecurityView(view.id)} type="button">{view.label}</button>
+          ))}
+        </nav>
+        <form className={securityView === "access" ? "settings-overview-grid settings-overview-grid--3" : securityView === "protection" ? "settings-overview-grid" : "settings-overview-grid settings-overview-grid--1"} id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveSecurity(); }}>
+          {securityView === "access" && (
+            <>
           {profile && (
             <article className="card settings-summary-card">
               <div className="panel-heading"><div><h2>Mon profil</h2><p>Nom, photo et couleur affichés à l’ouverture de Valoria.</p></div></div>
@@ -457,14 +466,22 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
             </div>
           </article>
           )}
-          {profile?.role === "admin" && profile.kind !== "demo" && (
+          <article className="card settings-summary-card">
+            <div className="panel-heading"><div><h2>Verrouillage de session</h2><p>Le nouveau délai s’applique au prochain démarrage du moteur local.</p></div></div>
+            <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
+            <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
+          </article>
+            </>
+          )}
+          {securityView === "profiles" && isAdmin && profile && (
             <AccessAdmin currentProfileId={profile.id} onChanged={onProfileChanged} onNotice={setNotice} token={token} />
           )}
+          {securityView === "journal" && isAdmin && (
           <article className="card settings-summary-card security-journal-card">
             <div className="panel-heading"><div><h2>Journal de sécurité</h2><p>Dernières connexions, échecs et verrouillages.</p></div></div>
             {journal.length === 0 ? <small>Aucun événement enregistré.</small> : (
               <ul className="security-journal">
-                {journal.slice(0, 12).map((event, index) => (
+                {journal.slice(0, 30).map((event, index) => (
                   <li data-kind={event.type.endsWith("failure") ? "bad" : "ok"} key={`${event.at}-${index}`}>
                     <span>{formatJournalDate(event.at)}</span><strong>{event.message}</strong>
                   </li>
@@ -472,8 +489,18 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: {
               </ul>
             )}
           </article>
+          )}
+          {securityView === "protection" && (
+            <>
+          <article className="card settings-summary-card">
+            <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
+            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes chiffrées</dt><dd><Status value={snapshot.security.encryptedBackups} /></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
+          </article>
           <article className="card settings-summary-card settings-backup-card"><div className="panel-heading"><div><h2>Sauvegardes</h2><p>Format chiffré Valoria .vvb.</p></div></div><strong>{fileName(snapshot.security.lastBackup) || "Aucune sauvegarde enregistrée"}</strong><small title={snapshot.security.lastBackup}>{snapshot.security.lastBackup || "La création/restauration reste pilotée par le moteur local sécurisé."}</small></article>
+            </>
+          )}
         </form>
+        </>
       )}
       {securityDrawer === "profile" && profile && (
         <ProfileFormDrawer mode="edit" onClose={() => setSecurityDrawer(null)} onSaved={() => { setSecurityDrawer(null); setNotice("Profil mis à jour."); onProfileChanged(); }} profile={profile} token={token} />
