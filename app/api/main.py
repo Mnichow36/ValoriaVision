@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -11,6 +12,7 @@ from pydantic import BaseModel, SecretStr
 from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
+from app.security.profiles import LEGACY_PROFILE_ID, ProfileError, ProfileManager, ProfileNotFound
 from app.services.accounts_read_service import AccountDeletionBlockedError, AccountsReadService
 from app.services.assets_read_service import AssetsReadService
 from app.services.bank_import_workflow_service import BankImportWorkflowService
@@ -54,7 +56,8 @@ class BudgetRulesPayload(BaseModel):
 
 
 class PasswordPayload(BaseModel):
-    password: SecretStr
+    password: SecretStr = SecretStr("")
+    profile_id: str | None = None
 
 
 class ChangePasswordPayload(BaseModel):
@@ -69,6 +72,26 @@ class RecoveryKeyRequestPayload(BaseModel):
 class RecoverPayload(BaseModel):
     recovery_key: SecretStr
     new_password: SecretStr
+    profile_id: str | None = None
+
+
+class ProfileCreatePayload(BaseModel):
+    name: str
+    color: str | None = None
+    kind: str = "personal"
+    password: SecretStr | None = None
+    avatar: str | None = None
+
+
+class ProfileUpdatePayload(BaseModel):
+    name: str | None = None
+    color: str | None = None
+    avatar: str | None = None
+    clear_avatar: bool = False
+
+
+class ProfileDeletePayload(BaseModel):
+    password: SecretStr = SecretStr("")
 
 
 class ReconciliationManualMatchPayload(BaseModel):
@@ -348,6 +371,32 @@ def _scenario_snapshot(database: Database) -> dict:
     }
 
 
+class ActiveDatabase:
+    """Base du profil actuellement ouvert.
+
+    Les services reçoivent cet objet une fois pour toutes ; il redirige chaque
+    appel vers la base du profil actif. Changer de profil = changer de cible.
+    """
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_target", None)
+
+    def use(self, database: Database) -> None:
+        object.__setattr__(self, "_target", database)
+
+    def release(self) -> None:
+        object.__setattr__(self, "_target", None)
+
+    def is_active(self) -> bool:
+        return object.__getattribute__(self, "_target") is not None
+
+    def __getattr__(self, name: str):
+        target = object.__getattribute__(self, "_target")
+        if target is None:
+            raise RuntimeError("Aucun profil n’est ouvert.")
+        return getattr(target, name)
+
+
 def create_app(database: Database | None = None) -> FastAPI:
     app = FastAPI(
         title="Valoria Vision Local API",
@@ -372,23 +421,23 @@ def create_app(database: Database | None = None) -> FastAPI:
         ],
     )
 
-    active_database = database or Database()
+    legacy_database = database or Database()
+    profiles = ProfileManager(legacy_database.data_dir, legacy_database=legacy_database)
+    active_database = ActiveDatabase()
+    state: dict[str, str | None] = {"profile_id": None}
     auth = AuthService(active_database)
     bank_imports = BankImportWorkflowService(active_database)
-    database_path = Path(active_database.path)
-    timeout_seconds = 600
-    if database_path.exists():
-        try:
-            timeout_seconds = auth.session_timeout_minutes() * 60
-        except Exception:
-            # A damaged or incomplete database is reported by the first real
-            # request; importing the API must never create or repair it.
-            timeout_seconds = 600
-    sessions = ApiSessionStore(timeout_seconds)
+    sessions = ApiSessionStore(600)
     bootstrap_secret = os.environ.get("VALORIA_API_BOOTSTRAP_SECRET", "")
 
     def ensure_database_exists() -> None:
-        if not database_path.exists():
+        if not active_database.is_active():
+            raise HTTPException(
+                status_code=401,
+                detail="Session locale absente ou expirée.",
+                headers={"WWW-Authenticate": "ValoriaSession"},
+            )
+        if not Path(active_database.path).exists():
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -396,6 +445,32 @@ def create_app(database: Database | None = None) -> FastAPI:
                     "Le prototype n’initialise jamais de données de démonstration automatiquement."
                 ),
             )
+
+    def resolve_profile_id(requested: str | None) -> str:
+        if requested:
+            if not profiles.exists(requested):
+                raise HTTPException(status_code=404, detail="Profil introuvable.")
+            return requested
+        only = profiles.only_profile_id()
+        if only:
+            return only
+        current = state["profile_id"]
+        if current and profiles.exists(current):
+            return current
+        raise HTTPException(status_code=409, detail="Choisissez un profil.")
+
+    def activate_profile(profile_id: str) -> None:
+        db = profiles.database_for(profile_id)
+        db.prepare_existing_database()
+        sessions.clear()
+        active_database.use(db)
+        state["profile_id"] = profile_id
+        try:
+            minutes = AuthService(db).session_timeout_minutes()
+        except Exception:
+            minutes = 10
+        sessions.timeout_seconds = max(60, minutes * 60)
+        profiles.touch_login(profile_id)
 
     def require_session(token: str | None) -> None:
         if not sessions.validate(token):
@@ -423,13 +498,24 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        ensure_database_exists()
+        listing = profiles.list_profiles()
+        selected = profiles.only_profile_id() or state["profile_id"]
+        current = next((p for p in listing if p["id"] == selected), None)
+        retry = 0
+        if current:
+            try:
+                retry = max(0, int(float(profiles.peek_setting(current["id"], "security.locked_until") or 0)) - int(time.time()))
+            except ValueError:
+                retry = 0
         return {
-            "configured": auth.is_configured(),
+            "configured": bool(current and (current["configured"] or current["kind"] == "demo")),
             "authenticated": sessions.validate(x_valoria_session, touch=False),
             "timeoutSeconds": sessions.timeout_seconds,
-            "retryAfterSeconds": auth.lock_remaining_seconds(),
-            "recoveryKeyConfigured": auth.has_recovery_key(),
+            "retryAfterSeconds": retry,
+            "recoveryKeyConfigured": bool(current and current["recoveryKeyConfigured"]),
+            "profiles": listing,
+            "activeProfileId": state["profile_id"] if active_database.is_active() else None,
+            "profileRequired": current is None and len(listing) > 1,
         }
 
     @app.post("/api/v1/auth/setup")
@@ -438,15 +524,25 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        ensure_database_exists()
-        if auth.is_configured():
+        password = payload.password.get_secret_value()
+        policy = auth.password_policy(password)
+        if not policy.ok:
+            raise HTTPException(status_code=422, detail=policy.message)
+        if not profiles.list_profiles() and not payload.profile_id:
+            # Première installation : le premier profil naît avec son mot de passe.
+            profile_id = profiles.create("Mon profil", kind="personal")["id"]
+        else:
+            profile_id = resolve_profile_id(payload.profile_id)
+        service = AuthService(profiles.database_for(profile_id))
+        if service.is_configured():
             raise HTTPException(status_code=409, detail="Le mot de passe maître est déjà configuré.")
         try:
-            auth.set_master_password(payload.password.get_secret_value())
+            service.set_master_password(password)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        activate_profile(profile_id)
         token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in}
+        return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
 
     @app.post("/api/v1/auth/unlock")
     def unlock(
@@ -454,34 +550,25 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        ensure_database_exists()
-        if not auth.is_configured():
+        profile_id = resolve_profile_id(payload.profile_id)
+        profile = profiles.get(profile_id)
+        service = AuthService(profiles.database_for(profile_id))
+        if profile["kind"] == "demo" and not service.is_configured():
+            # Profil de démonstration : données fictives, aucun mot de passe.
+            activate_profile(profile_id)
+            service.record_event("auth.unlock_success", "Ouverture du profil Démo.")
+            token, expires_in = sessions.create()
+            return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
+        if not service.is_configured():
             raise HTTPException(status_code=409, detail="Le mot de passe maître doit être configuré.")
-        wait = auth.lock_remaining_seconds()
-        if wait:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Trop d’essais. Réessayez dans {wait} s.",
-                headers={"Retry-After": str(wait)},
-            )
-        if not auth.verify_master_password(payload.password.get_secret_value()):
-            delay = auth.register_failure()
-            auth.record_event(
-                "auth.unlock_failure",
-                "Échec de connexion." + (f" Verrouillage de {delay} s." if delay else ""),
-                {"attempts": auth.failed_attempts(), "lock_seconds": delay},
-            )
-            if delay:
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"Mot de passe incorrect. Trop d’essais : réessayez dans {delay} s.",
-                    headers={"Retry-After": str(delay)},
-                )
-            raise HTTPException(status_code=401, detail="Mot de passe incorrect.")
-        auth.reset_failures()
-        auth.record_event("auth.unlock_success", "Connexion réussie.")
+        refuse_if_throttled(service)
+        if not service.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", service, status_if_not_locked=401)
+        service.reset_failures()
+        activate_profile(profile_id)
+        service.record_event("auth.unlock_success", "Connexion réussie.")
         token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in}
+        return {"token": token, "expiresIn": expires_in, "profileId": profile_id}
 
     @app.post("/api/v1/auth/lock")
     def lock(
@@ -494,8 +581,9 @@ def create_app(database: Database | None = None) -> FastAPI:
         sessions.revoke(x_valoria_session)
         return {"locked": True}
 
-    def refuse_if_throttled() -> None:
-        wait = auth.lock_remaining_seconds()
+    def refuse_if_throttled(service: AuthService | None = None) -> None:
+        service = service or auth
+        wait = service.lock_remaining_seconds()
         if wait:
             raise HTTPException(
                 status_code=429,
@@ -503,12 +591,15 @@ def create_app(database: Database | None = None) -> FastAPI:
                 headers={"Retry-After": str(wait)},
             )
 
-    def fail_with_throttle(message: str) -> None:
-        delay = auth.register_failure()
-        auth.record_event(
+    def fail_with_throttle(
+        message: str, service: AuthService | None = None, status_if_not_locked: int = 403
+    ) -> None:
+        service = service or auth
+        delay = service.register_failure()
+        service.record_event(
             "auth.unlock_failure",
             f"{message}" + (f" Verrouillage de {delay} s." if delay else ""),
-            {"attempts": auth.failed_attempts(), "lock_seconds": delay},
+            {"attempts": service.failed_attempts(), "lock_seconds": delay},
         )
         if delay:
             raise HTTPException(
@@ -516,7 +607,7 @@ def create_app(database: Database | None = None) -> FastAPI:
                 detail=f"{message} Trop d’essais : réessayez dans {delay} s.",
                 headers={"Retry-After": str(delay)},
             )
-        raise HTTPException(status_code=403, detail=message)
+        raise HTTPException(status_code=status_if_not_locked, detail=message)
 
     @app.get("/api/v1/security/status")
     def security_status(
@@ -579,20 +670,122 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
-        ensure_database_exists()
-        if not auth.has_recovery_key():
+        profile_id = resolve_profile_id(payload.profile_id)
+        service = AuthService(profiles.database_for(profile_id))
+        if not service.has_recovery_key():
             raise HTTPException(status_code=409, detail="Aucune clé de secours n’a été créée.")
-        refuse_if_throttled()
+        refuse_if_throttled(service)
         try:
-            new_key = auth.reset_with_recovery_key(
+            new_key = service.reset_with_recovery_key(
                 payload.recovery_key.get_secret_value(), payload.new_password.get_secret_value()
             )
         except PermissionError:
-            fail_with_throttle("Clé de secours incorrecte.")
+            fail_with_throttle("Clé de secours incorrecte.", service)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        activate_profile(profile_id)
         token, expires_in = sessions.create()
-        return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key}
+        return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key, "profileId": profile_id}
+
+    # ------------------------------------------------------------------
+    # Profils
+    # ------------------------------------------------------------------
+    def require_active_profile_session(token: str | None, profile_id: str) -> None:
+        require_session(token)
+        if state["profile_id"] != profile_id or not active_database.is_active():
+            raise HTTPException(status_code=403, detail="Ouvrez d’abord ce profil.")
+
+    def profile_error(exc: Exception) -> HTTPException:
+        if isinstance(exc, ProfileNotFound):
+            return HTTPException(status_code=404, detail="Profil introuvable.")
+        return HTTPException(status_code=422, detail=str(exc))
+
+    @app.get("/api/v1/profiles")
+    def list_profiles(
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        return {
+            "profiles": profiles.list_profiles(),
+            "activeProfileId": state["profile_id"] if active_database.is_active() else None,
+        }
+
+    @app.post("/api/v1/profiles")
+    def create_profile(
+        payload: ProfileCreatePayload,
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        password = payload.password.get_secret_value() if payload.password else ""
+        if payload.kind == "personal":
+            policy = auth.password_policy(password)
+            if not policy.ok:
+                raise HTTPException(status_code=422, detail=policy.message)
+        try:
+            profile = profiles.create(payload.name, payload.color, payload.kind)
+            if payload.avatar:
+                try:
+                    profile = profiles.set_avatar(profile["id"], payload.avatar)
+                except ProfileError:
+                    profiles.delete(profile["id"])
+                    raise
+        except (ProfileError, ProfileNotFound) as exc:
+            raise profile_error(exc) from exc
+        recovery_key = None
+        if payload.kind == "personal":
+            service = AuthService(profiles.database_for(profile["id"]))
+            service.set_master_password(password)
+            recovery_key = service.generate_recovery_key()
+            service.record_event("auth.recovery_key_created", "Clé de secours créée.")
+            profile = profiles.get(profile["id"])
+        return {"profile": profile, "recoveryKey": recovery_key}
+
+    @app.put("/api/v1/profiles/{profile_id}")
+    def update_profile(
+        profile_id: str,
+        payload: ProfileUpdatePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_active_profile_session(x_valoria_session, profile_id)
+        try:
+            profile = profiles.update(profile_id, payload.name, payload.color)
+            if payload.clear_avatar:
+                profile = profiles.set_avatar(profile_id, None)
+            elif payload.avatar:
+                profile = profiles.set_avatar(profile_id, payload.avatar)
+        except (ProfileError, ProfileNotFound) as exc:
+            raise profile_error(exc) from exc
+        return {"profile": profile}
+
+    @app.post("/api/v1/profiles/{profile_id}/delete")
+    def delete_profile(
+        profile_id: str,
+        payload: ProfileDeletePayload,
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        if not profiles.exists(profile_id):
+            raise HTTPException(status_code=404, detail="Profil introuvable.")
+        profile = profiles.get(profile_id)
+        if not profile["removable"]:
+            raise HTTPException(status_code=409, detail="Le profil d’origine ne peut pas être supprimé dans cette version.")
+        service = AuthService(profiles.database_for(profile_id))
+        if service.is_configured():
+            refuse_if_throttled(service)
+            if not service.verify_master_password(payload.password.get_secret_value()):
+                fail_with_throttle("Mot de passe incorrect.", service)
+            service.reset_failures()
+        if state["profile_id"] == profile_id:
+            sessions.clear()
+            active_database.release()
+            state["profile_id"] = None
+        try:
+            profiles.delete(profile_id)
+        except (ProfileError, ProfileNotFound) as exc:
+            raise profile_error(exc) from exc
+        return {"deleted": True}
 
     @app.get("/api/v1/security/journal")
     def security_journal(

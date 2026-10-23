@@ -55,8 +55,10 @@ class CryptoService:
     in the OS keyring when available, with a local-file fallback for development.
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, key_id: str | None = None) -> None:
         self.data_dir = data_dir
+        # Chaque profil a sa propre entrée dans le trousseau ; le profil d'origine garde l'ancienne.
+        self.keyring_user = KEYRING_USER if not key_id else f"{KEYRING_USER}:{key_id}"
         self.security_dir = data_dir / "security"
         self.security_dir.mkdir(parents=True, exist_ok=True)
         self.local_key_path = self.security_dir / "valoria_local_dev.key"
@@ -75,7 +77,7 @@ class CryptoService:
         if keyring is None:
             return None
         try:
-            stored = keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
+            stored = keyring.get_password(KEYRING_SERVICE, self.keyring_user)
         except Exception:
             return None
         if not stored:
@@ -86,7 +88,7 @@ class CryptoService:
         if keyring is None:
             return False
         try:
-            keyring.set_password(KEYRING_SERVICE, KEYRING_USER, key.decode("utf-8"))
+            keyring.set_password(KEYRING_SERVICE, self.keyring_user, key.decode("utf-8"))
             return True
         except Exception:
             return False

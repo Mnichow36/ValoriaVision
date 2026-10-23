@@ -105,14 +105,14 @@ class Database:
     - backup and restore helpers.
     """
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, key_id: str | None = None) -> None:
         self.path = Path(path) if path is not None else DB_PATH
         self.data_dir = self.path.parent
         self.backup_dir = self.data_dir / "backups"
         self.secure_dir = self.data_dir / "secure"
         self.encrypted_db_path = self.secure_dir / "valoria_vision.vvdb"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.crypto = CryptoService(self.data_dir)
+        self.crypto = CryptoService(self.data_dir, key_id=key_id)
 
     def restore_plain_database_from_encrypted_vault(self) -> bool:
         """Restore the working SQLite file from the encrypted local vault.

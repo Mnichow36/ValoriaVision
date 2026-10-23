@@ -59,6 +59,11 @@ class ApiSessionStore:
                 session.expires_at = now + self.timeout_seconds
             return True
 
+    def clear(self) -> None:
+        """Révoque toutes les sessions (changement de profil)."""
+        with self._lock:
+            self._sessions.clear()
+
     def revoke(self, token: str | None) -> None:
         if not token:
             return
