@@ -49,24 +49,23 @@ export function Sidebar({ active, onNavigate, onLock, onSwitchProfile, profile }
         ))}
       </nav>
 
-      <ThemeSwitch variant="sidebar" />
-
-      {profile && (
-        <button className="profile-chip" onClick={onSwitchProfile} title="Changer de profil" type="button">
-          <ProfileAvatar profile={profile} size={32} />
-          <span><strong>{profile.name}</strong><small>Changer de profil</small></span>
-        </button>
-      )}
-
-      <div className="local-card">
-        <strong>Données locales</strong>
-        <span>Sans connexion bancaire permanente</span>
-        <button aria-label="Verrouiller la session" onClick={onLock} title="Verrouiller la session" type="button">
-          <svg aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
-            <rect height="10" rx="2" width="14" x="5" y="10" />
-            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-          </svg>
-        </button>
+      <div className="sidebar-footer">
+        {profile && (
+          <button className="profile-chip" onClick={onSwitchProfile} title="Changer de profil" type="button">
+            <ProfileAvatar profile={profile} size={32} />
+            <span><strong>{profile.name}</strong><small>Changer de profil</small></span>
+          </button>
+        )}
+        <ThemeSwitch variant="sidebar" />
+        <div className="sidebar-footer__local">
+          <span><strong>Données locales</strong><small>Sans connexion bancaire permanente</small></span>
+          <button aria-label="Verrouiller la session" onClick={onLock} title="Verrouiller la session" type="button">
+            <svg aria-hidden="true" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+              <rect height="10" rx="2" width="14" x="5" y="10" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+          </button>
+        </div>
       </div>
     </aside>
   );

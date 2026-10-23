@@ -366,7 +366,6 @@ function HeaderActions({
         <select aria-label="Mois du tableau de bord" onChange={(event) => onDashboardMonthChange(event.target.value)} value={dashboardMonth || dashboard.period}>
           {(dashboard.months ?? [dashboard.period]).map((month) => <option key={month} value={month}>{formatPeriod(month)}</option>)}
         </select>
-        <button onClick={onOpenTransactionImport} type="button">Importer</button>
       </div>
     );
   }

@@ -3373,3 +3373,16 @@ button.forecast-kpi { cursor: pointer; }
 /* Barre latérale toujours entièrement visible, même sur les pages longues */
 .sidebar { align-self: start; height: 100vh; overflow-y: auto; position: sticky; top: 0; }
 .drawer-note { background: #fef3c7; border-radius: 10px; color: #78350f; font-size: 12px; line-height: 1.45; margin: 6px 0 0; padding: 11px 13px; }
+
+/* Bloc unique en bas de la barre latérale : profil, apparence, état local */
+.sidebar-footer { background: #15315a; border-radius: 14px; display: grid; gap: 10px; margin-top: auto; padding: 10px; }
+.sidebar-footer .theme-switch--sidebar { margin-top: 0; }
+.sidebar-footer .profile-chip { background: transparent; border: 0; padding: 2px 4px; width: 100%; }
+.sidebar-footer .profile-chip:hover { background: rgba(255, 255, 255, .1); }
+.sidebar-footer__local { align-items: center; border-top: 1px solid rgba(255, 255, 255, .12); color: #bfdbfe; display: flex; gap: 8px; justify-content: space-between; padding: 10px 2px 0; }
+.sidebar-footer__local strong, .sidebar-footer__local small { display: block; }
+.sidebar-footer__local strong { color: #fff; font-size: 12px; }
+.sidebar-footer__local small { font-size: 10px; line-height: 1.4; margin-top: 3px; }
+.sidebar-footer__local button { align-items: center; background: transparent; border: 0; color: #93c5fd; cursor: pointer; display: flex; flex: none; height: 32px; justify-content: center; width: 32px; }
+.sidebar-footer__local button:hover { color: #fff; }
+.sidebar-footer__local button svg { height: 16px; width: 16px; }
