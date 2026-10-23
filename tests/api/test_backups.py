@@ -212,3 +212,48 @@ class ResetApiTests(AccessControlBase):
         self.assertEqual(setup.status_code, 200, setup.text)
         accounts = self.client.get("/api/v1/accounts", headers={"X-Valoria-Session": setup.json()["token"]}).json()["accounts"]
         self.assertEqual(accounts, [])
+
+
+class BackupLocationTests(AccessControlBase):
+    def test_default_then_custom_directory_used_for_create_list_and_restore_source(self):
+        import tempfile
+        from pathlib import Path
+
+        info = self.admin.get("/api/v1/backups/location").json()
+        self.assertTrue(info["isDefault"])
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "Famille" / "Sauvegardes"
+            probe = self.admin.post("/api/v1/backups/location/test", {"directory": str(target)})
+            self.assertEqual(probe.status_code, 200, probe.text)
+            self.assertFalse(probe.json()["exists"])
+            saved = self.admin.put("/api/v1/backups/location", {"directory": str(target)})
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertFalse(saved.json()["isDefault"])
+            self.assertTrue(target.is_dir())
+            created = self.admin.post("/api/v1/backups", {"passphrase": PHRASE, "confirm": PHRASE}).json()
+            self.assertTrue((target / created["name"]).is_file())
+            listing = self.admin.get("/api/v1/backups").json()
+            self.assertEqual(listing["directory"], str(target))
+            self.assertEqual([row["name"] for row in listing["backups"]], [created["name"]])
+            inspected = self.admin.post("/api/v1/backups/inspect", {"name": created["name"], "passphrase": PHRASE})
+            self.assertEqual(inspected.status_code, 200, inspected.text)
+            back = self.admin.put("/api/v1/backups/location", {"directory": ""})
+            self.assertTrue(back.json()["isDefault"])
+            self.assertEqual(self.admin.get("/api/v1/backups").json()["backups"], [])
+
+    def test_invalid_directories_are_refused_with_a_message(self):
+        import tempfile
+        from pathlib import Path
+
+        self.assertEqual(self.admin.put("/api/v1/backups/location", {"directory": "dossier/relatif"}).status_code, 422)
+        with tempfile.TemporaryDirectory() as tmp:
+            a_file = Path(tmp) / "fichier.txt"
+            a_file.write_text("x")
+            self.assertEqual(self.admin.put("/api/v1/backups/location", {"directory": str(a_file)}).status_code, 422)
+        self.assertTrue(self.admin.get("/api/v1/backups/location").json()["isDefault"])
+
+    def test_only_the_administrator_can_change_the_directory(self):
+        lea = self.as_user(self.lea, LEA_PASSWORD)
+        self.assertEqual(lea.get("/api/v1/backups/location").status_code, 403)
+        self.assertEqual(lea.put("/api/v1/backups/location", {"directory": "C:\\\\Temp"}).status_code, 403)
+        self.assertEqual(lea.post("/api/v1/backups/location/test", {"directory": "C:\\\\Temp"}).status_code, 403)

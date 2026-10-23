@@ -18,6 +18,7 @@ from pydantic import BaseModel, SecretStr
 from app.database import Database
 from app.security.api_session import ApiSessionStore
 from app.security.auth_service import AuthService
+from app.security import backup_location
 from app.security.backup_service import BackupError, BackupService, WrongPassphrase, count_content
 from app.security.profiles import LEGACY_PROFILE_ID, ProfileError, ProfileManager, ProfileNotFound
 from app.security.users import (
@@ -125,6 +126,12 @@ class ProfileDeletePayload(BaseModel):
 class BackupCreatePayload(BaseModel):
     passphrase: SecretStr = SecretStr("")
     confirm: SecretStr = SecretStr("")
+
+
+class BackupLocationPayload(BaseModel):
+    """Dossier des sauvegardes ; vide = dossier par défaut."""
+
+    directory: str | None = None
 
 
 class ResetPayload(BaseModel):
@@ -1153,7 +1160,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     def backup_service() -> BackupService:
         return BackupService(
             legacy_database.path,
-            legacy_database.backup_dir,
+            backup_location.effective_directory(legacy_database.data_dir, legacy_database.backup_dir),
             legacy_decrypt=legacy_database.crypto.decrypt_bytes,
         )
 
@@ -1193,7 +1200,76 @@ def create_app(database: Database | None = None) -> FastAPI:
         manual = [row for row in rows if row.get("kind") == "manual" and row.get("createdAt")]
         recorded = legacy_database.get_setting("backup.last_at", "")
         candidates = [row["createdAt"] for row in manual] + ([recorded] if recorded else [])
-        return {"backups": rows, "lastBackupAt": max(candidates) if candidates else None, "reminderDays": 30}
+        return {
+            "backups": rows,
+            "lastBackupAt": max(candidates) if candidates else None,
+            "reminderDays": 30,
+            "directory": str(backup_service().backup_dir),
+        }
+
+    def location_info() -> dict:
+        configured = backup_location.configured_directory(legacy_database.data_dir)
+        current = backup_location.effective_directory(legacy_database.data_dir, legacy_database.backup_dir)
+        return {
+            "directory": str(current),
+            "default": str(legacy_database.backup_dir),
+            "isDefault": configured is None,
+            "exists": current.is_dir(),
+            "count": backup_location.count_backups(current),
+        }
+
+    @app.get("/api/v1/backups/location")
+    def backup_location_get(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        return location_info()
+
+    @app.post("/api/v1/backups/location/test")
+    def backup_location_test(
+        payload: BackupLocationPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        try:
+            return backup_location.check_directory(payload.directory)
+        except backup_location.BackupLocationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/backups/location/browse")
+    def backup_location_browse(
+        payload: BackupLocationPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        try:
+            return {"directory": backup_location.browse_directory(payload.directory)}
+        except backup_location.BackupLocationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.put("/api/v1/backups/location")
+    def backup_location_set(
+        payload: BackupLocationPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_family_admin(x_valoria_session)
+        try:
+            backup_location.save_directory(legacy_database.data_dir, payload.directory)
+        except backup_location.BackupLocationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        info = location_info()
+        auth_for(x_valoria_session).record_event(
+            "backup.location", f"Dossier des sauvegardes : {info['directory']}.", {}
+        )
+        return info
 
     @app.post("/api/v1/backups")
     def create_backup(

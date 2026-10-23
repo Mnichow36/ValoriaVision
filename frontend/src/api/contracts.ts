@@ -1292,6 +1292,23 @@ export interface BackupList {
   backups: BackupInfo[];
   lastBackupAt: string | null;
   reminderDays: number;
+  directory: string;
+}
+
+export interface BackupLocation {
+  directory: string;
+  default: string;
+  isDefault: boolean;
+  exists: boolean;
+  count: number;
+}
+
+export interface BackupLocationCheck {
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  count: number;
+  message: string;
 }
 
 export interface BackupFile {

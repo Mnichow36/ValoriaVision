@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, MouseEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { createBackup, deleteBackup, downloadBackup, inspectBackup, listBackups, resetEverything, restoreBackup } from "../api/client";
+import { browseBackupLocation, createBackup, deleteBackup, downloadBackup, getBackupLocation, inspectBackup, listBackups, resetEverything, restoreBackup, saveBackupLocation, testBackupLocation } from "../api/client";
 import type { BackupSource } from "../api/client";
-import type { BackupCounts, BackupInfo, BackupInspection, BackupList } from "../api/contracts";
+import type { BackupCounts, BackupInfo, BackupInspection, BackupList, BackupLocation, BackupLocationCheck } from "../api/contracts";
 import { ContextMenu } from "./ContextMenu";
 import type { ContextMenuState } from "./ContextMenu";
 import { SideDrawer } from "./SideDrawer";
@@ -113,7 +113,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
         {
           label: "Supprimer cette copie",
           danger: true,
-          onSelect: () => void deleteBackup(token, backup.name).then(() => { onNotice("Copie supprimée de cet ordinateur."); setRefresh((n) => n + 1); }).catch((failure: unknown) => setError(reason(failure))),
+          onSelect: () => void deleteBackup(token, backup.name).then(() => { onNotice("Sauvegarde supprimée du dossier."); setRefresh((n) => n + 1); }).catch((failure: unknown) => setError(reason(failure))),
         },
       ],
     });
@@ -121,6 +121,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
 
   return (
     <div className="backup-admin">
+      <BackupLocationCard onChanged={() => setRefresh((n) => n + 1)} onNotice={onNotice} refreshKey={refresh} token={token} />
       <div className="backup-cards">
         <article className="card settings-summary-card">
           <div className="panel-heading"><div><h2>Sauvegarder</h2><p>Un fichier <strong>.vvb</strong> chiffré par une phrase secrète que vous choisissez. Restaurable sur n’importe quel ordinateur.</p></div></div>
@@ -131,7 +132,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
         <article className="card settings-summary-card">
           <div className="panel-heading"><div><h2>Restaurer</h2><p>Remplace les données actuelles par celles d’une sauvegarde. Une copie de sécurité est créée juste avant.</p></div></div>
           <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
-          <div className="security-card-actions"><button className="settings-secondary" onClick={() => setDrawer({ kind: "restore" })} type="button">Restaurer depuis un fichier…</button></div>
+          <div className="security-card-actions"><button className="settings-secondary" onClick={() => setDrawer({ kind: "restore" })} type="button">Restaurer…</button></div>
         </article>
         <article className="card settings-summary-card backup-danger-card">
           <div className="panel-heading"><div><h2>Remise à zéro</h2><p>Efface toutes les données et les profils : l’application repart comme à la première installation. Une copie chiffrée est créée avant.</p></div></div>
@@ -141,7 +142,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
         {children}
       </div>
       <article className="card settings-summary-card backup-list-card">
-        <div className="panel-heading"><div><h2>Copies conservées sur cet ordinateur</h2><p>Clic droit sur une ligne : Restaurer · Télécharger · Supprimer.</p></div></div>
+        <div className="panel-heading"><div><h2>Sauvegardes présentes dans ce dossier</h2><p>Clic droit sur une ligne : Restaurer · Télécharger · Supprimer.</p></div></div>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <div className="backup-table-wrap">
           <table className="settings-table backup-table">
@@ -155,18 +156,18 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
                   <td>{formatSize(backup.size)}</td>
                 </tr>
               ))}
-              {list && list.backups.length === 0 && <tr><td colSpan={4}>Aucune copie locale pour le moment.</td></tr>}
+              {list && list.backups.length === 0 && <tr><td colSpan={4}>Aucune sauvegarde dans ce dossier pour le moment.</td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="backup-note">Les copies locales sont sur le même disque que vos données : elles ne protègent pas d’une panne du disque. Téléchargez le fichier et rangez-le ailleurs (clé USB, disque externe, cloud personnel). La phrase secrète n’est pas récupérable.</p>
+        <p className="backup-note">Choisissez de préférence un dossier sur un autre disque (clé USB, disque externe, dossier synchronisé) : une copie sur le même disque ne protège pas d’une panne. Changer de dossier ne déplace pas les sauvegardes existantes. La phrase secrète n’est pas récupérable.</p>
       </article>
       {createPortal(<>
         {drawer?.kind === "create" && (
-          <CreateBackupDrawer onClose={() => setDrawer(null)} onDone={() => { setDrawer(null); onNotice("Sauvegarde créée, téléchargée et conservée sur cet ordinateur."); setRefresh((n) => n + 1); }} token={token} />
+          <CreateBackupDrawer directory={list?.directory ?? ""} onClose={() => setDrawer(null)} onDone={(downloaded) => { setDrawer(null); onNotice(downloaded ? "Sauvegarde créée dans le dossier et téléchargée." : "Sauvegarde créée dans le dossier des sauvegardes."); setRefresh((n) => n + 1); }} token={token} />
         )}
         {drawer?.kind === "restore" && (
-          <RestoreBackupDrawer onClose={() => setDrawer(null)} onRestored={onRestored} source={drawer.source} token={token} />
+          <RestoreBackupDrawer backups={list?.backups ?? []} directory={list?.directory ?? ""} onClose={() => setDrawer(null)} onRestored={onRestored} source={drawer.source} token={token} />
         )}
         {drawer?.kind === "reset" && (
           <ResetDrawer onClose={() => setDrawer(null)} onDone={onRestored} token={token} />
@@ -188,10 +189,11 @@ function PassphraseMeter({ value }: { value: string }) {
   );
 }
 
-function CreateBackupDrawer({ token, onClose, onDone }: { token: string; onClose: () => void; onDone: () => void }) {
+function CreateBackupDrawer({ directory, token, onClose, onDone }: { directory: string; token: string; onClose: () => void; onDone: (downloaded: boolean) => void }) {
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [noted, setNoted] = useState(false);
+  const [alsoDownload, setAlsoDownload] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const valid = passphrase.length >= MIN_PASSPHRASE && passphrase === confirm && noted;
@@ -203,8 +205,8 @@ function CreateBackupDrawer({ token, onClose, onDone }: { token: string; onClose
     setError("");
     try {
       const file = await createBackup(token, passphrase, confirm);
-      saveFile(file.name, file.data);
-      onDone();
+      if (alsoDownload) saveFile(file.name, file.data);
+      onDone(alsoDownload);
     } catch (failure: unknown) {
       setError(reason(failure));
       setBusy(false);
@@ -213,8 +215,9 @@ function CreateBackupDrawer({ token, onClose, onDone }: { token: string; onClose
 
   return (
     <SideDrawer eyebrow="Protection des données" onClose={onClose} title="Créer une sauvegarde"
-      footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-primary" disabled={busy || !valid} form="backup-create-form" type="submit">{busy ? "Chiffrement…" : "Créer et télécharger"}</button></>}>
+      footer={<><button className="settings-secondary" onClick={onClose} type="button">Annuler</button><button className="settings-primary" disabled={busy || !valid} form="backup-create-form" type="submit">{busy ? "Chiffrement…" : "Créer la sauvegarde"}</button></>}>
       <form className="drawer-form" id="backup-create-form" onSubmit={submit}>
+        <div className="backup-destination"><span>Enregistrée dans</span><code>{directory || "…"}</code><small>Dossier modifiable dans Paramètres › Protection des données.</small></div>
         <p className="backup-lead">Toute la base familiale : comptes, opérations, patrimoine, budgets, profils et accès.</p>
         <label>Phrase secrète de la sauvegarde<input autoComplete="new-password" autoFocus onChange={(e) => setPassphrase(e.target.value)} type="password" value={passphrase} /></label>
         <PassphraseMeter value={passphrase} />
@@ -222,9 +225,10 @@ function CreateBackupDrawer({ token, onClose, onDone }: { token: string; onClose
         {confirm && passphrase !== confirm && <small className="security-warning">Les deux phrases ne sont pas identiques.</small>}
         <p className="drawer-note"><strong>Cette phrase ne peut pas être récupérée.</strong> Sans elle, la sauvegarde est définitivement illisible. Notez-la ailleurs que sur cet ordinateur.</p>
         <label className="backup-check"><input checked={noted} onChange={(e) => setNoted(e.target.checked)} type="checkbox" />J’ai noté ma phrase secrète dans un endroit sûr.</label>
+        <label className="backup-check"><input checked={alsoDownload} onChange={(e) => setAlsoDownload(e.target.checked)} type="checkbox" />Télécharger aussi une copie par le navigateur (facultatif).</label>
         <ul className="backup-facts">
           <li>Chiffrement AES-256-GCM, clé dérivée par scrypt.</li>
-          <li>Le fichier est téléchargé et une copie reste dans le dossier local de sauvegardes.</li>
+          <li>Le fichier est déposé dans le dossier des sauvegardes réglé dans Paramètres.</li>
           <li>Après création, le fichier est relu et vérifié.</li>
         </ul>
         {error && <p className="auth-error" role="alert">{error}</p>}
@@ -287,7 +291,8 @@ function ResetDrawer({ token, onClose, onDone }: { token: string; onClose: () =>
   );
 }
 
-function RestoreBackupDrawer({ token, source, onClose, onRestored }: { token: string; source?: BackupInfo; onClose: () => void; onRestored: () => void }) {
+function RestoreBackupDrawer({ backups, directory, token, source, onClose, onRestored }: { backups: BackupInfo[]; directory: string; token: string; source?: BackupInfo; onClose: () => void; onRestored: () => void }) {
+  const [chosen, setChosen] = useState<BackupInfo | undefined>(source);
   const [picked, setPicked] = useState<{ label: string; ref: BackupSource } | null>(source ? { label: source.name, ref: { name: source.name } } : null);
   const [passphrase, setPassphrase] = useState("");
   const [inspection, setInspection] = useState<BackupInspection | null>(null);
@@ -296,7 +301,7 @@ function RestoreBackupDrawer({ token, source, onClose, onRestored }: { token: st
   const [error, setError] = useState("");
   const [done, setDone] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const legacy = source?.legacy === true || source?.kind === "legacy";
+  const legacy = chosen?.legacy === true || chosen?.kind === "legacy";
 
   async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -304,6 +309,7 @@ function RestoreBackupDrawer({ token, source, onClose, onRestored }: { token: st
     setError("");
     setInspection(null);
     try {
+      setChosen(undefined);
       setPicked({ label: file.name, ref: { data: toBase64(await file.arrayBuffer()) } });
     } catch {
       setError("Impossible de lire ce fichier.");
@@ -369,8 +375,19 @@ function RestoreBackupDrawer({ token, source, onClose, onRestored }: { token: st
       <input accept=".vvb" hidden onChange={(event) => void chooseFile(event)} ref={fileInput} type="file" />
       {step === 1 && (
         <div className="drawer-form">
-          <p className="backup-lead">Choisissez un fichier de sauvegarde <strong>.vvb</strong>.</p>
-          <button className="settings-secondary" onClick={() => fileInput.current?.click()} type="button">Choisir un fichier…</button>
+          <div className="backup-destination"><span>Dossier des sauvegardes</span><code>{directory || "…"}</code><small>{backups.length} sauvegarde{backups.length > 1 ? "s" : ""} trouvée{backups.length > 1 ? "s" : ""} · modifiable dans Paramètres.</small></div>
+          {backups.length > 0 && (
+            <div className="backup-pick-list" role="listbox" aria-label="Sauvegardes du dossier">
+              {backups.map((backup) => (
+                <button className="backup-pick-row" disabled={backup.damaged} key={backup.name} onClick={() => { setChosen(backup); setPicked({ label: backup.name, ref: { name: backup.name } }); }} role="option" type="button">
+                  <span><b>{formatDate(backup.createdAt ?? backup.modifiedAt)}</b> · {kindLabel(backup)}</span>
+                  <small>{backup.damaged ? "Fichier illisible" : backup.legacy || backup.kind === "legacy" ? "Ancien format" : contentText(backup)} · {formatSize(backup.size)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="backup-lead">Ou un fichier <strong>.vvb</strong> rangé ailleurs.</p>
+          <button className="settings-secondary" onClick={() => fileInput.current?.click()} type="button">Choisir un fichier .vvb ailleurs…</button>
           {error && <p className="auth-error" role="alert">{error}</p>}
         </div>
       )}
@@ -396,5 +413,65 @@ function RestoreBackupDrawer({ token, source, onClose, onRestored }: { token: st
         </form>
       )}
     </SideDrawer>
+  );
+}
+
+
+function BackupLocationCard({ token, onNotice, onChanged, refreshKey }: { token: string; onNotice: (text: string) => void; onChanged: () => void; refreshKey: number }) {
+  const [location, setLocation] = useState<BackupLocation | null>(null);
+  const [value, setValue] = useState("");
+  const [check, setCheck] = useState<BackupLocationCheck | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getBackupLocation(token, controller.signal)
+      .then((result) => { setLocation(result); setValue((current) => (current.trim() === "" || current === location?.directory ? result.directory : current)); })
+      .catch((failure: unknown) => { if (!controller.signal.aborted) setError(reason(failure)); });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, refreshKey]);
+
+  const changed = location !== null && value.trim() !== location.directory;
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try { await action(); } catch (failure: unknown) { setError(reason(failure)); }
+    setBusy(false);
+  }
+
+  const browse = () => run(async () => {
+    const result = await browseBackupLocation(token, value);
+    if (result.directory) { setValue(result.directory); setCheck(null); }
+  });
+  const test = () => run(async () => { setCheck(await testBackupLocation(token, value)); });
+  const save = (directory: string) => run(async () => {
+    const result = await saveBackupLocation(token, directory);
+    setLocation(result);
+    setValue(result.directory);
+    setCheck(null);
+    onNotice(result.isDefault ? "Dossier par défaut rétabli pour les sauvegardes." : "Dossier des sauvegardes enregistré.");
+    onChanged();
+  });
+
+  return (
+    <article className="card settings-summary-card backup-location-card">
+      <div className="backup-location-head"><h2>Dossier des sauvegardes</h2><p>Utilisé pour créer et pour restaurer.</p></div>
+      <div className="backup-location-row">
+        <input aria-label="Dossier des sauvegardes" onChange={(event) => { setValue(event.target.value); setCheck(null); }} placeholder="D:\Famille\Sauvegardes Valoria" spellCheck={false} value={value} />
+        <button className="settings-secondary" disabled={busy} onClick={() => void browse()} type="button">Parcourir…</button>
+        <button className="settings-secondary" disabled={busy || !value.trim()} onClick={() => void test()} type="button">Tester</button>
+        <button className="settings-primary" disabled={busy || !changed || !value.trim()} onClick={() => void save(value)} type="button">Enregistrer</button>
+      </div>
+      <div className="backup-location-status">
+        {check
+          ? <span className={check.writable ? "backup-ok" : "security-warning"}>{check.writable ? "✓ " : ""}{check.message}{check.writable ? ` ${check.count} sauvegarde${check.count > 1 ? "s" : ""} trouvée${check.count > 1 ? "s" : ""}.` : ""}</span>
+          : location && <span>{location.isDefault ? "Dossier par défaut de l’application" : `${location.count} sauvegarde${location.count > 1 ? "s" : ""} dans le dossier actuel`}{!location.exists && " · dossier à créer"}</span>}
+        {location && !location.isDefault && <button className="backup-link" disabled={busy} onClick={() => void save("")} type="button">Rétablir le dossier par défaut</button>}
+      </div>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+    </article>
   );
 }

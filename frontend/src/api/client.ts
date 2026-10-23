@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { PendingRulesApplyResult, PendingRulesPreview, RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { PendingRulesApplyResult, PendingRulesPreview, RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, BackupLocation, BackupLocationCheck, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -776,6 +776,22 @@ export function simulateForecast(
 
 export function listBackups(token: string, signal?: AbortSignal): Promise<BackupList> {
   return request<BackupList>("/api/v1/backups", { token, signal });
+}
+
+export function getBackupLocation(token: string, signal?: AbortSignal): Promise<BackupLocation> {
+  return request<BackupLocation>("/api/v1/backups/location", { token, signal });
+}
+
+export function testBackupLocation(token: string, directory: string): Promise<BackupLocationCheck> {
+  return request<BackupLocationCheck>("/api/v1/backups/location/test", { method: "POST", token, body: { directory } });
+}
+
+export function browseBackupLocation(token: string, directory: string): Promise<{ directory: string | null }> {
+  return request<{ directory: string | null }>("/api/v1/backups/location/browse", { method: "POST", token, body: { directory } });
+}
+
+export function saveBackupLocation(token: string, directory: string): Promise<BackupLocation> {
+  return request<BackupLocation>("/api/v1/backups/location", { method: "PUT", token, body: { directory } });
 }
 
 export function createBackup(token: string, passphrase: string, confirm: string): Promise<BackupFile> {
