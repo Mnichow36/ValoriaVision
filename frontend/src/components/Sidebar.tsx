@@ -1,3 +1,5 @@
+import type { Profile } from "../api/contracts";
+import { ProfileAvatar } from "./ProfileAvatar";
 import { ThemeSwitch } from "./ThemeSwitch";
 
 const entries = [
@@ -16,9 +18,11 @@ interface SidebarProps {
   active: NavigationId;
   onNavigate: (destination: NavigationId) => void;
   onLock: () => void;
+  onSwitchProfile: () => void;
+  profile: Profile | null;
 }
 
-export function Sidebar({ active, onNavigate, onLock }: SidebarProps) {
+export function Sidebar({ active, onNavigate, onLock, onSwitchProfile, profile }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Navigation principale">
       <div className="brand">
@@ -46,6 +50,13 @@ export function Sidebar({ active, onNavigate, onLock }: SidebarProps) {
       </nav>
 
       <ThemeSwitch variant="sidebar" />
+
+      {profile && (
+        <button className="profile-chip" onClick={onSwitchProfile} title="Changer de profil" type="button">
+          <ProfileAvatar profile={profile} size={32} />
+          <span><strong>{profile.name}</strong><small>Changer de profil</small></span>
+        </button>
+      )}
 
       <div className="local-card">
         <strong>Données locales</strong>

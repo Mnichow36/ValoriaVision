@@ -96,7 +96,7 @@ export function RecoveryKeyDrawer({ token, replacing, onClose, onDone }: { token
   );
 }
 
-export function RecoverAccessDrawer({ onClose, onRecovered }: { onClose: () => void; onRecovered: (token: string) => void }) {
+export function RecoverAccessDrawer({ profileId, onClose, onRecovered }: { profileId?: string; onClose: () => void; onRecovered: (token: string) => void }) {
   const [key, setKey] = useState("");
   const [next, setNext] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -113,7 +113,7 @@ export function RecoverAccessDrawer({ onClose, onRecovered }: { onClose: () => v
     setBusy(true);
     setError("");
     try {
-      setResult(await recoverAccess(key, next));
+      setResult(await recoverAccess(key, next, profileId));
     } catch (reason: unknown) {
       setError(message(reason));
     }

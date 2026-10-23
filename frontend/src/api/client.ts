@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { Profile, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -58,11 +58,23 @@ export function getAuthStatus(signal?: AbortSignal): Promise<AuthStatus> {
   return request<AuthStatus>("/api/v1/auth/status", { signal });
 }
 
-export function openSession(password: string, configured: boolean): Promise<AuthSession> {
-  return request<AuthSession>(configured ? "/api/v1/auth/unlock" : "/api/v1/auth/setup", {
+export function openSession(profileId: string, password: string): Promise<AuthSession> {
+  return request<AuthSession>("/api/v1/auth/unlock", {
     method: "POST",
-    body: { password },
+    body: { profile_id: profileId, password },
   });
+}
+
+export function createProfile(payload: ProfileCreatePayload): Promise<{ profile: Profile; recoveryKey: string | null }> {
+  return request<{ profile: Profile; recoveryKey: string | null }>("/api/v1/profiles", { method: "POST", body: payload });
+}
+
+export function updateProfile(token: string, profileId: string, payload: ProfileUpdatePayload): Promise<{ profile: Profile }> {
+  return request<{ profile: Profile }>(`/api/v1/profiles/${encodeURIComponent(profileId)}`, { method: "PUT", token, body: payload });
+}
+
+export function deleteProfile(profileId: string, password: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/api/v1/profiles/${encodeURIComponent(profileId)}/delete`, { method: "POST", body: { password } });
 }
 
 export function getSecurityJournal(token: string, signal?: AbortSignal): Promise<{ events: SecurityEvent[] }> {
@@ -89,10 +101,10 @@ export function createRecoveryKey(token: string, password: string): Promise<{ re
   });
 }
 
-export function recoverAccess(recoveryKey: string, newPassword: string): Promise<RecoveryRequestResult> {
+export function recoverAccess(recoveryKey: string, newPassword: string, profileId?: string): Promise<RecoveryRequestResult> {
   return request<RecoveryRequestResult>("/api/v1/auth/recover", {
     method: "POST",
-    body: { recovery_key: recoveryKey, new_password: newPassword },
+    body: { recovery_key: recoveryKey, new_password: newPassword, profile_id: profileId },
   });
 }
 

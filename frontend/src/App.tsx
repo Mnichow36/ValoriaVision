@@ -13,11 +13,12 @@ import { ForecastPage } from "./components/ForecastPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { TransactionsPage } from "./components/TransactionsPage";
 import type { TransactionsView } from "./components/TransactionsPage";
+import type { Profile } from "./api/contracts";
 import { InteractiveDonutChart } from "./components/InteractiveCharts";
 
 type AppState =
   | { status: "booting" }
-  | { status: "locked"; configured: boolean; busy: boolean; error?: string; retryAfter?: number; recoveryKeyConfigured?: boolean }
+  | { status: "locked"; busy: boolean; error?: string; retryAfter?: number; preferredProfileId?: string | null }
   | { status: "ready"; snapshot: DashboardSnapshot; token: string }
   | { status: "error"; message: string };
 
@@ -66,6 +67,8 @@ const modules: Record<NavigationId, ModuleDefinition> = {
 
 export function App() {
   const [state, setState] = useState<AppState>({ status: "booting" });
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [activeModule, setActiveModule] = useState<NavigationId>("dashboard");
   const [accountStatusFilter, setAccountStatusFilter] = useState("Actif");
   const [forecastAccountId, setForecastAccountId] = useState("all");
@@ -90,7 +93,10 @@ export function App() {
     const controller = new AbortController();
     waitForEngine(controller.signal)
       .then(() => getAuthStatus(controller.signal))
-      .then((auth) => setState({ status: "locked", configured: auth.configured, busy: false, retryAfter: auth.retryAfterSeconds || undefined, recoveryKeyConfigured: auth.recoveryKeyConfigured }))
+      .then((auth) => {
+        setProfiles(auth.profiles ?? []);
+        setState({ status: "locked", busy: false, retryAfter: auth.retryAfterSeconds || undefined });
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setState({ status: "error", message: errorMessage(error) });
@@ -99,36 +105,43 @@ export function App() {
     return () => controller.abort();
   }, []);
 
-  async function authenticate(password: string) {
+  async function refreshProfiles() {
+    const auth = await getAuthStatus().catch(() => undefined);
+    if (auth) setProfiles(auth.profiles ?? []);
+    return auth;
+  }
+
+  async function authenticate(profileId: string, password: string) {
     if (state.status !== "locked") return;
-    const configured = state.configured;
-    setState({ status: "locked", configured, busy: true });
+    setState({ status: "locked", busy: true });
     try {
-      const session = await openSession(password, configured);
+      const session = await openSession(profileId, password);
       const snapshot = await getDashboard(session.token);
+      setActiveProfileId(session.profileId ?? profileId);
+      void refreshProfiles();
       setState({ status: "ready", snapshot, token: session.token });
     } catch (error: unknown) {
-      setState({ status: "locked", configured, busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter, recoveryKeyConfigured: state.recoveryKeyConfigured });
+      setState({ status: "locked", busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter });
     }
   }
 
   async function openAfterRecovery(token: string) {
     try {
       const snapshot = await getDashboard(token);
+      const auth = await refreshProfiles();
+      setActiveProfileId(auth?.activeProfileId ?? null);
       setState({ status: "ready", snapshot, token });
     } catch (error: unknown) {
-      setState({ status: "locked", configured: true, busy: false, error: errorMessage(error) });
+      setState({ status: "locked", busy: false, error: errorMessage(error) });
     }
   }
 
-  async function lock() {
+  async function lock(switchProfile = false) {
     if (state.status !== "ready") return;
     const token = state.token;
-    setState({ status: "locked", configured: true, busy: false });
+    setState({ status: "locked", busy: false, preferredProfileId: switchProfile ? null : activeProfileId });
     await closeSession(token).catch(() => undefined);
-    getAuthStatus()
-      .then((auth) => setState((current) => current.status === "locked" ? { ...current, recoveryKeyConfigured: auth.recoveryKeyConfigured } : current))
-      .catch(() => undefined);
+    void refreshProfiles();
   }
 
   // « reconciliation » n'est plus un module : c'est un onglet de Transactions.
@@ -170,7 +183,7 @@ export function App() {
   }
 
   if (state.status === "locked") {
-    return <AuthScreen configured={state.configured} busy={state.busy} error={state.error} retryAfter={state.retryAfter} recoveryKeyConfigured={state.recoveryKeyConfigured} onRecovered={openAfterRecovery} onSubmit={authenticate} />;
+    return <AuthScreen busy={state.busy} error={state.error} onProfilesChanged={async () => { await refreshProfiles(); }} onRecovered={openAfterRecovery} onUnlock={authenticate} preferredProfileId={state.preferredProfileId} profiles={profiles} retryAfter={state.retryAfter} />;
   }
 
   if (state.status === "error") {
@@ -200,7 +213,7 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar active={activeModule} onLock={lock} onNavigate={navigate} />
+      <Sidebar active={activeModule} onLock={() => void lock()} onNavigate={navigate} onSwitchProfile={() => void lock(true)} profile={profiles.find((p) => p.id === activeProfileId) ?? null} />
       <main className="workspace">
         <header className="module-header">
           <div>
@@ -284,7 +297,7 @@ export function App() {
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
           {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
-          {activeModule === "settings" && <SettingsPage onNavigate={navigate} token={state.token} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onProfileChanged={() => void refreshProfiles()} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
           {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>

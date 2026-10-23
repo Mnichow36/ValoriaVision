@@ -1095,7 +1095,36 @@ export interface ApiHealth {
   apiVersion: string;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  color: string;
+  kind: "personal" | "demo";
+  avatar: string | null;
+  lastLoginAt: string | null;
+  configured: boolean;
+  recoveryKeyConfigured: boolean;
+  removable: boolean;
+}
+
+export interface ProfileCreatePayload {
+  name: string;
+  color?: string;
+  kind: "personal" | "demo";
+  password?: string;
+  avatar?: string | null;
+}
+
+export interface ProfileUpdatePayload {
+  name?: string;
+  color?: string;
+  avatar?: string | null;
+  clear_avatar?: boolean;
+}
+
 export interface AuthStatus {
+  profiles?: Profile[];
+  activeProfileId?: string | null;
   configured: boolean;
   authenticated: boolean;
   timeoutSeconds: number;
@@ -1122,6 +1151,7 @@ export interface SecurityEvent {
 export interface AuthSession {
   token: string;
   expiresIn: number;
+  profileId?: string;
 }
 
 export interface RecurrenceOccurrence {

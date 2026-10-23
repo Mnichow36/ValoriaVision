@@ -15,6 +15,7 @@ import {
 } from "../api/client";
 import type {
   SettingsCategory,
+  Profile,
   SecurityEvent,
   SecurityStatus,
   SettingsCategoryPayload,
@@ -24,6 +25,8 @@ import type {
   SettingsSnapshot,
 } from "../api/contracts";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
+import { ProfileAvatar } from "./ProfileAvatar";
+import { ProfileFormDrawer } from "./ProfileDrawers";
 import type { NavigationId } from "./Sidebar";
 import { ThemeSwitch } from "./ThemeSwitch";
 
@@ -92,7 +95,7 @@ const emptyRule = (): RuleForm => ({
   confidence: 100,
 });
 
-export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string }) {
+export function SettingsPage({ onNavigate, token, profile, onProfileChanged }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
@@ -107,7 +110,7 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
   const [preview, setPreview] = useState<SettingsRulesPreview | null>(null);
   const [journal, setJournal] = useState<SecurityEvent[]>([]);
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
-  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | null>(null);
+  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | null>(null);
   const [securityRefresh, setSecurityRefresh] = useState(0);
 
   async function refresh(signal?: AbortSignal, preferred?: { categoryId?: number; ruleId?: number }) {
@@ -427,6 +430,19 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
             <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
             <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
           </article>
+          {profile && (
+            <article className="card settings-summary-card">
+              <div className="panel-heading"><div><h2>Mon profil</h2><p>Nom, photo et couleur affichés à l’ouverture de Valoria.</p></div></div>
+              <div className="settings-profile-row">
+                <ProfileAvatar profile={profile} size={64} />
+                <div><strong>{profile.name}</strong><small>{profile.kind === "demo" ? "Profil de démonstration" : "Profil personnel"}</small></div>
+              </div>
+              <div className="security-card-actions">
+                <button className="settings-secondary" onClick={() => setSecurityDrawer("profile")} type="button">Modifier le profil</button>
+              </div>
+            </article>
+          )}
+          {profile?.kind !== "demo" && (
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Mot de passe et récupération</h2><p>Changez votre mot de passe et gardez un accès de secours.</p></div></div>
             <dl className="settings-kv-list">
@@ -439,6 +455,7 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
               <button className="settings-secondary" onClick={() => setSecurityDrawer("recovery")} type="button">{securityStatus?.recoveryKeyConfigured ? "Remplacer la clé de secours" : "Créer la clé de secours"}</button>
             </div>
           </article>
+          )}
           <article className="card settings-summary-card security-journal-card">
             <div className="panel-heading"><div><h2>Journal de sécurité</h2><p>Dernières connexions, échecs et verrouillages.</p></div></div>
             {journal.length === 0 ? <small>Aucun événement enregistré.</small> : (
@@ -453,6 +470,9 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
           </article>
           <article className="card settings-summary-card settings-backup-card"><div className="panel-heading"><div><h2>Sauvegardes</h2><p>Format chiffré Valoria .vvb.</p></div></div><strong>{fileName(snapshot.security.lastBackup) || "Aucune sauvegarde enregistrée"}</strong><small title={snapshot.security.lastBackup}>{snapshot.security.lastBackup || "La création/restauration reste pilotée par le moteur local sécurisé."}</small></article>
         </form>
+      )}
+      {securityDrawer === "profile" && profile && (
+        <ProfileFormDrawer mode="edit" onClose={() => setSecurityDrawer(null)} onSaved={() => { setSecurityDrawer(null); setNotice("Profil mis à jour."); onProfileChanged(); }} profile={profile} token={token} />
       )}
       {securityDrawer === "password" && (
         <ChangePasswordDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} token={token} />
