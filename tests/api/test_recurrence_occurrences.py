@@ -42,6 +42,20 @@ class RecurrenceOccurrencesTest(unittest.TestCase):
         self.assertTrue(after[item["id"]]["edited"])
         self.assertEqual(len(after), before)
 
+    def test_snapshot_exposes_all_categories_and_category_can_be_changed(self):
+        item = self.future_item()
+        is_income = item["amount"] > 0
+        self.database.add_category("Catégorie test", kind="Revenu" if is_income else "Dépense")
+        snap = self.service.snapshot()
+        self.assertIn("Catégorie test", {c["name"] for c in snap["categories"]})
+        for c in snap["categories"]:
+            self.assertIn(c["direction"], {"Recette", "Dépense", "Neutre"})
+        target = next(c for c in snap["categories"] if c["name"] == "Catégorie test")
+        result = self.service.update(item["id"], {"date": item["date"], "amount": item["amount"], "label": item["label"], "category": target["name"]})
+        self.assertTrue(result["success"], result)
+        after = next(i for i in self.service.snapshot()["items"] if i["id"] == item["id"])
+        self.assertEqual(after["category"], target["name"])
+
     def test_update_validates_input_with_clear_messages(self):
         item = self.future_item()
         self.assertIn("libellé", self.service.update(item["id"], {"date": item["date"], "amount": -1, "label": " ", "category": ""})["message"])

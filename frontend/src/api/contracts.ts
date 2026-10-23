@@ -1260,6 +1260,7 @@ export interface RecurrenceOccurrencesSnapshot {
   items: RecurrenceOccurrence[];
   total: number;
   counts: Record<string, number>;
+  categories: Array<{ id: number; name: string; direction: "Recette" | "Dépense" | "Neutre" }>;
 }
 
 export interface RecurrenceOccurrenceActionResult {

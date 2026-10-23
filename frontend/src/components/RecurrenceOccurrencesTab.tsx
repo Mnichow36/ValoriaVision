@@ -76,10 +76,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
     snapshot?.items.forEach((item) => { if (item.accountId !== null) map.set(item.accountId, item.accountName); });
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], "fr"));
   }, [snapshot]);
-  const categories = useMemo(
-    () => [...new Set((snapshot?.items ?? []).map((item) => item.category))].sort((a, b) => a.localeCompare(b, "fr")),
-    [snapshot],
-  );
+  const categories = useMemo(() => snapshot?.categories ?? [], [snapshot]);
 
   const visible = useMemo(() => {
     if (!snapshot) return [];
@@ -257,7 +254,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
   );
 }
 
-function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }: { categories: string[]; referenceDate: string; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
+function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }: { categories: RecurrenceOccurrencesSnapshot["categories"]; referenceDate: string; item: RecurrenceOccurrence; onClose: () => void; onDone: (message: string) => void; token: string }) {
   const [date, setDate] = useState(item.date);
   const [label, setLabel] = useState(item.label);
   const [category, setCategory] = useState(item.category);
@@ -265,6 +262,20 @@ function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }:
   const [amount, setAmount] = useState(String(Math.abs(item.amount)).replace(".", ","));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+
+  // Seules les catégories compatibles avec le sens (dépense / recette) sont proposées.
+  const expectedDirection = kind === "credit" ? "Recette" : "Dépense";
+  const options = categories.filter((entry) => entry.direction === expectedDirection || entry.direction === "Neutre" || entry.name === category);
+
+  function changeKind(next: string) {
+    setKind(next);
+    const wanted = next === "credit" ? "Recette" : "Dépense";
+    const current = categories.find((entry) => entry.name === category);
+    if (current && current.direction !== wanted && current.direction !== "Neutre") {
+      const fallback = categories.find((entry) => entry.direction === wanted || entry.direction === "Neutre");
+      if (fallback) setCategory(fallback.name);
+    }
+  }
 
   async function save() {
     const value = Number(amount.replace(",", "."));
@@ -290,8 +301,8 @@ function EditDrawer({ categories, item, onClose, onDone, referenceDate, token }:
       <p className="drawer-help">Seule cette occurrence change. La règle de récurrence « {item.label} » et les autres échéances restent identiques.</p>
       <label className="account-field"><span>Date</span><input min={referenceDate} onChange={(event) => setDate(event.target.value)} type="date" value={date} /></label>
       <label className="account-field"><span>Libellé</span><input onChange={(event) => setLabel(event.target.value)} value={label} /></label>
-      <label className="account-field"><span>Catégorie</span><input list="occurrence-categories" onChange={(event) => setCategory(event.target.value)} value={category} /><datalist id="occurrence-categories">{categories.map((name) => <option key={name} value={name} />)}</datalist></label>
-      <label className="account-field"><span>Type</span><select onChange={(event) => setKind(event.target.value)} value={kind}><option value="debit">Dépense</option><option value="credit">Recette</option></select></label>
+      <label className="account-field"><span>Catégorie</span><select onChange={(event) => setCategory(event.target.value)} value={category}>{options.map((entry) => <option key={entry.id} value={entry.name}>{entry.name}</option>)}</select></label>
+      <label className="account-field"><span>Type</span><select onChange={(event) => changeKind(event.target.value)} value={kind}><option value="debit">Dépense</option><option value="credit">Recette</option></select></label>
       <label className="account-field"><span>Montant</span><div className="rules-input"><input inputMode="decimal" onChange={(event) => setAmount(event.target.value)} value={amount} /><b>€</b></div></label>
       {item.shifted && <p className="drawer-help">Date d’origine de la règle : {formatDate(item.originalDate)}.</p>}
       {error && <p className="account-form-error" role="alert">{error}</p>}

@@ -82,7 +82,18 @@ class RecurrenceOccurrencesService:
             "items": items,
             "total": len(items),
             "counts": counts,
+            "categories": self._categories(),
         }
+
+    def _categories(self) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for row in self.database.list_categories():
+            kind = str(row["kind"] or "Dépense") if "kind" in row.keys() else "Dépense"
+            direction = str(row["direction"] or "") if "direction" in row.keys() else ""
+            if direction not in {"Recette", "Dépense", "Neutre"}:
+                direction = "Recette" if kind == "Revenu" else "Neutre" if kind == "Neutre" else "Dépense"
+            result.append({"id": int(row["id"]), "name": str(row["name"] or ""), "direction": direction})
+        return result
 
     @staticmethod
     def _item(row: Any, today: date) -> dict[str, Any]:
