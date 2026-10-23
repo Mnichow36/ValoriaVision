@@ -17,7 +17,7 @@ import { InteractiveDonutChart } from "./components/InteractiveCharts";
 
 type AppState =
   | { status: "booting" }
-  | { status: "locked"; configured: boolean; busy: boolean; error?: string }
+  | { status: "locked"; configured: boolean; busy: boolean; error?: string; retryAfter?: number }
   | { status: "ready"; snapshot: DashboardSnapshot; token: string }
   | { status: "error"; message: string };
 
@@ -90,7 +90,7 @@ export function App() {
     const controller = new AbortController();
     waitForEngine(controller.signal)
       .then(() => getAuthStatus(controller.signal))
-      .then((auth) => setState({ status: "locked", configured: auth.configured, busy: false }))
+      .then((auth) => setState({ status: "locked", configured: auth.configured, busy: false, retryAfter: auth.retryAfterSeconds || undefined }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setState({ status: "error", message: errorMessage(error) });
@@ -108,7 +108,7 @@ export function App() {
       const snapshot = await getDashboard(session.token);
       setState({ status: "ready", snapshot, token: session.token });
     } catch (error: unknown) {
-      setState({ status: "locked", configured, busy: false, error: errorMessage(error) });
+      setState({ status: "locked", configured, busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter });
     }
   }
 
@@ -158,7 +158,7 @@ export function App() {
   }
 
   if (state.status === "locked") {
-    return <AuthScreen configured={state.configured} busy={state.busy} error={state.error} onSubmit={authenticate} />;
+    return <AuthScreen configured={state.configured} busy={state.busy} error={state.error} retryAfter={state.retryAfter} onSubmit={authenticate} />;
   }
 
   if (state.status === "error") {

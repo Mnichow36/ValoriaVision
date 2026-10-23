@@ -3283,3 +3283,17 @@ button.forecast-kpi { cursor: pointer; }
 :where(:root[data-theme="dark"]) :where(input, select, textarea) { background-color: #0f1626; color: var(--navy); border-color: var(--border); }
 :where(:root[data-theme="dark"]) :where(input, textarea)::placeholder { color: #6b7c99; }
 .theme-switch--sidebar { margin-top: auto; }
+
+/* ---- Sécurité : indicateur de force + journal ---- */
+.password-strength { display: grid; gap: 6px; margin: -4px 0 6px; }
+.password-strength__bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.password-strength__bar i { height: 5px; border-radius: 3px; background: var(--border); }
+.password-strength[data-score="1"] .password-strength__bar i:nth-child(-n+1) { background: #dc2626; }
+.password-strength[data-score="2"] .password-strength__bar i:nth-child(-n+2) { background: #f59e0b; }
+.password-strength[data-score="3"] .password-strength__bar i:nth-child(-n+3) { background: #65a30d; }
+.password-strength[data-score="4"] .password-strength__bar i { background: #16a34a; }
+.password-strength small { color: var(--muted); }
+.security-journal { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.security-journal li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.security-journal li span { color: var(--muted); }
+.security-journal li[data-kind="bad"] strong { color: #dc2626; }

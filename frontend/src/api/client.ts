@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -43,7 +43,8 @@ async function request<T>(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     const detail = payload?.detail || `Erreur API ${response.status}`;
-    throw new Error(detail);
+    const retryAfter = Number(response.headers.get("Retry-After")) || undefined;
+    throw Object.assign(new Error(detail), { retryAfter });
   }
 
   return response.json() as Promise<T>;
@@ -62,6 +63,10 @@ export function openSession(password: string, configured: boolean): Promise<Auth
     method: "POST",
     body: { password },
   });
+}
+
+export function getSecurityJournal(token: string, signal?: AbortSignal): Promise<{ events: SecurityEvent[] }> {
+  return request<{ events: SecurityEvent[] }>("/api/v1/security/journal", { token, signal });
 }
 
 export function closeSession(token: string): Promise<{ locked: boolean }> {

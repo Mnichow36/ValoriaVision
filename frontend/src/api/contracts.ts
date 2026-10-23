@@ -1099,6 +1099,13 @@ export interface AuthStatus {
   configured: boolean;
   authenticated: boolean;
   timeoutSeconds: number;
+  retryAfterSeconds?: number;
+}
+
+export interface SecurityEvent {
+  type: string;
+  message: string;
+  at: string;
 }
 
 export interface AuthSession {

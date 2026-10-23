@@ -414,6 +414,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             "configured": auth.is_configured(),
             "authenticated": sessions.validate(x_valoria_session, touch=False),
             "timeoutSeconds": sessions.timeout_seconds,
+            "retryAfterSeconds": auth.lock_remaining_seconds(),
         }
 
     @app.post("/api/v1/auth/setup")
@@ -441,8 +442,29 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         if not auth.is_configured():
             raise HTTPException(status_code=409, detail="Le mot de passe maître doit être configuré.")
+        wait = auth.lock_remaining_seconds()
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop d’essais. Réessayez dans {wait} s.",
+                headers={"Retry-After": str(wait)},
+            )
         if not auth.verify_master_password(payload.password.get_secret_value()):
+            delay = auth.register_failure()
+            auth.record_event(
+                "auth.unlock_failure",
+                "Échec de connexion." + (f" Verrouillage de {delay} s." if delay else ""),
+                {"attempts": auth.failed_attempts(), "lock_seconds": delay},
+            )
+            if delay:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Mot de passe incorrect. Trop d’essais : réessayez dans {delay} s.",
+                    headers={"Retry-After": str(delay)},
+                )
             raise HTTPException(status_code=401, detail="Mot de passe incorrect.")
+        auth.reset_failures()
+        auth.record_event("auth.unlock_success", "Connexion réussie.")
         token, expires_in = sessions.create()
         return {"token": token, "expiresIn": expires_in}
 
@@ -452,8 +474,20 @@ def create_app(database: Database | None = None) -> FastAPI:
         x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
     ) -> dict[str, bool]:
         require_bootstrap(x_valoria_bootstrap)
+        if sessions.validate(x_valoria_session, touch=False):
+            auth.record_event("auth.lock", "Espace verrouillé.")
         sessions.revoke(x_valoria_session)
         return {"locked": True}
+
+    @app.get("/api/v1/security/journal")
+    def security_journal(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        return {"events": auth.recent_events(30)}
 
     @app.get("/api/v1/dashboard")
     def dashboard(

@@ -1,22 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { evaluatePassword, MIN_PASSWORD_LENGTH } from "./passwordStrength";
 
 interface AuthScreenProps {
   configured: boolean;
   busy: boolean;
   error?: string;
+  retryAfter?: number;
   onSubmit: (password: string) => Promise<void>;
 }
 
-export function AuthScreen({ configured, busy, error, onSubmit }: AuthScreenProps) {
+export function AuthScreen({ configured, busy, error, retryAfter, onSubmit }: AuthScreenProps) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [localError, setLocalError] = useState("");
+  const [wait, setWait] = useState(retryAfter ?? 0);
+  const strength = evaluatePassword(password);
+
+  useEffect(() => { setWait(retryAfter ?? 0); }, [retryAfter, error]);
+  useEffect(() => {
+    if (wait <= 0) return;
+    const timer = window.setTimeout(() => setWait((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [wait]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!configured && password !== confirmation) {
       setLocalError("Les deux mots de passe ne correspondent pas.");
+      return;
+    }
+    if (!configured && !strength.acceptable) {
+      setLocalError(strength.hint || "Mot de passe trop faible.");
       return;
     }
     setLocalError("");
@@ -40,19 +55,25 @@ export function AuthScreen({ configured, busy, error, onSubmit }: AuthScreenProp
             autoComplete={configured ? "current-password" : "new-password"}
             autoFocus
             id="master-password"
-            minLength={8}
+            minLength={configured ? 1 : MIN_PASSWORD_LENGTH}
             onChange={(event) => setPassword(event.target.value)}
             required
             type="password"
             value={password}
           />
+          {!configured && password && (
+            <div className="password-strength" data-score={strength.score}>
+              <div className="password-strength__bar" aria-hidden="true"><i /><i /><i /><i /></div>
+              <small>{strength.acceptable ? `Force : ${strength.label}` : strength.hint}</small>
+            </div>
+          )}
           {!configured && (
             <>
               <label htmlFor="master-password-confirmation">Confirmer le mot de passe</label>
               <input
                 autoComplete="new-password"
                 id="master-password-confirmation"
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 onChange={(event) => setConfirmation(event.target.value)}
                 required
                 type="password"
@@ -61,8 +82,9 @@ export function AuthScreen({ configured, busy, error, onSubmit }: AuthScreenProp
             </>
           )}
           {(localError || error) && <p className="auth-error" role="alert">{localError || error}</p>}
-          <button disabled={busy} type="submit">
-            {busy ? "Vérification…" : configured ? "Déverrouiller" : "Créer et continuer"}
+          {wait > 0 && !(localError || error) && <p className="auth-error" role="status">Nouvel essai possible dans {wait} s.</p>}
+          <button disabled={busy || wait > 0} type="submit">
+            {busy ? "Vérification…" : wait > 0 ? `Patientez ${wait} s` : configured ? "Déverrouiller" : "Créer et continuer"}
           </button>
         </form>
         <small>Session temporaire · aucune conservation du mot de passe dans l’interface</small>

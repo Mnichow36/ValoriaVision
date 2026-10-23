@@ -10,9 +10,11 @@ import {
   updateSettingsCategory,
   updateSettingsGeneral,
   updateSettingsRule,
+  getSecurityJournal,
 } from "../api/client";
 import type {
   SettingsCategory,
+  SecurityEvent,
   SettingsCategoryPayload,
   SettingsRule,
   SettingsRulePayload,
@@ -100,6 +102,7 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<SettingsRulesPreview | null>(null);
+  const [journal, setJournal] = useState<SecurityEvent[]>([]);
 
   async function refresh(signal?: AbortSignal, preferred?: { categoryId?: number; ruleId?: number }) {
     const next = await getSettings(token, signal);
@@ -121,6 +124,13 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
     // The first snapshot owns the initial selection; later refreshes are explicit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    if (activeTab !== "security") return;
+    const controller = new AbortController();
+    getSecurityJournal(token, controller.signal).then((r) => setJournal(r.events)).catch(() => undefined);
+    return () => controller.abort();
+  }, [activeTab, token]);
 
   const selectedCategory = useMemo(
     () => snapshot?.categories.find((item) => item.id === selectedCategoryId) ?? null,
@@ -410,11 +420,28 @@ export function SettingsPage({ onNavigate, token }: { onNavigate: (destination: 
             <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
             <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
           </article>
+          <article className="card settings-summary-card security-journal-card">
+            <div className="panel-heading"><div><h2>Journal de sécurité</h2><p>Dernières connexions, échecs et verrouillages.</p></div></div>
+            {journal.length === 0 ? <small>Aucun événement enregistré.</small> : (
+              <ul className="security-journal">
+                {journal.slice(0, 12).map((event, index) => (
+                  <li data-kind={event.type.endsWith("failure") ? "bad" : "ok"} key={`${event.at}-${index}`}>
+                    <span>{formatJournalDate(event.at)}</span><strong>{event.message}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </article>
           <article className="card settings-summary-card settings-backup-card"><div className="panel-heading"><div><h2>Sauvegardes</h2><p>Format chiffré Valoria .vvb.</p></div></div><strong>{fileName(snapshot.security.lastBackup) || "Aucune sauvegarde enregistrée"}</strong><small title={snapshot.security.lastBackup}>{snapshot.security.lastBackup || "La création/restauration reste pilotée par le moteur local sécurisé."}</small></article>
         </form>
       )}
     </section>
   );
+}
+
+function formatJournalDate(value: string): string {
+  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function Status({ value }: { value: boolean }) {
