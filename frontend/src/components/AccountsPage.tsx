@@ -236,7 +236,30 @@ function AccountRail({ accounts, collapsed, liquidity, liquidityCount, onContext
           );
         })}
       </nav>
+      <LiquidityMix accounts={accounts} />
     </aside>
+  );
+}
+
+function LiquidityMix({ accounts }: { accounts: AccountOverview[] }) {
+  const liquid = accounts
+    .filter((account) => account.status === "Actif" && isLiquidType(account.type) && account.currentBalance > 0)
+    .sort((a, b) => b.currentBalance - a.currentBalance);
+  const total = liquid.reduce((sum, account) => sum + account.currentBalance, 0);
+  if (liquid.length === 0 || total <= 0) return null;
+  return (
+    <section className="cpt-mix" aria-label="Répartition des liquidités">
+      <h3>Répartition des liquidités</h3>
+      <ul>
+        {liquid.slice(0, 7).map((account) => (
+          <li key={account.id} title={`${account.name} : ${formatMoney(account.currentBalance)}`}>
+            <span>{account.name}</span>
+            <i><b style={{ width: `${(account.currentBalance / total) * 100}%` }} /></i>
+            <strong>{Math.round((account.currentBalance / total) * 100)} %</strong>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -262,7 +285,7 @@ function AccountView({ account, onContextMenu, onShowOperations }: {
   useLayoutEffect(() => {
     const node = opsRef.current;
     if (!node) return undefined;
-    const measure = () => setRowCount(Math.max(1, Math.min(5, Math.floor((node.clientHeight - 34) / 33))));
+    const measure = () => setRowCount(Math.max(1, Math.min(12, Math.floor((node.clientHeight - 26) / 33))));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
@@ -301,7 +324,7 @@ function AccountView({ account, onContextMenu, onShowOperations }: {
 
       <section className="cpt-ops" aria-label="Dernières opérations" ref={opsRef}>
         <div className="cpt-ops__head">
-          <h3>{Math.min(rowCount, account.transactions.length)} dernière{Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""} opération{Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""}</h3>
+          <h3>{account.transactions.length === 0 ? "Dernières opérations" : `${Math.min(rowCount, account.transactions.length)} dernière${Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""} opération${Math.min(rowCount, account.transactions.length) > 1 ? "s" : ""}`}</h3>
           {account.transactionCount > 0 && <button onClick={onShowOperations} type="button">Voir toutes les opérations de ce compte ›</button>}
         </div>
         {account.transactions.length === 0 ? (
