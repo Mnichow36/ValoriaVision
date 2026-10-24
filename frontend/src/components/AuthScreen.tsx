@@ -1,3 +1,4 @@
+import { BRAND_SLOGAN, BrandMark, StudioSignature } from "./Brand";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -81,14 +82,16 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
             <button className="auth-link" onClick={() => setDrawer({ kind: "recover", profile: selected })} type="button">Mot de passe oublié ?</button>
           </div>
           <small>Ce mot de passe protège l’accès à ce profil. Il ne quitte jamais cet ordinateur.</small>
+          <StudioSignature />
         </section>
       ) : (
         <section className="profile-picker">
-          <div className="auth-brand"><span>V</span><strong>Valoria Vision</strong></div>
+          <div className="auth-brand"><BrandMark size={40} /><strong>Valoria Vision</strong></div>
           <div className="profile-picker__intro">
             <p className="eyebrow">Données financières locales</p>
             <h1>{profiles.length ? "Qui utilise Valoria aujourd’hui ?" : "Créons le profil administrateur"}</h1>
             <p>Une seule base familiale. Votre profil détermine ce que vous voyez et ce que vous pouvez modifier.</p>
+            <p className="auth-slogan">{BRAND_SLOGAN}</p>
           </div>
           {error && <p className="auth-error" role="alert">{error}</p>}
           <div className="profile-grid">
@@ -110,6 +113,7 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
             )}
           </div>
           <small>Aucune connexion bancaire · tout reste sur cet ordinateur</small>
+          <StudioSignature />
         </section>
       )}
 

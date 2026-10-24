@@ -1,3 +1,4 @@
+import { BrandMark } from "./Brand";
 import type { Profile } from "../api/contracts";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { ThemeSwitch } from "./ThemeSwitch";
@@ -26,7 +27,7 @@ export function Sidebar({ active, onNavigate, onLock, onSwitchProfile, profile }
   return (
     <aside className="sidebar" aria-label="Navigation principale">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true">V</span>
+        <BrandMark size={42} variant="blue" />
         <span>
           <strong>Valoria Vision</strong>
           <small>Finance locale</small>

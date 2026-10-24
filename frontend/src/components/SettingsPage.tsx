@@ -1,3 +1,4 @@
+import { BRAND_SLOGAN, BrandMark, DeltaGlyph, STUDIO_NAME } from "./Brand";
 import { useEffect, useState } from "react";
 
 import {
@@ -173,6 +174,11 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
               <div><dt>Taille de la base</dt><dd>{snapshot.general.databaseSizeKb.toLocaleString("fr-FR")} Ko</dd></div>
               <div><dt>Dernière sauvegarde</dt><dd title={snapshot.general.lastBackup}>{fileName(snapshot.general.lastBackup) || "Aucune"}</dd></div>
             </dl>
+          </article>
+          <article className="card settings-summary-card settings-about-card">
+            <div className="panel-heading"><div><h2>À propos</h2><p>{BRAND_SLOGAN}</p></div></div>
+            <div className="settings-about-brand"><BrandMark size={52} /><div><strong>Valoria Vision</strong><small>Le cockpit financier de votre patrimoine</small></div></div>
+            <div className="settings-about-studio"><DeltaGlyph filled size={28} /><div><small>Développé par</small><strong>{STUDIO_NAME}</strong></div></div>
           </article>
           <article className="card settings-summary-card settings-ownership-card">
             <div className="panel-heading"><div><h2>Architecture sans doublon</h2><p>Chaque fonction conserve un seul moteur métier.</p></div></div>
