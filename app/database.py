@@ -256,6 +256,9 @@ class Database:
         however, need the same schema upgrades as the desktop application before
         invoking business methods that rely on newer transaction columns.
         """
+        if getattr(self, "crypto", None) is not None and self.crypto.locked:
+            # Données verrouillées par mot de passe : la mise à niveau se fera à l'ouverture, avec la clé.
+            return False
         if not self.path.exists():
             return False
         conn = sqlite3.connect(self.path)

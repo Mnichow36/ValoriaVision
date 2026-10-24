@@ -84,6 +84,17 @@ class EnableTest(ProtectionBase):
         self.assertEqual(status["protectionProfilesWithAccess"], 1)
 
 
+class StartupTest(ProtectionBase):
+    def test_launcher_startup_does_not_crash_on_locked_vault_with_leftover_database(self):
+        """Fermeture brutale : un .db en clair traîne, mais le coffre est verrouillé au relancement."""
+        self.enable()
+        self.restart()
+        self.db_path.write_bytes(b"reste d'une fermeture brutale")
+        self.assertFalse(self.database.crypto.protected is False)
+        self.assertTrue(self.database.crypto.locked)
+        self.assertFalse(self.database.prepare_existing_database())  # appelé par app/api/run.py
+
+
 class LockedLifecycleTest(ProtectionBase):
     def setUp(self):
         super().setUp()
