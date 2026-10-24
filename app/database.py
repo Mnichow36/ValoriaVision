@@ -21,7 +21,7 @@ from app.services.reconciliation import (
     reevaluate_for_occurrences,
     reevaluate_transaction,
 )
-from app.security.crypto_service import CryptoService, SecurityIntegrityError
+from app.security.crypto_service import CryptoService, SecurityIntegrityError, VaultLockedError
 from app.migrations.r8_reconciliation import apply_r8_reconciliation_foundation
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -219,6 +219,9 @@ class Database:
             return self.quarantine_invalid_database("invalid_sqlite")
 
     def connect(self) -> sqlite3.Connection:
+        if getattr(self, "crypto", None) is not None and self.crypto.locked:
+            # Coffre verrouillé : ne jamais ouvrir (donc ne jamais créer) une base vide à la place.
+            raise VaultLockedError("Les données sont verrouillées : ouvrez-les avec votre mot de passe.")
         recovered = self.ensure_valid_database_file()
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row

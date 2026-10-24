@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import base64
 import binascii
 import gc
@@ -17,6 +19,8 @@ from pydantic import BaseModel, SecretStr
 
 from app.database import Database
 from app.security.api_session import ApiSessionStore
+from app.security.crypto_service import VaultLockedError
+from app.security.protection import ProtectionError, ProtectionService
 from app.security.auth_service import AuthService
 from app.security import backup_location
 from app.security.backup_service import BackupError, BackupService, WrongPassphrase, count_content
@@ -520,10 +524,21 @@ class ActiveDatabase:
 
 
 def create_app(database: Database | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        # Arrêt normal de l'application : si les données sont protégées, on referme le coffre
+        # (base en clair effacée, clé oubliée). Un arrêt brutal est repris au déverrouillage suivant.
+        try:
+            protection.lock()
+        except Exception:
+            pass
+
     app = FastAPI(
         title="Valoria Vision Local API",
         version="0.1.0",
         description="Local-only boundary between the React UI and Python engines.",
+        lifespan=lifespan,
     )
 
     legacy_database = database or Database()
@@ -531,6 +546,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     # lors de la reprise d'une installation existante, le nom/l'avatar d'origine.
     profiles = ProfileManager(legacy_database.data_dir, legacy_database=legacy_database)
     users = UserStore(legacy_database)
+    protection = ProtectionService(legacy_database)
     snapshots = ScopedSnapshots(legacy_database)
     active_database = ActiveDatabase()
     # pin_ready : profils ayant ouvert une session par mot de passe depuis le lancement de
@@ -545,7 +561,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     # Préparation de la base commune et reprise d'une installation existante
     # ------------------------------------------------------------------
     def ensure_ready() -> None:
-        if state["ready"] or not users.db_exists():
+        if protection.locked or state["ready"] or not users.db_exists():
             return
         legacy_database.prepare_existing_database()
         users.ensure_schema()
@@ -589,7 +605,21 @@ def create_app(database: Database | None = None) -> FastAPI:
 
     def public_profiles() -> list[dict]:
         ensure_ready()
+        if protection.locked:
+            # Données verrouillées : l'annuaire en clair suffit à choisir un profil.
+            return protection.read_directory() + demo_profiles()
         return with_pin_flags(users.list_users()) + demo_profiles()
+
+    def user_count() -> int:
+        return len(protection.read_directory()) if protection.locked else users.count()
+
+    def refresh_directory() -> None:
+        """Garde l'annuaire à jour pour l'écran de choix de profil quand tout est verrouillé."""
+        if protection.protected and not protection.locked:
+            try:
+                protection.write_directory(users.list_users())
+            except Exception:
+                pass
 
     def timeout_seconds_for(db: Database) -> int:
         try:
@@ -608,6 +638,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         else:
             db = legacy_database
             users.touch_login(int(user_id))
+            refresh_directory()
         active_database.use(db)
         sessions.timeout_seconds = timeout_seconds_for(db)
         return sessions.create(user_id=user_id, mode=mode)
@@ -775,6 +806,18 @@ def create_app(database: Database | None = None) -> FastAPI:
     def resolve_target(requested: str | None) -> tuple[str, int | str]:
         """Retourne ("user", id) ou ("demo", id_du_profil_démo)."""
         ensure_ready()
+        if protection.locked:
+            directory = {item["id"] for item in protection.read_directory()}
+            if requested:
+                user_id = UserStore.parse_public_id(requested)
+                if user_id is not None and requested in directory:
+                    return "user", user_id
+                if profiles.exists(requested) and profiles.get(requested)["kind"] == "demo":
+                    return "demo", requested
+                raise HTTPException(status_code=404, detail="Profil introuvable.")
+            if len(directory) == 1:
+                return "user", UserStore.parse_public_id(next(iter(directory)))
+            raise HTTPException(status_code=409, detail="Choisissez un profil.")
         if requested:
             user_id = UserStore.parse_public_id(requested)
             if user_id is not None and users.exists(user_id):
@@ -814,7 +857,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
         listing = public_profiles()
-        has_users = users.count() > 0
+        has_users = user_count() > 0
         ident = sessions.identity(x_valoria_session, touch=False)
         active_id = None
         if ident is not None:
@@ -824,8 +867,13 @@ def create_app(database: Database | None = None) -> FastAPI:
         retry = 0
         user_id = UserStore.parse_public_id(current["id"]) if current else None
         if user_id is not None:
-            retry = AuthService(users.settings_for(user_id)).lock_remaining_seconds()
+            retry = (
+                protection.throttle_seconds(user_id)
+                if protection.locked
+                else AuthService(users.settings_for(user_id)).lock_remaining_seconds()
+            )
         return {
+            "dataLocked": protection.locked,
             "configured": bool(has_users and current and (current["configured"] or current["kind"] == "demo")),
             "authenticated": ident is not None,
             "timeoutSeconds": sessions.timeout_seconds,
@@ -854,7 +902,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         """Première installation : crée le premier administrateur."""
         require_bootstrap(x_valoria_bootstrap)
         ensure_ready()
-        if users.count() > 0:
+        if protection.locked or users.count() > 0:
             raise HTTPException(status_code=409, detail="Le mot de passe maître est déjà configuré.")
         password = payload.password.get_secret_value()
         check = policy.password_policy(password)
@@ -882,7 +930,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     ) -> dict:
         require_bootstrap(x_valoria_bootstrap)
         ensure_ready()
-        if users.count() == 0:
+        if user_count() == 0:
             raise HTTPException(status_code=409, detail="Le mot de passe maître doit être configuré.")
         kind, target = resolve_target(payload.profile_id)
         if kind == "demo":
@@ -890,6 +938,8 @@ def create_app(database: Database | None = None) -> FastAPI:
             state["demo_id"] = target
             token, expires_in = open_session(None, "demo")
             return {"token": token, "expiresIn": expires_in, "profileId": target}
+        if protection.locked:
+            open_vault_with_password(int(target), payload.password.get_secret_value())
         service = AuthService(users.settings_for(int(target)))
         if not service.is_configured():
             raise HTTPException(status_code=409, detail="Le mot de passe de ce profil doit être configuré.")
@@ -897,10 +947,40 @@ def create_app(database: Database | None = None) -> FastAPI:
         if not service.verify_master_password(payload.password.get_secret_value()):
             fail_with_throttle("Mot de passe incorrect.", service, status_if_not_locked=401)
         service.reset_failures()
+        if protection.protected:
+            # Chaque connexion réussie remet la serrure de ce profil d'équerre (nouveau profil,
+            # mot de passe changé par un autre chemin, restauration d'une sauvegarde…).
+            protection.set_password(int(target), payload.password.get_secret_value())
         token, expires_in = open_session(int(target), "family")
         state["pin_ready"].add(int(target))
         service.record_event("auth.unlock_success", "Connexion réussie.")
         return {"token": token, "expiresIn": expires_in, "profileId": f"u{target}"}
+
+    def open_vault_with_password(user_id: int, password: str) -> None:
+        """Données verrouillées : le mot de passe doit d'abord ouvrir la serrure du coffre."""
+        wait = protection.throttle_seconds(user_id)
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop d’essais. Réessayez dans {wait} s.",
+                headers={"Retry-After": str(wait)},
+            )
+        if not protection.has_password_slot(user_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Les données sont verrouillées : ouvrez-les d’abord avec le profil administrateur.",
+                headers={"X-Valoria-Vault": "admin-first"},
+            )
+        if not protection.unlock_with_password(user_id, password):
+            delay = protection.register_failure(user_id)
+            if delay:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Mot de passe incorrect. Trop d’essais : réessayez dans {delay} s.",
+                    headers={"Retry-After": str(delay)},
+                )
+            raise HTTPException(status_code=401, detail="Mot de passe incorrect.")
+        ensure_ready()
 
     @app.post("/api/v1/auth/unlock-pin")
     def unlock_pin(
@@ -993,7 +1073,65 @@ def create_app(database: Database | None = None) -> FastAPI:
             "pinConfigured": service.has_pin(),
             "pinCreatedAt": service.pin_created_at() or None,
             "pinLastUsedAt": service.pin_last_used_at() or None,
+            "protectionEnabled": protection.protected,
+            "protectionProfilesWithAccess": len(protection.owners()),
         }
+
+    @app.post("/api/v1/security/protection/enable")
+    def enable_protection(
+        payload: RecoveryKeyRequestPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Verrouille les données par le mot de passe de l'administrateur connecté."""
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_family_admin(x_valoria_session)
+        if protection.protected:
+            raise HTTPException(status_code=409, detail="La protection par mot de passe est déjà active.")
+        admin = auth_for(x_valoria_session)
+        refuse_if_throttled(admin)
+        password = payload.password.get_secret_value()
+        if not admin.verify_master_password(password):
+            fail_with_throttle("Mot de passe incorrect.", admin)
+        admin.reset_failures()
+        user_id = int(sessions.identity(x_valoria_session)[0])
+        # Nouvelle clé de secours (montrée une seule fois) : elle ouvre aussi le coffre.
+        keep = {k: admin.db.get_setting(f"security.recovery_{k}", "") for k in ("hash", "salt", "iterations", "created_at")}
+        recovery_key = admin.generate_recovery_key()
+        try:
+            safety = protection.enable(user_id, password, recovery_key, users.list_users())
+        except Exception as exc:
+            for name, value in keep.items():
+                admin.db.set_setting(f"security.recovery_{name}", value)
+            raise HTTPException(status_code=500, detail=f"Activation annulée, rien n’a été modifié : {exc}") from exc
+        admin.record_event("auth.protection_enabled", "Protection des données par mot de passe activée.")
+        return {
+            "enabled": True,
+            "recoveryKey": recovery_key,
+            "safetyCopy": Path(safety).name,
+        }
+
+    @app.post("/api/v1/security/protection/lock")
+    def lock_vault(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Referme complètement les données : base en clair effacée, clé oubliée."""
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        if not protection.protected:
+            raise HTTPException(status_code=409, detail="La protection par mot de passe n’est pas active.")
+        ident = sessions.identity(x_valoria_session)
+        if ident is not None and ident[0] is not None:
+            AuthService(users.settings_for(ident[0])).record_event("auth.vault_locked", "Données verrouillées.")
+        sessions.clear()
+        snapshots.clear()
+        active_database.release()
+        state["ready"] = False
+        state["pin_ready"].clear()
+        removed = protection.lock()
+        return {"locked": True, "plaintextRemoved": removed}
 
     @app.post("/api/v1/security/pin")
     def set_pin(
@@ -1052,6 +1190,9 @@ def create_app(database: Database | None = None) -> FastAPI:
             fail_with_throttle("Mot de passe actuel incorrect.", service)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        ident = sessions.identity(x_valoria_session)
+        if ident is not None and ident[0] is not None:
+            protection.set_password(int(ident[0]), payload.new_password.get_secret_value())
         return {"changed": True}
 
     @app.post("/api/v1/security/recovery-key")
@@ -1069,12 +1210,33 @@ def create_app(database: Database | None = None) -> FastAPI:
             fail_with_throttle("Mot de passe incorrect.", service)
         replaced = service.has_recovery_key()
         key = service.generate_recovery_key()
+        ident = sessions.identity(x_valoria_session)
+        if ident is not None and ident[0] is not None:
+            protection.set_recovery(int(ident[0]), key)
         service.reset_failures()
         service.record_event(
             "auth.recovery_key_created",
             "Clé de secours remplacée." if replaced else "Clé de secours créée.",
         )
         return {"recoveryKey": key, "createdAt": service.recovery_key_created_at()}
+
+    def open_vault_with_recovery_key(user_id: int, recovery_key: str) -> None:
+        wait = protection.throttle_seconds(f"r{user_id}")
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop d’essais. Réessayez dans {wait} s.",
+                headers={"Retry-After": str(wait)},
+            )
+        owner = protection.unlock_with_recovery(recovery_key)
+        if owner != user_id:
+            if owner is not None:
+                protection.lock()  # la clé de secours d'un autre profil n'ouvre pas cet espace
+            delay = protection.register_failure(f"r{user_id}")
+            if delay:
+                raise HTTPException(status_code=429, detail=f"Clé de secours incorrecte. Réessayez dans {delay} s.", headers={"Retry-After": str(delay)})
+            raise HTTPException(status_code=403, detail="Clé de secours incorrecte.")
+        ensure_ready()
 
     @app.post("/api/v1/auth/recover")
     def recover(
@@ -1085,6 +1247,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         kind, target = resolve_target(payload.profile_id)
         if kind != "user":
             raise HTTPException(status_code=409, detail="Le profil Démo n’a pas de mot de passe.")
+        if protection.locked:
+            open_vault_with_recovery_key(int(target), payload.recovery_key.get_secret_value())
         service = AuthService(users.settings_for(int(target)))
         if not service.has_recovery_key():
             raise HTTPException(status_code=409, detail="Aucune clé de secours n’a été créée.")
@@ -1097,6 +1261,9 @@ def create_app(database: Database | None = None) -> FastAPI:
             fail_with_throttle("Clé de secours incorrecte.", service)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if protection.protected:
+            protection.set_password(int(target), payload.new_password.get_secret_value())
+            protection.set_recovery(int(target), new_key)
         token, expires_in = open_session(int(target), "family")
         return {"token": token, "expiresIn": expires_in, "recoveryKey": new_key, "profileId": f"u{target}"}
 
@@ -1152,6 +1319,10 @@ def create_app(database: Database | None = None) -> FastAPI:
         service.set_master_password(password)
         recovery_key = service.generate_recovery_key()
         service.record_event("auth.recovery_key_created", "Clé de secours créée.")
+        if protection.protected:
+            protection.set_password(user_id, password)
+            protection.set_recovery(user_id, recovery_key)
+            refresh_directory()
         return {"profile": users.get(user_id), "recoveryKey": recovery_key}
 
     @app.put("/api/v1/profiles/{profile_id}")
@@ -1178,6 +1349,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             )
         except (UserError, UserNotFound) as exc:
             raise user_error(exc) from exc
+        refresh_directory()
         return {"profile": profile}
 
     @app.put("/api/v1/profiles/{profile_id}/access")
@@ -1262,6 +1434,8 @@ def create_app(database: Database | None = None) -> FastAPI:
                 if ident is not None and ident[0] == user_id:
                     raise HTTPException(status_code=409, detail="Vous ne pouvez pas supprimer le profil ouvert.")
                 users.delete(user_id)
+                protection.remove_profile(user_id)
+                refresh_directory()
         except (UserError, UserNotFound, ProfileError, ProfileNotFound) as exc:
             raise user_error(exc) from exc
         return {"deleted": True}
@@ -1490,11 +1664,13 @@ def create_app(database: Database | None = None) -> FastAPI:
         legacy_database.prepare_existing_database()
         ensure_ready()
         legacy_database.seal_database_to_encrypted_vault()
+        refresh_directory()
         return {"restored": True, "safetyCopy": safety.name}
 
     def wipe_family_database() -> None:
         """Supprime la base familiale (et son coffre) ; sous Windows, un fichier peut rester
         verrouillé un instant : on libère les connexions, on réessaie, puis on vide la base en place."""
+        protection.reset()  # plus rien à protéger : serrures et annuaire disparaissent avec les données
         database_path = Path(legacy_database.path)
         vault = Path(legacy_database.encrypted_db_path)
         # Le coffre d'abord : s'il restait seul, la base serait recréée depuis lui au prochain démarrage.
