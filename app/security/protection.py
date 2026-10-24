@@ -28,7 +28,7 @@ DIRECTORY_FILE = "directory.json"
 # Champs conservés pour afficher le choix de profil quand tout est verrouillé (jamais d'avatar).
 DIRECTORY_FIELDS = (
     "id", "name", "color", "kind", "role", "roleLabel", "configured",
-    "recoveryKeyConfigured", "removable", "lastLoginAt",
+    "recoveryKeyConfigured", "removable", "lastLoginAt", "premiumLocked",
 )
 # (nombre d'échecs, secondes d'attente) ; compteur en mémoire car la base est verrouillée.
 LOCKED_THROTTLE_STEPS = ((5, 30), (8, 120), (10, 600))

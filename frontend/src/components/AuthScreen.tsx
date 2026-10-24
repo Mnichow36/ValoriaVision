@@ -8,6 +8,7 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { PinPad } from "./PinPad";
 import { ProfileFormDrawer } from "./ProfileDrawers";
 import { SideDrawer } from "./SideDrawer";
+import { PadlockIcon } from "./PremiumDrawer";
 
 interface AuthScreenProps {
   profiles: Profile[];
@@ -32,6 +33,7 @@ function lastLogin(profile: Profile): string {
 }
 
 export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAfter, onUnlock, onUnlockPin, onRecovered, onProfilesChanged }: AuthScreenProps) {
+  const [lockedNotice, setLockedNotice] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (preferredProfileId && profiles.some((p) => p.id === preferredProfileId)) return preferredProfileId;
     return preferredProfileId === null ? null : profiles.length === 1 ? profiles[0].id : null;
@@ -59,6 +61,7 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
   useEffect(() => { if (profiles.length === 0) setDrawer({ kind: "create" }); }, [profiles.length]);
 
   function choose(profile: Profile) {
+    setLockedNotice("");
     setPassword("");
     setForcePassword(false);
     if (profile.kind === "demo" && !profile.configured) void onUnlock(profile.id, "");
@@ -122,17 +125,18 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
           {dataLocked && (
             <p className="vault-banner" role="status"><strong>Les données sont verrouillées.</strong> Le premier mot de passe saisi après le démarrage doit être celui d’un profil qui ouvre le coffre (en général l’administrateur) ; les autres profils suivent ensuite.</p>
           )}
-          {error && <p className="auth-error" role="alert">{error}</p>}
+          {(lockedNotice || error) && <p className="auth-error" role="alert">{lockedNotice || error}</p>}
           <div className="profile-grid">
             {profiles.map((profile) => (
-              <button className="profile-card" disabled={busy} key={profile.id} onClick={() => choose(profile)} type="button">
+              <button className={profile.premiumLocked ? "profile-card profile-card--locked" : "profile-card"} disabled={busy} key={profile.id} onClick={() => (profile.premiumLocked ? setLockedNotice("Ce profil est verrouillé : les profils supplémentaires sont réservés à l’édition Premium. Il est conservé avec ses données.") : choose(profile))} type="button">
                 <ProfileAvatar profile={profile} size={84} />
                 <strong>{profile.name}</strong>
                 <span className="profile-card__meta">{profile.kind === "demo" ? "Données fictives · sans mot de passe" : lastLogin(profile)}</span>
                 {profile.kind === "demo"
                   ? <span className="profile-badge profile-badge--info">Mode démonstration</span>
                   : <span className={`profile-badge ${profile.role === "admin" ? "profile-badge--info" : profile.role === "reader" ? "profile-badge--reader" : "profile-badge--ok"}`}>{roleBadge(profile)}</span>}
-                {dataLocked && profile.kind !== "demo" && (
+                {profile.premiumLocked && <span className="vault-chip vault-chip--premium"><PadlockIcon size={12} /> Premium</span>}
+                {dataLocked && profile.kind !== "demo" && !profile.premiumLocked && (
                   <span className={`vault-chip ${profile.vaultAccess ? "vault-chip--open" : ""}`}>{profile.vaultAccess ? "Ouvre le coffre" : "Après l’administrateur"}</span>
                 )}
               </button>

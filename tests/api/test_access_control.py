@@ -49,6 +49,8 @@ class AccessControlBase(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.database = _family_database(self.tmp.name)
+        # Ces tests couvrent les accès : l'édition Premium évite les limites du Standard.
+        self.database.set_user_preference("premium.mode", "premium")
         self.client = TestClient(create_app(self.database))
         self.admin = self.login("u1", ADMIN_PASSWORD)
         accounts = {a["name"]: a["id"] for a in self.admin.get("/api/v1/accounts").json()["accounts"]}

@@ -6,6 +6,8 @@ import { getAccessMatrix, getAuthStatus } from "../api/client";
 import type { AccessMatrix, Profile } from "../api/contracts";
 import { ContextMenu } from "./ContextMenu";
 import type { ContextMenuState } from "./ContextMenu";
+import { useEdition } from "../edition";
+import { PadlockIcon } from "./PremiumDrawer";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { RemoveProfilePinDrawer } from "./PinDrawers";
 import { DeleteProfileDrawer, ProfileFormDrawer } from "./ProfileDrawers";
@@ -23,6 +25,7 @@ function scopeText(profile: Profile): string {
 
 /** Paramètres › Profils et accès : réservé à l'administrateur. */
 export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { token: string; currentProfileId: string; onNotice: (text: string) => void; onChanged: () => void }) {
+  const { edition, openPremium } = useEdition();
   const [matrix, setMatrix] = useState<AccessMatrix | null>(null);
   const [demo, setDemo] = useState<Profile | null>(null);
   const [error, setError] = useState("");
@@ -68,7 +71,7 @@ export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { 
     <article className="card settings-summary-card access-admin">
       <div className="panel-heading">
         <div><h2>Profils et accès</h2><p>Une base familiale commune. Chaque profil voit uniquement les comptes et biens qui lui sont ouverts.</p></div>
-        <button className="settings-primary" onClick={() => setDrawer({ kind: "create" })} type="button">+ Nouveau profil</button>
+        <button className="settings-primary" onClick={() => (edition && !edition.multiProfile ? openPremium("profiles") : setDrawer({ kind: "create" }))} type="button">{edition && !edition.multiProfile ? <><PadlockIcon size={14} /> Nouveau profil</> : "+ Nouveau profil"}</button>
       </div>
       {error && <p className="auth-error" role="alert">{error}</p>}
       <ul className="access-list">
@@ -77,6 +80,7 @@ export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { 
             <ProfileAvatar profile={profile} size={38} />
             <div><strong>{profile.name}{profile.id === currentProfileId ? " (vous)" : ""}</strong><small>{scopeText(profile)}{profile.pinConfigured ? " · PIN activé" : ""}</small></div>
             <span className={`profile-badge ${profile.kind === "demo" ? "profile-badge--info" : ROLE_CLASS[profile.role ?? "reader"]}`}>{profile.kind === "demo" ? "Démonstration" : profile.roleLabel}</span>
+            {edition?.lockedProfiles.includes(profile.id) && <span className="vault-chip vault-chip--premium"><PadlockIcon size={12} /> Premium</span>}
           </li>
         ))}
       </ul>

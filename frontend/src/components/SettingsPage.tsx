@@ -27,6 +27,7 @@ import type { NavigationId } from "./Sidebar";
 import { SettingsCategoriesTab } from "./SettingsCategoriesTab";
 import { SettingsRulesTab } from "./SettingsRulesTab";
 import { ThemeSwitch } from "./ThemeSwitch";
+import { EditionTab } from "./EditionTab";
 
 type SecurityView = "access" | "profiles" | "journal" | "protection";
 const securityViews: { id: SecurityView; label: string; admin?: boolean }[] = [
@@ -36,7 +37,7 @@ const securityViews: { id: SecurityView; label: string; admin?: boolean }[] = [
   { id: "protection", label: "Protection des données" },
 ];
 
-type SettingsTab = "general" | "categories" | "rules" | "balances" | "security";
+type SettingsTab = "general" | "categories" | "rules" | "balances" | "security" | "edition";
 
 const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "general", label: "Général" },
@@ -44,6 +45,7 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "rules", label: "Règles de catégorisation" },
   { id: "balances", label: "Soldes" },
   { id: "security", label: "Sécurité" },
+  { id: "edition", label: "Édition" },
 ];
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -53,7 +55,7 @@ const money = new Intl.NumberFormat("fr-FR", {
   style: "currency",
 });
 
-export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onSessionEnded, onTabChange, onShowCategoryOperations, onOpenSuggestions }: { onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void; onSessionEnded: () => void; onTabChange?: (tab: string) => void; onShowCategoryOperations?: (categoryName: string) => void; onOpenSuggestions?: () => void }) {
+export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onSessionEnded, onTabChange, onShowCategoryOperations, onOpenSuggestions, requestedTab, onEditionChanged }: { requestedTab?: { tab: string; key: number } | null; onEditionChanged?: () => void; onNavigate: (destination: NavigationId | "reconciliation") => void; token: string; profile: Profile | null; onProfileChanged: () => void; onSessionEnded: () => void; onTabChange?: (tab: string) => void; onShowCategoryOperations?: (categoryName: string) => void; onOpenSuggestions?: () => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("rules");
   const [securityView, setSecurityView] = useState<SecurityView>("access");
@@ -85,6 +87,9 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
   }
 
   useEffect(() => { onTabChange?.(activeTab); }, [activeTab, onTabChange]);
+  useEffect(() => {
+    if (requestedTab && tabs.some((tab) => tab.id === requestedTab.tab)) setActiveTab(requestedTab.tab as SettingsTab);
+  }, [requestedTab]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -215,6 +220,10 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
           </article>
           <aside className="card settings-balance-aside"><h2>Cohérence</h2><dl className="settings-kv-list"><div><dt>Transactions sans compte</dt><dd>{snapshot.balances.summary.orphanTransactions}</dd></div><div><dt>Imports orphelins</dt><dd>{snapshot.balances.summary.orphanImportLinks}</dd></div><div><dt>Écart revenus</dt><dd>{money.format(snapshot.balances.summary.revenuesGap)}</dd></div><div><dt>Écart dépenses</dt><dd>{money.format(snapshot.balances.summary.expensesGap)}</dd></div></dl><button className="settings-primary" onClick={() => onNavigate("reconciliation")} type="button">Ouvrir Rapprochements</button><p>Les règles de rapprochement restent dans leur écran métier afin d’éviter un doublon fonctionnel.</p></aside>
         </form>
+      )}
+
+      {activeTab === "edition" && (
+        <EditionTab isAdmin={isAdmin} onChanged={() => onEditionChanged?.()} token={token} />
       )}
 
       {activeTab === "security" && (

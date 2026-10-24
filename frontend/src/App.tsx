@@ -1,4 +1,6 @@
 import { CanWriteProvider, useCanWrite } from "./permissions";
+import { EditionProvider, type PremiumFeature } from "./edition";
+import { PremiumDrawer } from "./components/PremiumDrawer";
 import { useEffect, useState } from "react";
 
 import { closeSession, getAuthStatus, getDashboard, getHealth, getMe, openSession, openSessionWithPin } from "./api/client";
@@ -91,6 +93,8 @@ export function App() {
   const [assetEditorRequestKey, setAssetEditorRequestKey] = useState(0);
   const [preferredImportAccountId, setPreferredImportAccountId] = useState<number>();
   const [settingsTab, setSettingsTab] = useState("rules");
+  const [premiumFeature, setPremiumFeature] = useState<PremiumFeature | null>(null);
+  const [settingsTabRequest, setSettingsTabRequest] = useState<{ tab: string; key: number } | null>(null);
   const [transactionAccountFocus, setTransactionAccountFocus] = useState<{ accountId?: number; category?: string; key: number }>();
 
   useEffect(() => {
@@ -168,6 +172,17 @@ export function App() {
   }
 
   // « reconciliation » n'est plus un module : c'est un onglet de Transactions.
+  function refreshMe() {
+    if (state.status !== "ready") return;
+    void getMe(state.token).then((result) => setMe(result.me)).catch(() => undefined);
+  }
+
+  function discoverPremium() {
+    setPremiumFeature(null);
+    setSettingsTabRequest({ tab: "edition", key: Date.now() });
+    navigate("settings");
+  }
+
   function navigate(destination: NavigationId | "reconciliation") {
     if (destination === "reconciliation") {
       setTransactionsView("reconciliation");
@@ -256,6 +271,7 @@ export function App() {
 
   return (
     <CanWriteProvider value={me ? me.canWrite : true}>
+    <EditionProvider value={{ edition: me?.edition ?? null, openPremium: setPremiumFeature }}>
     <div className="app-shell">
       <Sidebar active={activeModule} onLock={() => void lock()} onNavigate={navigate} onSwitchProfile={() => void lock(true)} profile={profiles.find((p) => p.id === activeProfileId) ?? null} />
       <main className="workspace">
@@ -314,7 +330,7 @@ export function App() {
           {activeModule === "accounts" && (
             <AccountsPage
               editorRequestKey={accountEditorRequestKey}
-              onAccountChanged={() => void refreshDashboard()}
+              onAccountChanged={() => { void refreshDashboard(); refreshMe(); }}
               onAttachImport={openBankImport}
               onShowOperations={showAccountOperations}
               statusFilter={accountStatusFilter}
@@ -361,11 +377,13 @@ export function App() {
           )}
           {activeModule === "budgets" && <BudgetsPage month={budgetMonth} onMonthChange={setBudgetMonth} onMonthsChange={setBudgetMonths} token={state.token} />}
           {activeModule === "assets" && <AssetsPage editorRequestKey={assetEditorRequestKey} onDataChanged={() => void refreshDashboard()} token={state.token} />}
-          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onOpenSuggestions={openRuleSuggestions} onShowCategoryOperations={showCategoryOperations} onTabChange={setSettingsTab} onProfileChanged={() => void refreshProfiles()} onSessionEnded={() => { setState({ status: "locked", busy: false, preferredProfileId: null }); void refreshProfiles(); }} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
+          {activeModule === "settings" && <SettingsPage onNavigate={navigate} onOpenSuggestions={openRuleSuggestions} onShowCategoryOperations={showCategoryOperations} onTabChange={setSettingsTab} requestedTab={settingsTabRequest} onEditionChanged={() => { refreshMe(); void refreshProfiles(); }} onProfileChanged={() => void refreshProfiles()} onSessionEnded={() => { setState({ status: "locked", busy: false, preferredProfileId: null }); void refreshProfiles(); }} profile={profiles.find((p) => p.id === activeProfileId) ?? null} token={state.token} />}
           {activeModule !== "dashboard" && activeModule !== "accounts" && activeModule !== "transactions" && activeModule !== "forecast" && activeModule !== "budgets" && activeModule !== "assets" && activeModule !== "settings" && <ModulePlaceholder module={module} />}
         </div>
       </main>
     </div>
+    {premiumFeature && <PremiumDrawer edition={me?.edition ?? null} feature={premiumFeature} onClose={() => setPremiumFeature(null)} onDiscover={discoverPremium} />}
+    </EditionProvider>
     </CanWriteProvider>
   );
 }

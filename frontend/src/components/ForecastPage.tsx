@@ -7,6 +7,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ForecastSimulationDrawer } from "./ForecastSimulationDrawer";
 import { ForecastStepChart } from "./ForecastStepChart";
 import { SideDrawer } from "./SideDrawer";
+import { useEdition } from "../edition";
 import { ScenarioManager } from "./ScenarioManager";
 import { RecurrenceEditor } from "./RecurrenceEditor";
 
@@ -36,6 +37,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
 });
 
 export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccountsChange, onDataChanged, onOpenRecurrences, onScenarioChange, scenario, token }: ForecastPageProps) {
+  const { edition, openPremium } = useEdition();
   const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -184,6 +186,10 @@ export function ForecastPage({ accountId, editorRequestKey, horizonDays, onAccou
                 <ScenarioSelector
                   catalog={scenarioCatalog}
                   onManage={() => {
+                    if (edition && !edition.scenarioBuilder) {
+                      openPremium("scenario_builder");
+                      return;
+                    }
                     setEditorOpen(false);
                     setSelectedPoint(undefined);
                     setScenarioManagerOpen(true);

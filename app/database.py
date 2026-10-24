@@ -3843,6 +3843,20 @@ class Database:
             ).fetchone()
         return row["value"] if row else ""
 
+    def set_user_preference(self, key: str, value: str, scope: str = "global") -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_preferences(key, value, scope)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (key, str(value), scope),
+            )
+        self.seal_database_to_encrypted_vault()
+
     def get_user_preference(self, key: str, default: str = "") -> str:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM user_preferences WHERE key = ?", (key,)).fetchone()

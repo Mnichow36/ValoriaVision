@@ -40,6 +40,7 @@ from app.services.assets_read_service import AssetsReadService
 from app.services.bank_import_workflow_service import BankImportWorkflowService
 from app.services.budgets_read_service import BudgetsReadService
 from app.services.dashboard_read_service import DashboardReadService
+from app.services.edition import EDITION_PREMIUM, EditionService, PremiumRequired
 from app.services.forecast_read_service import ForecastReadService
 from app.services.recurrence_occurrences_service import RecurrenceOccurrencesService
 from app.services.recurrence_write_service import RecurrenceWriteService
@@ -107,6 +108,10 @@ class RecoverPayload(BaseModel):
     recovery_key: SecretStr
     new_password: SecretStr
     profile_id: str | None = None
+
+
+class EditionPayload(BaseModel):
+    edition: str
 
 
 class ProfileCreatePayload(BaseModel):
@@ -547,6 +552,7 @@ def create_app(database: Database | None = None) -> FastAPI:
     profiles = ProfileManager(legacy_database.data_dir, legacy_database=legacy_database)
     users = UserStore(legacy_database)
     protection = ProtectionService(legacy_database)
+    edition = EditionService(legacy_database)
     snapshots = ScopedSnapshots(legacy_database)
     active_database = ActiveDatabase()
     # pin_ready : profils ayant ouvert une session par mot de passe depuis le lancement de
@@ -603,6 +609,32 @@ def create_app(database: Database | None = None) -> FastAPI:
             item["pinAvailable"] = bool(has_pin and user_id in state["pin_ready"])
         return listing
 
+    def with_edition_flags(listing: list[dict]) -> list[dict]:
+        """Marque les profils verrouillés en édition Standard (un seul profil reste utilisable)."""
+        try:
+            locked = set(edition.describe(listing)["lockedProfiles"])
+        except Exception:
+            locked = set()
+        for item in listing:
+            item["premiumLocked"] = item.get("id") in locked
+        return listing
+
+    def premium_denied(exc: PremiumRequired) -> HTTPException:
+        return HTTPException(status_code=403, detail=str(exc), headers={"X-Valoria-Premium": exc.feature})
+
+    def is_demo(token: str | None) -> bool:
+        ident = sessions.identity(token, touch=False)
+        return ident is None or ident[1] == "demo" or ident[0] is None
+
+    def require_premium(token: str | None, check, *args) -> None:
+        """Applique une règle d'édition ; le profil Démo n'est jamais limité."""
+        if is_demo(token):
+            return
+        try:
+            check(*args)
+        except PremiumRequired as exc:
+            raise premium_denied(exc) from exc
+
     def public_profiles() -> list[dict]:
         ensure_ready()
         if protection.locked:
@@ -612,7 +644,7 @@ def create_app(database: Database | None = None) -> FastAPI:
                 owner = UserStore.parse_public_id(item["id"])
                 item["vaultAccess"] = bool(owner is not None and protection.has_password_slot(owner))
             return listing + demo_profiles()
-        return with_pin_flags(users.list_users()) + demo_profiles()
+        return with_edition_flags(with_pin_flags(users.list_users())) + demo_profiles()
 
     def user_count() -> int:
         return len(protection.read_directory()) if protection.locked else users.count()
@@ -621,7 +653,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         """Garde l'annuaire à jour pour l'écran de choix de profil quand tout est verrouillé."""
         if protection.protected and not protection.locked:
             try:
-                protection.write_directory(users.list_users())
+                protection.write_directory(with_edition_flags(users.list_users()))
             except Exception:
                 pass
 
@@ -634,6 +666,17 @@ def create_app(database: Database | None = None) -> FastAPI:
 
     def open_session(user_id: int | None, mode: str):
         """Ouvre l'espace d'un profil : un seul profil actif à la fois."""
+        if mode != "demo" and user_id is not None:
+            try:
+                locked_ids = edition.describe(users.list_users())["lockedProfiles"]
+            except Exception:
+                locked_ids = []
+            if f"u{user_id}" in locked_ids:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Ce profil est verrouillé : les profils supplémentaires sont réservés à l’édition Premium.",
+                    headers={"X-Valoria-Premium": "profiles"},
+                )
         sessions.clear()
         snapshots.clear()
         if mode == "demo":
@@ -719,6 +762,15 @@ def create_app(database: Database | None = None) -> FastAPI:
         if scope.restricted:
             users.grant(ident[0], resource_type, int(resource_id))
 
+    def edition_payload() -> dict:
+        try:
+            return edition.describe(users.list_users())
+        except Exception:
+            return {"code": "standard", "label": "Standard", "accountLimit": 3, "activeAccounts": 0,
+                    "canCreateAccount": True, "multiCurrency": False, "multiProfile": False,
+                    "scenarioBuilder": False, "currencies": ["EUR"], "lockedProfiles": [],
+                    "catalogue": [], "testSwitch": True}
+
     def me_payload(token: str | None) -> dict | None:
         ident = sessions.identity(token)
         if ident is None:
@@ -729,6 +781,10 @@ def create_app(database: Database | None = None) -> FastAPI:
                 "id": state["demo_id"], "name": "Démo", "role": ROLE_ADMIN, "roleLabel": "Démonstration",
                 "canWrite": True, "restricted": False,
                 "visibleAccounts": 0, "totalAccounts": 0, "visibleAssets": 0, "totalAssets": 0,
+                "edition": {**edition_payload(), "code": EDITION_PREMIUM, "label": "Démonstration",
+                            "accountLimit": None, "canCreateAccount": True, "multiCurrency": True,
+                            "multiProfile": True, "scenarioBuilder": True, "currencies": None,
+                            "lockedProfiles": []},
             }
         row = users.get_row(user_id)
         scope = users.scope_for(user_id)
@@ -744,6 +800,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             "totalAccounts": totals["accounts"],
             "visibleAssets": len(scope.assets) if scope.assets is not None else totals["assets"],
             "totalAssets": totals["assets"],
+            "edition": edition_payload(),
         }
 
     @app.middleware("http")
@@ -943,6 +1000,13 @@ def create_app(database: Database | None = None) -> FastAPI:
             token, expires_in = open_session(None, "demo")
             return {"token": token, "expiresIn": expires_in, "profileId": target}
         if protection.locked:
+            entry = next((p for p in protection.read_directory() if p["id"] == f"u{target}"), None)
+            if entry and entry.get("premiumLocked"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Ce profil est verrouillé : les profils supplémentaires sont réservés à l’édition Premium.",
+                    headers={"X-Valoria-Premium": "profiles"},
+                )
             open_vault_with_password(int(target), payload.password.get_secret_value())
         service = AuthService(users.settings_for(int(target)))
         if not service.is_configured():
@@ -1105,7 +1169,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         keep = {k: admin.db.get_setting(f"security.recovery_{k}", "") for k in ("hash", "salt", "iterations", "created_at")}
         recovery_key = admin.generate_recovery_key()
         try:
-            safety = protection.enable(user_id, password, recovery_key, users.list_users())
+            safety = protection.enable(user_id, password, recovery_key, with_edition_flags(users.list_users()))
         except Exception as exc:
             for name, value in keep.items():
                 admin.db.set_setting(f"security.recovery_{name}", value)
@@ -1280,6 +1344,34 @@ def create_app(database: Database | None = None) -> FastAPI:
             return HTTPException(status_code=404, detail="Profil introuvable.")
         return HTTPException(status_code=422, detail=str(exc))
 
+    @app.get("/api/v1/edition")
+    def get_edition(
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        return {"edition": me_payload(x_valoria_session)["edition"]}
+
+    @app.post("/api/v1/edition")
+    def set_edition(
+        payload: EditionPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Interrupteur local d'essai (aucun paiement) : réservé à l'administrateur."""
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        if is_demo(x_valoria_session):
+            raise HTTPException(status_code=409, detail="Le profil Démo n’a pas d’édition.")
+        require_admin(x_valoria_session)
+        try:
+            edition.set(payload.edition)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        refresh_directory()
+        return {"edition": me_payload(x_valoria_session)["edition"]}
+
     @app.get("/api/v1/profiles")
     def list_profiles(
         x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
@@ -1305,6 +1397,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             if payload.kind == "demo":
                 entry = profiles.create(payload.name, payload.color, "demo")
                 return {"profile": entry, "recoveryKey": None}
+            require_premium(x_valoria_session, edition.check_profiles)
             password = payload.password.get_secret_value() if payload.password else ""
             check = policy.password_policy(password)
             if not check.ok:
@@ -1762,6 +1855,11 @@ def create_app(database: Database | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    def account_row(account_id: int) -> dict | None:
+        with active_database.real().connect() as conn:
+            row = conn.execute("SELECT status, currency FROM accounts WHERE id = ?", (int(account_id),)).fetchone()
+        return {"status": row["status"], "currency": row["currency"] or "EUR"} if row else None
+
     @app.get("/api/v1/accounts")
     def accounts(
         x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
@@ -1781,6 +1879,8 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_new_active_account)
+        require_premium(x_valoria_session, edition.check_currency, payload.currency)
         try:
             result = AccountsReadService(active_database).create(payload.model_dump())
             grant_creator(x_valoria_session, "account", result.get("accountId", 0))
@@ -1799,6 +1899,10 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         guard_account(x_valoria_session, account_id)
+        previous = account_row(account_id)
+        require_premium(x_valoria_session, edition.check_currency, payload.currency, previous["currency"] if previous else None)
+        if payload.status == "Actif" and previous and previous["status"] != "Actif":
+            require_premium(x_valoria_session, edition.check_new_active_account)
         try:
             return AccountsReadService(active_database).update(account_id, payload.model_dump())
         except KeyError as exc:
@@ -1817,6 +1921,9 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_database_exists()
         require_session(x_valoria_session)
         guard_account(x_valoria_session, account_id)
+        previous = account_row(account_id)
+        if payload.status == "Actif" and previous and previous["status"] != "Actif":
+            require_premium(x_valoria_session, edition.check_new_active_account)
         try:
             return AccountsReadService(active_database).change_status(account_id, payload.status)
         except KeyError as exc:
@@ -2308,6 +2415,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         try:
             scenario_id = ScenarioService(active_database).create_scenario(payload.model_dump())
             return {"success": True, "message": "Scénario créé.", "scenarioId": scenario_id}
@@ -2324,6 +2432,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         try:
             ScenarioService(active_database).update_scenario(scenario_id, payload.model_dump())
             return {"success": True, "message": "Scénario mis à jour.", "scenarioId": scenario_id}
@@ -2339,6 +2448,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         try:
             duplicate_id = ScenarioService(active_database).duplicate_scenario(scenario_id)
             return {"success": True, "message": "Scénario dupliqué.", "scenarioId": duplicate_id}
@@ -2354,6 +2464,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         try:
             ScenarioService(active_database).delete_scenario(scenario_id)
             return {"success": True, "message": "Scénario supprimé.", "scenarioId": scenario_id}
@@ -2370,6 +2481,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         guard_account(x_valoria_session, payload.account_id)
         try:
             event_id = ScenarioEventService(active_database).add_event(scenario_id, payload.model_dump())
@@ -2387,6 +2499,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         guard_rows(x_valoria_session, "SELECT DISTINCT account_id FROM scenario_events WHERE id IN ({marks})", [event_id])
         guard_account(x_valoria_session, payload.account_id)
         try:
@@ -2404,6 +2517,7 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         ensure_database_exists()
         require_session(x_valoria_session)
+        require_premium(x_valoria_session, edition.check_scenario_builder)
         guard_rows(x_valoria_session, "SELECT DISTINCT account_id FROM scenario_events WHERE id IN ({marks})", [event_id])
         ScenarioEventService(active_database).delete_event(event_id)
         return {"success": True, "message": "Hypothèse supprimée.", "eventId": event_id}

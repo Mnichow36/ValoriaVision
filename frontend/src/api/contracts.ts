@@ -1146,6 +1146,8 @@ export interface Profile {
   pinAvailable?: boolean;
   /** Données verrouillées : ce profil possède-t-il déjà sa serrure (il ouvre alors le coffre seul) ? */
   vaultAccess?: boolean;
+  /** Édition Standard : profil conservé mais verrouillé (Premium). */
+  premiumLocked?: boolean;
   role?: "admin" | "contributor" | "reader";
   roleLabel?: string;
   scopeAccounts?: number;
@@ -1191,7 +1193,26 @@ export interface ProfileAccessPayload {
 }
 
 /** Ce que le profil ouvert peut voir et faire. */
+export interface EditionFeature { key: string; label: string; standard: string; premium: string }
+
+/** Édition en cours (Standard ou Premium) et ce qu'elle permet ; les règles sont appliquées par le serveur. */
+export interface EditionInfo {
+  code: "standard" | "premium";
+  label: string;
+  accountLimit: number | null;
+  activeAccounts: number;
+  canCreateAccount: boolean;
+  currencies: string[] | null;
+  multiCurrency: boolean;
+  multiProfile: boolean;
+  scenarioBuilder: boolean;
+  lockedProfiles: string[];
+  catalogue: EditionFeature[];
+  testSwitch?: boolean;
+}
+
 export interface Me {
+  edition?: EditionInfo;
   id: string;
   name: string;
   role: "admin" | "contributor" | "reader";

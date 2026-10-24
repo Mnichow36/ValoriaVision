@@ -1,4 +1,5 @@
 import { useCanWrite } from "../permissions";
+import { useEdition } from "../edition";
 import { type FormEvent, type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -37,6 +38,7 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
   const [notice, setNotice] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [editor, setEditor] = useState<AccountEditorState>();
+  const { edition, openPremium } = useEdition();
   const [referenceAccount, setReferenceAccount] = useState<AccountOverview>();
   const [statusChange, setStatusChange] = useState<{ account: AccountOverview; target: AccountStatus }>();
   const [deletionAccount, setDeletionAccount] = useState<AccountOverview>();
@@ -61,9 +63,18 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
   useEffect(() => {
     if (editorRequestKey > 0 && editorRequestKey !== lastEditorRequestKey.current) {
       lastEditorRequestKey.current = editorRequestKey;
-      setEditor({ mode: "create" });
+      startCreate();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorRequestKey]);
+
+  function startCreate() {
+    if (edition && !edition.canCreateAccount) {
+      openPremium("accounts");
+      return;
+    }
+    setEditor({ mode: "create" });
+  }
 
   const visibleAccounts = useMemo(() => {
     if (!snapshot) return [];
@@ -119,7 +130,7 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
         { label: "Modifier le solde de référence…", onSelect: () => setReferenceAccount(account) },
         { label: "Rattacher un import…", disabled: account.status !== "Actif", hint: account.status !== "Actif" ? "Seul un compte actif peut recevoir un import." : undefined, onSelect: () => onAttachImport(account.id) },
         { label: "Voir les opérations", onSelect: () => onShowOperations(account.id) },
-        ...(account.status !== "Actif" ? [{ label: "Restaurer", onSelect: () => setStatusChange({ account, target: "Actif" as AccountStatus }) }] : [{ label: "Archiver", onSelect: () => setStatusChange({ account, target: "Archivé" as AccountStatus }) }]),
+        ...(account.status !== "Actif" ? [{ label: "Restaurer", hint: edition && !edition.canCreateAccount ? "Limite de comptes actifs de l’édition Standard : Premium." : undefined, onSelect: () => (edition && !edition.canCreateAccount ? openPremium("accounts") : setStatusChange({ account, target: "Actif" as AccountStatus })) }] : [{ label: "Archiver", onSelect: () => setStatusChange({ account, target: "Archivé" as AccountStatus }) }]),
         ...(account.status !== "Clos" ? [{ label: "Clôturer…", onSelect: () => setStatusChange({ account, target: "Clos" as AccountStatus }) }] : []),
         { label: "Supprimer définitivement…", danger: true, disabled: hasMovements, onSelect: () => setDeletionAccount(account) },
       ],
@@ -150,7 +161,7 @@ export function AccountsPage({ editorRequestKey, onAccountChanged, onAttachImpor
           />
           <AccountView account={selected} onContextMenu={(event) => openMenu(event, selected)} onShowOperations={() => onShowOperations(selected.id)} />
         </section>
-      ) : <EmptyAccounts onCreate={() => setEditor({ mode: "create" })} />}
+      ) : <EmptyAccounts onCreate={startCreate} />}
 
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}
       {editor && (
@@ -467,6 +478,7 @@ function AccountEditor({ account, onClose, onCompleted, token }: {
   onCompleted: (result: AccountActionResult) => void;
   token: string;
 }) {
+  const { edition } = useEdition();
   const [draft, setDraft] = useState<AccountPayload>(() => ({
     name: account?.name ?? "",
     bank: account?.bank ?? "",
@@ -513,7 +525,7 @@ function AccountEditor({ account, onClose, onCompleted, token }: {
             <label className="account-field account-field--wide"><span>Identifiant bancaire</span><input autoComplete="off" maxLength={120} onChange={(event) => field("identifier", event.target.value)} placeholder="IBAN partiel ou identifiant présent sur le relevé" value={draft.identifier} /><small>Utilisé localement pour sécuriser l’association des imports.</small></label>
             {!account && <label className="account-field"><span>Solde initial *</span><input onChange={(event) => field("initialBalance", Number(event.target.value))} required step="0.01" type="number" value={draft.initialBalance} /></label>}
             {!account && <label className="account-field"><span>Date initiale *</span><input onChange={(event) => field("initialDate", event.target.value)} required type="date" value={draft.initialDate} /></label>}
-            <label className="account-field"><span>Devise *</span><select onChange={(event) => field("currency", event.target.value)} value={draft.currency}>{["EUR", "USD", "GBP", "CHF"].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="account-field"><span>Devise *</span><select onChange={(event) => field("currency", event.target.value)} value={draft.currency}>{["EUR", "USD", "GBP", "CHF"].map((value) => { const locked = Boolean(edition && !edition.multiCurrency && value !== "EUR" && value !== account?.currency); return <option disabled={locked} key={value} value={value}>{locked ? `${value} · Premium` : value}</option>; })}</select></label>
           </div>
           {account && <p className="account-editor-note">Le solde et sa date de référence se corrigent séparément. Le statut se gère depuis les actions « Archiver », « Clôturer » ou « Restaurer » afin de préserver la traçabilité.</p>}
           {formError && <div className="account-form-error" role="alert">{formError}</div>}
