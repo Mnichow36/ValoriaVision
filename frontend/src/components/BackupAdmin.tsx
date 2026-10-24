@@ -78,9 +78,11 @@ function passphraseStrength(value: string): { score: number; text: string } {
 }
 
 type Drawer = { kind: "create" } | { kind: "restore"; source?: BackupInfo } | { kind: "reset" } | null;
+type ProtectionTab = "backups" | "security";
 
 /** Paramètres › Sécurité › Protection des données : sauvegarde et restauration chiffrées (administrateur). */
 export function BackupAdmin({ token, onNotice, onRestored, children }: { token: string; onNotice: (text: string) => void; onRestored: () => void; children?: ReactNode }) {
+  const [tab, setTab] = useState<ProtectionTab>("backups");
   const [list, setList] = useState<BackupList | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -121,47 +123,57 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
 
   return (
     <div className="backup-admin">
-      <BackupLocationCard onChanged={() => setRefresh((n) => n + 1)} onNotice={onNotice} refreshKey={refresh} token={token} />
-      <div className="backup-cards">
-        <article className="card settings-summary-card">
-          <div className="panel-heading"><div><h2>Sauvegarder</h2><p>Un fichier <strong>.vvb</strong> chiffré par une phrase secrète que vous choisissez. Restaurable sur n’importe quel ordinateur.</p></div></div>
-          <dl className="settings-kv-list"><div><dt>Dernière sauvegarde</dt><dd>{list?.lastBackupAt ? formatDate(list.lastBackupAt) : "Jamais"}</dd></div></dl>
-          {stale && <p className="backup-reminder">{age === null ? "Aucune sauvegarde n’a encore été faite." : `Il y a ${age} jours.`} Pensez à sauvegarder avant d’importer de nouveaux relevés.</p>}
-          <div className="security-card-actions"><button className="settings-primary" onClick={() => setDrawer({ kind: "create" })} type="button">Créer une sauvegarde</button></div>
-        </article>
-        <article className="card settings-summary-card">
-          <div className="panel-heading"><div><h2>Restaurer</h2><p>Remplace les données actuelles par celles d’une sauvegarde. Une copie de sécurité est créée juste avant.</p></div></div>
-          <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
-          <div className="security-card-actions"><button className="settings-secondary" onClick={() => setDrawer({ kind: "restore" })} type="button">Restaurer…</button></div>
-        </article>
-        <article className="card settings-summary-card backup-danger-card">
-          <div className="panel-heading"><div><h2>Remise à zéro</h2><p>Efface toutes les données et les profils : l’application repart comme à la première installation. Une copie chiffrée est créée avant.</p></div></div>
-          <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
-          <div className="security-card-actions"><button className="settings-secondary settings-danger" onClick={() => setDrawer({ kind: "reset" })} type="button">Tout remettre à zéro…</button></div>
-        </article>
-        {children}
+      <div aria-label="Protection des données" className="backup-tabs" role="tablist">
+        <button aria-selected={tab === "backups"} onClick={() => setTab("backups")} role="tab" type="button">Sauvegardes</button>
+        <button aria-selected={tab === "security"} onClick={() => setTab("security")} role="tab" type="button">Sécurité et remise à zéro</button>
       </div>
-      <article className="card settings-summary-card backup-list-card">
-        <div className="panel-heading"><div><h2>Sauvegardes présentes dans ce dossier</h2><p>Clic droit sur une ligne : Restaurer · Télécharger · Supprimer.</p></div></div>
-        {error && <p className="auth-error" role="alert">{error}</p>}
-        <div className="backup-table-wrap">
-          <table className="settings-table backup-table">
-            <thead><tr><th>Date</th><th>Type</th><th>Contenu</th><th>Taille</th></tr></thead>
-            <tbody>
-              {(list?.backups ?? []).map((backup) => (
-                <tr key={backup.name} onContextMenu={(event) => openMenu(event, backup)}>
-                  <td>{formatDate(backup.createdAt ?? backup.modifiedAt)}</td>
-                  <td>{kindLabel(backup)}</td>
-                  <td>{backup.damaged || backup.legacy || backup.kind === "legacy" ? "Contenu visible après déchiffrement" : contentText(backup)}</td>
-                  <td>{formatSize(backup.size)}</td>
-                </tr>
-              ))}
-              {list && list.backups.length === 0 && <tr><td colSpan={4}>Aucune sauvegarde dans ce dossier pour le moment.</td></tr>}
-            </tbody>
-          </table>
+      {tab === "backups" && (
+        <>
+          <BackupLocationCard onChanged={() => setRefresh((n) => n + 1)} onNotice={onNotice} refreshKey={refresh} token={token} />
+          <div className="backup-actions-row">
+            <article className="card settings-summary-card backup-action-card">
+              <div><h2>Sauvegarder</h2><p>Fichier <strong>.vvb</strong> chiffré · dernière : {list?.lastBackupAt ? formatDate(list.lastBackupAt) : "jamais"}</p>
+                {stale && <p className="backup-reminder">{age === null ? "Aucune sauvegarde n’a encore été faite." : `Il y a ${age} jours.`} Pensez à sauvegarder avant d’importer de nouveaux relevés.</p>}</div>
+              <button className="settings-primary" onClick={() => setDrawer({ kind: "create" })} type="button">Créer une sauvegarde</button>
+            </article>
+            <article className="card settings-summary-card backup-action-card">
+              <div><h2>Restaurer</h2><p>Remplace les données actuelles · copie de sécurité créée avant.</p></div>
+              <button className="settings-secondary" onClick={() => setDrawer({ kind: "restore" })} type="button">Restaurer…</button>
+            </article>
+          </div>
+          <article className="card settings-summary-card backup-list-card">
+            <div className="panel-heading"><div><h2>Sauvegardes présentes dans ce dossier</h2><p>Clic droit sur une ligne : Restaurer · Télécharger · Supprimer.</p></div></div>
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <div className="backup-table-wrap">
+              <table className="settings-table backup-table">
+                <thead><tr><th>Date</th><th>Type</th><th>Contenu</th><th>Taille</th></tr></thead>
+                <tbody>
+                  {(list?.backups ?? []).map((backup) => (
+                    <tr key={backup.name} onContextMenu={(event) => openMenu(event, backup)}>
+                      <td>{formatDate(backup.createdAt ?? backup.modifiedAt)}</td>
+                      <td>{kindLabel(backup)}</td>
+                      <td>{backup.damaged || backup.legacy || backup.kind === "legacy" ? "Contenu visible après déchiffrement" : contentText(backup)}</td>
+                      <td>{formatSize(backup.size)}</td>
+                    </tr>
+                  ))}
+                  {list && list.backups.length === 0 && <tr><td colSpan={4}>Aucune sauvegarde dans ce dossier pour le moment.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="backup-note">Choisissez de préférence un dossier sur un autre disque (clé USB, disque externe, dossier synchronisé) : une copie sur le même disque ne protège pas d’une panne. La phrase secrète n’est pas récupérable.</p>
+          </article>
+        </>
+      )}
+      {tab === "security" && (
+        <div className="backup-security-row">
+          {children}
+          <article className="card settings-summary-card backup-danger-card">
+            <div className="panel-heading"><div><h2>Remise à zéro</h2><p>Efface toutes les données et les profils : l’application repart comme à la première installation. Une copie chiffrée est créée avant.</p></div></div>
+            <dl className="settings-kv-list"><div><dt>Réservé à</dt><dd>l’administrateur</dd></div></dl>
+            <div className="security-card-actions"><button className="settings-secondary settings-danger" onClick={() => setDrawer({ kind: "reset" })} type="button">Tout remettre à zéro…</button></div>
+          </article>
         </div>
-        <p className="backup-note">Choisissez de préférence un dossier sur un autre disque (clé USB, disque externe, dossier synchronisé) : une copie sur le même disque ne protège pas d’une panne. Changer de dossier ne déplace pas les sauvegardes existantes. La phrase secrète n’est pas récupérable.</p>
-      </article>
+      )}
       {createPortal(<>
         {drawer?.kind === "create" && (
           <CreateBackupDrawer directory={list?.directory ?? ""} onClose={() => setDrawer(null)} onDone={(downloaded) => { setDrawer(null); onNotice(downloaded ? "Sauvegarde créée dans le dossier et téléchargée." : "Sauvegarde créée dans le dossier des sauvegardes."); setRefresh((n) => n + 1); }} token={token} />

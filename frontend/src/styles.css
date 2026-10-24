@@ -3830,3 +3830,21 @@ button.forecast-kpi { cursor: pointer; }
 .auth-card .pin-key:disabled { cursor: wait; opacity: .6; }
 .pin-input { font-size: 18px; letter-spacing: .4em; }
 .pin-card .security-card-actions { margin-top: 12px; }
+
+/* Protection des données : deux onglets, la page ne défile jamais (seule la liste défile dans son cadre) */
+.backup-admin { display: flex; flex-direction: column; gap: 12px; height: calc(100vh - 252px); min-height: 440px; }
+.backup-tabs { border-bottom: 1px solid var(--border); display: flex; flex: none; gap: 6px; }
+.backup-tabs button { background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: -1px; padding: 8px 14px; }
+.backup-tabs button[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--primary); }
+.backup-actions-row { display: grid; flex: none; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.backup-action-card { align-items: center; display: flex; gap: 14px; justify-content: space-between; min-height: 0; padding-bottom: 12px; padding-top: 12px; }
+.backup-action-card h2 { font-size: 15px; margin: 0; }
+.backup-action-card p { color: var(--muted); font-size: 11.5px; margin: 2px 0 0; }
+.backup-action-card button { flex: none; }
+.backup-admin .backup-location-card { flex: none; margin-bottom: 0; }
+.backup-admin .backup-list-card { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.backup-admin .backup-list-card .backup-table-wrap { flex: 1 1 auto; max-height: none; min-height: 0; overflow-y: auto; }
+.backup-admin .backup-list-card .backup-table thead th { background: var(--s-f7f8fc); position: sticky; top: 0; z-index: 1; }
+.backup-admin .backup-list-card .backup-note { flex: none; }
+.backup-security-row { align-items: start; display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.backup-security-row .settings-summary-card { min-height: 0; }
