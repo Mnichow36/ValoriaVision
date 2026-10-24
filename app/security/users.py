@@ -524,6 +524,18 @@ class ScopedDatabase(Database):
     def seal_database_to_encrypted_vault(self):  # pas de coffre pour une copie
         return None
 
+    def database_encryption_status(self) -> dict:
+        # Pas de coffre ni de clé pour une copie jetable : sans cela, l'écran
+        # Paramètres plantait (HTTP 500) pour tout profil restreint.
+        return {
+            "encrypted_vault_exists": False,
+            "encrypted_vault_path": "",
+            "active_sqlite_exists": self.path.exists(),
+            "active_sqlite_path": str(self.path),
+            "crypto_available": False,
+            "key_storage": "Non applicable (vue limitée)",
+        }
+
 
 class ScopedSnapshots:
     def __init__(self, source: Database) -> None:

@@ -164,6 +164,13 @@ class VisibilityTest(AccessControlBase):
         seen = marie.get("/api/v1/transactions").json()["transactions"]
         self.assertFalse(any(t.get("label") == "CAFE" for t in seen))
 
+    def test_settings_screen_loads_for_restricted_profiles(self):
+        """Régression : /settings plantait (500) sur la copie filtrée (pas de module de chiffrement)."""
+        for user, password in ((self.marie, MARIE_PASSWORD), (self.lea, LEA_PASSWORD)):
+            session = self.as_user(user, password)
+            response = session.get("/api/v1/settings")
+            self.assertEqual(response.status_code, 200, response.text)
+
     def test_hidden_accounts_do_not_weigh_in_the_net_worth(self):
         admin_kpis = self.admin.get("/api/v1/dashboard").json()["kpis"]
         marie = self.as_user(self.marie, MARIE_PASSWORD)
