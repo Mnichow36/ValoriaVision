@@ -257,3 +257,25 @@ class BackupLocationTests(AccessControlBase):
         self.assertEqual(lea.get("/api/v1/backups/location").status_code, 403)
         self.assertEqual(lea.put("/api/v1/backups/location", {"directory": "C:\\\\Temp"}).status_code, 403)
         self.assertEqual(lea.post("/api/v1/backups/location/test", {"directory": "C:\\\\Temp"}).status_code, 403)
+
+
+class RestoreLockedFileTests(AccessControlBase):
+    def test_restore_falls_back_to_in_place_copy_when_file_cannot_be_replaced(self):
+        from unittest import mock
+
+        body = self.admin.post("/api/v1/backups", {"passphrase": PHRASE, "confirm": PHRASE}).json()
+        with sqlite3.connect(self.database.path) as conn:
+            before = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+        extra = self.admin.post("/api/v1/accounts", {
+            "name": "Compte verrou", "bank": "Banque", "account_type": "Compte courant", "initial_balance": 10,
+            "initial_date": "2026-01-01",
+        })
+        self.assertIn(extra.status_code, (200, 201), extra.text)
+        with mock.patch.object(BackupService, "_replace_file", side_effect=PermissionError("fichier verrouillé")), \
+                mock.patch("app.security.backup_service.time.sleep"):
+            done = self.admin.post(
+                "/api/v1/backups/restore", {"name": body["name"], "passphrase": PHRASE, "password": ADMIN_PASSWORD}
+            )
+        self.assertEqual(done.status_code, 200, done.text)
+        with sqlite3.connect(self.database.path) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0], before)

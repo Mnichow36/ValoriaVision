@@ -14,12 +14,14 @@ modification fait échouer le déchiffrement.
 from __future__ import annotations
 
 import base64
+import gc
 import json
 import os
 import re
 import sqlite3
 import struct
 import tempfile
+import time
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -316,6 +318,38 @@ class BackupService:
     # ------------------------------------------------------------------
     # Restauration
     # ------------------------------------------------------------------
+    def _replace_file(self, staging: Path) -> None:
+        os.replace(staging, self.database_path)
+
+    def _swap_database(self, staging: Path) -> None:
+        """Met la base restaurée en place. Sous Windows, un fichier SQLite resté ouvert peut
+        refuser le remplacement : on libère les connexions, on réessaie, puis, en dernier
+        recours, on recopie le contenu dans le fichier existant via SQLite lui-même."""
+        last_error: OSError | None = None
+        for attempt in range(8):
+            gc.collect()
+            try:
+                for suffix in ("-wal", "-shm"):
+                    self.database_path.with_name(self.database_path.name + suffix).unlink(missing_ok=True)
+                self._replace_file(staging)
+                return
+            except OSError as exc:
+                last_error = exc
+                time.sleep(0.25 * (attempt + 1))
+        try:
+            source = sqlite3.connect(staging)
+            target = sqlite3.connect(self.database_path)
+            try:
+                source.backup(target)
+            finally:
+                target.close()
+                source.close()
+        except (OSError, sqlite3.Error) as exc:
+            raise BackupError(
+                "Impossible de remplacer la base (fichier utilisé par un autre programme). "
+                "Fermez les autres fenêtres Valoria puis réessayez ; vos données n'ont pas été modifiées."
+            ) from (last_error or exc)
+
     def restore(self, blob: bytes, passphrase: str) -> Path:
         """Remplace la base par celle de la sauvegarde ; renvoie la copie d'avant restauration.
 
@@ -338,15 +372,7 @@ class BackupService:
         staging = self.database_path.with_name(self.database_path.name + ".restore")
         staging.write_bytes(opened.database)
         try:
-            for suffix in ("-wal", "-shm"):
-                self.database_path.with_name(self.database_path.name + suffix).unlink(missing_ok=True)
-            try:
-                os.replace(staging, self.database_path)
-            except OSError as exc:
-                raise BackupError(
-                    "Impossible de remplacer la base (fichier utilisé par un autre programme). "
-                    "Fermez les autres fenêtres Valoria puis réessayez ; vos données n'ont pas été modifiées."
-                ) from exc
+            self._swap_database(staging)
         finally:
             staging.unlink(missing_ok=True)
         return safety_path or self.database_path
