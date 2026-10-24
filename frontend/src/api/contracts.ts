@@ -1140,6 +1140,10 @@ export interface Profile {
   configured: boolean;
   recoveryKeyConfigured: boolean;
   removable: boolean;
+  /** Un PIN existe pour ce profil. */
+  pinConfigured?: boolean;
+  /** Le PIN peut servir maintenant (session déjà ouverte par mot de passe depuis le lancement). */
+  pinAvailable?: boolean;
   role?: "admin" | "contributor" | "reader";
   roleLabel?: string;
   scopeAccounts?: number;
@@ -1213,6 +1217,9 @@ export interface SecurityStatus {
   recoveryKeyConfigured: boolean;
   recoveryKeyCreatedAt: string | null;
   passwordChangedAt: string | null;
+  pinConfigured: boolean;
+  pinCreatedAt: string | null;
+  pinLastUsedAt: string | null;
 }
 
 export interface RecoveryRequestResult extends AuthSession {

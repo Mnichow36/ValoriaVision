@@ -7,9 +7,10 @@ import type { AccessMatrix, Profile } from "../api/contracts";
 import { ContextMenu } from "./ContextMenu";
 import type { ContextMenuState } from "./ContextMenu";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { RemoveProfilePinDrawer } from "./PinDrawers";
 import { DeleteProfileDrawer, ProfileFormDrawer } from "./ProfileDrawers";
 
-type Drawer = { kind: "create" } | { kind: "edit"; profile: Profile } | { kind: "delete"; profile: Profile } | null;
+type Drawer = { kind: "create" } | { kind: "edit"; profile: Profile } | { kind: "delete"; profile: Profile } | { kind: "removePin"; profile: Profile } | null;
 
 const ROLE_CLASS: Record<string, string> = { admin: "profile-badge--info", contributor: "profile-badge--ok", reader: "profile-badge--reader" };
 
@@ -53,6 +54,7 @@ export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { 
       y: event.clientY,
       items: [
         ...(profile.kind === "demo" ? [] : [{ label: "Modifier le profil et l’accès…", onSelect: () => setDrawer({ kind: "edit", profile }) }]),
+        ...(profile.kind !== "demo" && profile.pinConfigured && !isSelf ? [{ label: "Retirer le PIN…", onSelect: () => setDrawer({ kind: "removePin", profile }) }] : []),
         { label: "Supprimer le profil…", danger: true, disabled: isSelf, hint: isSelf ? "Vous ne pouvez pas supprimer le profil ouvert." : undefined, onSelect: () => setDrawer({ kind: "delete", profile }) },
       ],
     });
@@ -73,7 +75,7 @@ export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { 
         {rows.map((profile) => (
           <li key={profile.id} onContextMenu={(event) => openMenu(event, profile)}>
             <ProfileAvatar profile={profile} size={38} />
-            <div><strong>{profile.name}{profile.id === currentProfileId ? " (vous)" : ""}</strong><small>{scopeText(profile)}</small></div>
+            <div><strong>{profile.name}{profile.id === currentProfileId ? " (vous)" : ""}</strong><small>{scopeText(profile)}{profile.pinConfigured ? " · PIN activé" : ""}</small></div>
             <span className={`profile-badge ${profile.kind === "demo" ? "profile-badge--info" : ROLE_CLASS[profile.role ?? "reader"]}`}>{profile.kind === "demo" ? "Démonstration" : profile.roleLabel}</span>
           </li>
         ))}
@@ -105,6 +107,9 @@ export function AccessAdmin({ token, currentProfileId, onNotice, onChanged }: { 
       )}
       {drawer?.kind === "edit" && (
         <ProfileFormDrawer mode="edit" onClose={() => setDrawer(null)} onSaved={(profile) => done(`Profil « ${profile.name} » mis à jour.`)} profile={drawer.profile} resources={resources} token={token} />
+      )}
+      {drawer?.kind === "removePin" && (
+        <RemoveProfilePinDrawer onClose={() => setDrawer(null)} onDone={(text) => done(text)} profile={drawer.profile} token={token} />
       )}
       {drawer?.kind === "delete" && (
         <DeleteProfileDrawer onClose={() => setDrawer(null)} onDeleted={() => done("Profil supprimé.")} profile={drawer.profile} token={token} />

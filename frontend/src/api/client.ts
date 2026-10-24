@@ -65,6 +65,24 @@ export function openSession(profileId: string, password: string): Promise<AuthSe
   });
 }
 
+/** Rouvre une session verrouillée avec le PIN (6 chiffres). */
+export function openSessionWithPin(profileId: string, pin: string): Promise<AuthSession> {
+  return request<AuthSession>("/api/v1/auth/unlock-pin", { method: "POST", body: { profile_id: profileId, pin } });
+}
+
+export function savePin(token: string, password: string, pin: string): Promise<{ pinConfigured: boolean }> {
+  return request<{ pinConfigured: boolean }>("/api/v1/security/pin", { method: "POST", token, body: { password, pin } });
+}
+
+export function deletePin(token: string, password: string): Promise<{ pinConfigured: boolean }> {
+  return request<{ pinConfigured: boolean }>("/api/v1/security/pin/delete", { method: "POST", token, body: { password } });
+}
+
+/** Administrateur : retire le PIN d'un autre profil (son mot de passe est conservé). */
+export function removeProfilePin(token: string, profileId: string, password: string): Promise<{ pinConfigured: boolean }> {
+  return request<{ pinConfigured: boolean }>(`/api/v1/profiles/${encodeURIComponent(profileId)}/pin/delete`, { method: "POST", token, body: { password } });
+}
+
 /** Première installation : crée le premier administrateur et ouvre sa session. */
 export function setupAdministrator(name: string, password: string): Promise<AuthSession & { recoveryKey: string }> {
   return request<AuthSession & { recoveryKey: string }>("/api/v1/auth/setup", { method: "POST", body: { name, password } });

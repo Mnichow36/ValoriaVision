@@ -85,6 +85,16 @@ class ChangePasswordPayload(BaseModel):
     new_password: SecretStr
 
 
+class PinSetPayload(BaseModel):
+    password: SecretStr
+    pin: SecretStr
+
+
+class PinUnlockPayload(BaseModel):
+    profile_id: str | None = None
+    pin: SecretStr
+
+
 class RecoveryKeyRequestPayload(BaseModel):
     password: SecretStr
 
@@ -523,7 +533,9 @@ def create_app(database: Database | None = None) -> FastAPI:
     users = UserStore(legacy_database)
     snapshots = ScopedSnapshots(legacy_database)
     active_database = ActiveDatabase()
-    state: dict = {"ready": False, "demo_id": None}
+    # pin_ready : profils ayant ouvert une session par mot de passe depuis le lancement de
+    # l'application. Le PIN ne sert qu'à rouvrir une session verrouillée ensuite.
+    state: dict = {"ready": False, "demo_id": None, "pin_ready": set()}
     policy = AuthService(None)
     bank_imports = BankImportWorkflowService(active_database)
     sessions = ApiSessionStore(600)
@@ -566,9 +578,18 @@ def create_app(database: Database | None = None) -> FastAPI:
             )
         return result
 
+    def with_pin_flags(listing: list[dict]) -> list[dict]:
+        """Ajoute à chaque profil : a-t-il un PIN, et est-il utilisable maintenant."""
+        for item in listing:
+            user_id = UserStore.parse_public_id(item["id"])
+            has_pin = bool(user_id and AuthService(users.settings_for(user_id)).has_pin())
+            item["pinConfigured"] = has_pin
+            item["pinAvailable"] = bool(has_pin and user_id in state["pin_ready"])
+        return listing
+
     def public_profiles() -> list[dict]:
         ensure_ready()
-        return users.list_users() + demo_profiles()
+        return with_pin_flags(users.list_users()) + demo_profiles()
 
     def timeout_seconds_for(db: Database) -> int:
         try:
@@ -877,7 +898,44 @@ def create_app(database: Database | None = None) -> FastAPI:
             fail_with_throttle("Mot de passe incorrect.", service, status_if_not_locked=401)
         service.reset_failures()
         token, expires_in = open_session(int(target), "family")
+        state["pin_ready"].add(int(target))
         service.record_event("auth.unlock_success", "Connexion réussie.")
+        return {"token": token, "expiresIn": expires_in, "profileId": f"u{target}"}
+
+    @app.post("/api/v1/auth/unlock-pin")
+    def unlock_pin(
+        payload: PinUnlockPayload,
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Rouvre une session verrouillée avec le PIN (jamais au lancement de l'application)."""
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_ready()
+        kind, target = resolve_target(payload.profile_id)
+        if kind != "user" or int(target) not in state["pin_ready"]:
+            raise HTTPException(status_code=409, detail="Le PIN n’est pas disponible : utilisez le mot de passe.")
+        service = AuthService(users.settings_for(int(target)))
+        if not service.has_pin():
+            raise HTTPException(status_code=409, detail="Aucun PIN n’est actif pour ce profil : utilisez le mot de passe.")
+        refuse_if_throttled(service)
+        if not service.verify_pin(payload.pin.get_secret_value()):
+            remaining = service.register_pin_failure()
+            service.record_event(
+                "auth.pin_failure", "PIN incorrect.", {"remaining": remaining}
+            )
+            if remaining == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="PIN désactivé après 5 erreurs : connectez-vous avec votre mot de passe.",
+                    headers={"X-Valoria-Pin": "disabled"},
+                )
+            raise HTTPException(
+                status_code=403,
+                detail=f"PIN incorrect · {remaining} essai{'s' if remaining > 1 else ''} restant{'s' if remaining > 1 else ''}",
+                headers={"X-Valoria-Pin": "wrong"},
+            )
+        service.record_pin_success()
+        token, expires_in = open_session(int(target), "family")
+        service.record_event("auth.unlock_pin", "Session rouverte avec le PIN.")
         return {"token": token, "expiresIn": expires_in, "profileId": f"u{target}"}
 
     @app.post("/api/v1/auth/lock")
@@ -932,7 +990,48 @@ def create_app(database: Database | None = None) -> FastAPI:
             "recoveryKeyConfigured": service.has_recovery_key(),
             "recoveryKeyCreatedAt": service.recovery_key_created_at() or None,
             "passwordChangedAt": service.db.get_setting("security.master_password_changed_at", "") or None,
+            "pinConfigured": service.has_pin(),
+            "pinCreatedAt": service.pin_created_at() or None,
+            "pinLastUsedAt": service.pin_last_used_at() or None,
         }
+
+    @app.post("/api/v1/security/pin")
+    def set_pin(
+        payload: PinSetPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """Crée ou remplace le PIN du profil connecté (mot de passe exigé)."""
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        service = auth_for(x_valoria_session)
+        refuse_if_throttled(service)
+        try:
+            service.set_pin(payload.password.get_secret_value(), payload.pin.get_secret_value())
+        except PermissionError:
+            fail_with_throttle("Mot de passe incorrect.", service)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        service.reset_failures()
+        return {"pinConfigured": True, "pinCreatedAt": service.pin_created_at()}
+
+    @app.post("/api/v1/security/pin/delete")
+    def delete_pin(
+        payload: RecoveryKeyRequestPayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        require_bootstrap(x_valoria_bootstrap)
+        ensure_database_exists()
+        require_session(x_valoria_session)
+        service = auth_for(x_valoria_session)
+        refuse_if_throttled(service)
+        if not service.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", service)
+        service.reset_failures()
+        service.remove_pin()
+        return {"pinConfigured": False}
 
     @app.post("/api/v1/security/change-password")
     def change_password(
@@ -1108,7 +1207,33 @@ def create_app(database: Database | None = None) -> FastAPI:
         require_bootstrap(x_valoria_bootstrap)
         require_session(x_valoria_session)
         require_admin(x_valoria_session)
-        return users.access_matrix()
+        matrix = users.access_matrix()
+        with_pin_flags(matrix.get("users", []))
+        return matrix
+
+    @app.post("/api/v1/profiles/{profile_id}/pin/delete")
+    def admin_remove_pin(
+        profile_id: str,
+        payload: ProfileDeletePayload,
+        x_valoria_session: str | None = Header(default=None, alias="X-Valoria-Session"),
+        x_valoria_bootstrap: str | None = Header(default=None, alias="X-Valoria-Bootstrap"),
+    ) -> dict:
+        """L'administrateur retire le PIN d'un profil (oubli) ; le mot de passe du profil reste."""
+        require_bootstrap(x_valoria_bootstrap)
+        require_session(x_valoria_session)
+        require_admin(x_valoria_session)
+        admin = auth_for(x_valoria_session)
+        refuse_if_throttled(admin)
+        if not admin.verify_master_password(payload.password.get_secret_value()):
+            fail_with_throttle("Mot de passe incorrect.", admin)
+        admin.reset_failures()
+        user_id = UserStore.parse_public_id(profile_id)
+        if user_id is None or not users.exists(user_id):
+            raise HTTPException(status_code=404, detail="Profil introuvable.")
+        AuthService(users.settings_for(user_id)).remove_pin(
+            "PIN retiré par l’administrateur.", "auth.pin_removed_by_admin"
+        )
+        return {"pinConfigured": False}
 
     @app.post("/api/v1/profiles/{profile_id}/delete")
     def delete_profile(

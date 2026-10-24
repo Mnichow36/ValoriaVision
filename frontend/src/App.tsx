@@ -1,7 +1,7 @@
 import { CanWriteProvider, useCanWrite } from "./permissions";
 import { useEffect, useState } from "react";
 
-import { closeSession, getAuthStatus, getDashboard, getHealth, getMe, openSession } from "./api/client";
+import { closeSession, getAuthStatus, getDashboard, getHealth, getMe, openSession, openSessionWithPin } from "./api/client";
 import type { DashboardSnapshot } from "./api/contracts";
 import type { ForecastAccount } from "./api/contracts";
 import { AccountsPage } from "./components/AccountsPage";
@@ -130,6 +130,23 @@ export function App() {
     }
   }
 
+  async function authenticateWithPin(profileId: string, pin: string) {
+    if (state.status !== "locked") return;
+    setState({ status: "locked", busy: true });
+    try {
+      const session = await openSessionWithPin(profileId, pin);
+      const snapshot = await getDashboard(session.token);
+      setActiveProfileId(session.profileId ?? profileId);
+      void getMe(session.token).then((result) => setMe(result.me)).catch(() => setMe(null));
+      void refreshProfiles();
+      setState({ status: "ready", snapshot, token: session.token });
+    } catch (error: unknown) {
+      setState({ status: "locked", busy: false, error: errorMessage(error), retryAfter: (error as { retryAfter?: number }).retryAfter });
+      // Le serveur a peut-être désactivé le PIN (5 erreurs) : on relit les profils pour basculer sur le mot de passe.
+      void refreshProfiles();
+    }
+  }
+
   async function openAfterRecovery(token: string) {
     try {
       const snapshot = await getDashboard(token);
@@ -208,7 +225,7 @@ export function App() {
   }
 
   if (state.status === "locked") {
-    return <AuthScreen busy={state.busy} error={state.error} onProfilesChanged={async () => { await refreshProfiles(); }} onRecovered={openAfterRecovery} onUnlock={authenticate} preferredProfileId={state.preferredProfileId} profiles={profiles} retryAfter={state.retryAfter} />;
+    return <AuthScreen busy={state.busy} error={state.error} onProfilesChanged={async () => { await refreshProfiles(); }} onRecovered={openAfterRecovery} onUnlock={authenticate} onUnlockPin={authenticateWithPin} preferredProfileId={state.preferredProfileId} profiles={profiles} retryAfter={state.retryAfter} />;
   }
 
   if (state.status === "error") {

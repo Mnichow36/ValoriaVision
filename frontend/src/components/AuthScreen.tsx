@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import type { Profile } from "../api/contracts";
 import { RecoverAccessDrawer } from "./PasswordDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { PinPad } from "./PinPad";
 import { ProfileFormDrawer } from "./ProfileDrawers";
 import { SideDrawer } from "./SideDrawer";
 
@@ -16,6 +17,7 @@ interface AuthScreenProps {
   error?: string;
   retryAfter?: number;
   onUnlock: (profileId: string, password: string) => Promise<void>;
+  onUnlockPin: (profileId: string, pin: string) => Promise<void>;
   onRecovered: (token: string) => void;
   onProfilesChanged: () => Promise<void>;
 }
@@ -29,7 +31,7 @@ function lastLogin(profile: Profile): string {
   return `Dernière connexion : ${date.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
 }
 
-export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAfter, onUnlock, onRecovered, onProfilesChanged }: AuthScreenProps) {
+export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAfter, onUnlock, onUnlockPin, onRecovered, onProfilesChanged }: AuthScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (preferredProfileId && profiles.some((p) => p.id === preferredProfileId)) return preferredProfileId;
     return preferredProfileId === null ? null : profiles.length === 1 ? profiles[0].id : null;
@@ -37,10 +39,13 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
   const [password, setPassword] = useState("");
   const [wait, setWait] = useState(retryAfter ?? 0);
   const [drawer, setDrawer] = useState<Drawer>(null);
+  const [forcePassword, setForcePassword] = useState(false);
 
   const selected = useMemo(() => profiles.find((p) => p.id === selectedId) ?? null, [profiles, selectedId]);
+  const usePin = Boolean(selected?.pinAvailable && !forcePassword);
 
   useEffect(() => { setWait(retryAfter ?? 0); }, [retryAfter, error]);
+  useEffect(() => { setForcePassword(false); }, [selectedId]);
   useEffect(() => {
     if (wait <= 0) return;
     const timer = window.setTimeout(() => setWait((value) => Math.max(0, value - 1)), 1000);
@@ -53,6 +58,7 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
 
   function choose(profile: Profile) {
     setPassword("");
+    setForcePassword(false);
     if (profile.kind === "demo" && !profile.configured) void onUnlock(profile.id, "");
     else setSelectedId(profile.id);
   }
@@ -70,18 +76,35 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
             <ProfileAvatar profile={selected} size={56} />
             <div><span className="eyebrow">Profil</span><h1>{selected.name}</h1></div>
           </div>
-          <form onSubmit={submit}>
-            <label htmlFor="master-password">Mot de passe du profil</label>
-            <input autoComplete="current-password" autoFocus id="master-password" onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
-            {error && <p className="auth-error" role="alert">{error}</p>}
-            {wait > 0 && !error && <p className="auth-error" role="status">Nouvel essai possible dans {wait} s.</p>}
-            <button disabled={busy || wait > 0} type="submit">{busy ? "Vérification…" : wait > 0 ? `Patientez ${wait} s` : "Déverrouiller"}</button>
-          </form>
-          <div className="auth-links">
-            <button className="auth-link" onClick={() => { setSelectedId(null); setPassword(""); }} type="button">← Changer de profil</button>
-            <button className="auth-link" onClick={() => setDrawer({ kind: "recover", profile: selected })} type="button">Mot de passe oublié ?</button>
-          </div>
-          <small>Ce mot de passe protège l’accès à ce profil. Il ne quitte jamais cet ordinateur.</small>
+          {usePin ? (
+            <>
+              <PinPad busy={busy || wait > 0} error={error || (wait > 0 ? `Nouvel essai possible dans ${wait} s.` : undefined)} onComplete={(pin) => void onUnlockPin(selected.id, pin)} />
+              <div className="auth-links">
+                <button className="auth-link" onClick={() => { setSelectedId(null); setPassword(""); }} type="button">← Changer de profil</button>
+                <button className="auth-link" onClick={() => setForcePassword(true)} type="button">Utiliser le mot de passe</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <form onSubmit={submit}>
+                <label htmlFor="master-password">Mot de passe du profil</label>
+                <input autoComplete="current-password" autoFocus id="master-password" onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
+                {error && <p className="auth-error" role="alert">{error}</p>}
+                {wait > 0 && !error && <p className="auth-error" role="status">Nouvel essai possible dans {wait} s.</p>}
+                <button disabled={busy || wait > 0} type="submit">{busy ? "Vérification…" : wait > 0 ? `Patientez ${wait} s` : "Déverrouiller"}</button>
+              </form>
+              <div className="auth-links">
+                <button className="auth-link" onClick={() => { setSelectedId(null); setPassword(""); }} type="button">← Changer de profil</button>
+                <button className="auth-link" onClick={() => setDrawer({ kind: "recover", profile: selected })} type="button">Mot de passe oublié ?</button>
+              </div>
+              {selected.pinAvailable && forcePassword && (
+                <div className="auth-links">
+                  <button className="auth-link" onClick={() => { setForcePassword(false); setPassword(""); }} type="button">Utiliser mon PIN</button>
+                </div>
+              )}
+            </>
+          )}
+          <small>{usePin ? "Le PIN rouvre ce profil après un verrouillage. Il ne quitte jamais cet ordinateur." : "Ce mot de passe protège l’accès à ce profil. Il ne quitte jamais cet ordinateur."}</small>
           <StudioSignature />
         </section>
       ) : (

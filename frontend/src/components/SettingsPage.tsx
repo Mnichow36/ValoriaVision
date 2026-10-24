@@ -15,6 +15,7 @@ import type {
   SettingsSnapshot,
 } from "../api/contracts";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
+import { DeletePinDrawer, PinDrawer } from "./PinDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { BackupAdmin } from "./BackupAdmin";
 import { AccessAdmin } from "./AccessAdmin";
@@ -61,7 +62,7 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
   const [error, setError] = useState("");
   const [journal, setJournal] = useState<SecurityEvent[]>([]);
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
-  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | null>(null);
+  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | "pin" | "pin-delete" | null>(null);
   const [securityRefresh, setSecurityRefresh] = useState(0);
 
   async function refresh(signal?: AbortSignal) {
@@ -242,6 +243,20 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
             </div>
           </article>
           )}
+          {profile?.kind !== "demo" && (
+          <article className="card settings-summary-card pin-card">
+            <div className="panel-heading"><div><h2>Code PIN</h2><p>6 chiffres pour rouvrir votre profil rapidement après un verrouillage automatique. Le mot de passe reste nécessaire à l’ouverture de l’application.</p></div></div>
+            <dl className="settings-kv-list">
+              <div><dt>État</dt><dd>{securityStatus?.pinConfigured ? <span className="status-chip status-chip--success">Activé</span> : <span className="status-chip status-chip--warning">Non activé</span>}</dd></div>
+              {securityStatus?.pinConfigured && <div><dt>Créé le</dt><dd>{securityStatus.pinCreatedAt ? formatJournalDate(securityStatus.pinCreatedAt) : "—"}</dd></div>}
+              {securityStatus?.pinConfigured && <div><dt>Dernier usage</dt><dd>{securityStatus.pinLastUsedAt ? formatJournalDate(securityStatus.pinLastUsedAt) : "Jamais"}</dd></div>}
+            </dl>
+            <div className="security-card-actions">
+              <button className={securityStatus?.pinConfigured ? "settings-secondary" : "settings-primary"} onClick={() => setSecurityDrawer("pin")} type="button">{securityStatus?.pinConfigured ? "Changer le PIN" : "Créer mon PIN"}</button>
+              {securityStatus?.pinConfigured && <button className="settings-secondary" onClick={() => setSecurityDrawer("pin-delete")} type="button">Supprimer le PIN</button>}
+            </div>
+          </article>
+          )}
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Verrouillage de session</h2><p>Le nouveau délai s’applique au prochain démarrage du moteur local.</p></div></div>
             <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
@@ -288,6 +303,12 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
       )}
       {securityDrawer === "password" && (
         <ChangePasswordDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} token={token} />
+      )}
+      {securityDrawer === "pin" && (
+        <PinDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); onProfileChanged(); }} replacing={Boolean(securityStatus?.pinConfigured)} token={token} />
+      )}
+      {securityDrawer === "pin-delete" && (
+        <DeletePinDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); onProfileChanged(); }} token={token} />
       )}
       {securityDrawer === "recovery" && (
         <RecoveryKeyDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} replacing={Boolean(securityStatus?.recoveryKeyConfigured)} token={token} />

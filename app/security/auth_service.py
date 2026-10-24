@@ -22,6 +22,11 @@ RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 RECOVERY_KEY_LENGTH = 24
 RECOVERY_ITERATIONS = 200_000
 
+# Code PIN : déverrouillage rapide d'une session verrouillée (6 chiffres).
+PIN_LENGTH = 6
+PIN_MAX_FAILURES = 5
+PIN_ITERATIONS = 390_000
+
 COMMON_PASSWORDS = frozenset(
     {
         "password", "password1", "motdepasse", "motdepasse1", "motdepasse123",
@@ -167,9 +172,87 @@ class AuthService:
             raise PermissionError("Clé de secours incorrecte.")
         self._store_password(new_password)
         self.reset_failures()
+        self.remove_pin("PIN supprimé (mot de passe réinitialisé).")
         new_key = self.generate_recovery_key()
         self.record_event("auth.recovered", "Mot de passe réinitialisé avec la clé de secours.")
         return new_key
+
+    # ------------------------------------------------------------------
+    # Code PIN (déverrouillage rapide)
+    # ------------------------------------------------------------------
+    def pin_policy(self, pin: str) -> PasswordCheck:
+        pin = pin or ""
+        if not (pin.isascii() and pin.isdigit()) or len(pin) != PIN_LENGTH:
+            return PasswordCheck(False, f"Le PIN doit contenir exactement {PIN_LENGTH} chiffres.")
+        if len(set(pin)) == 1:
+            return PasswordCheck(False, "Ce PIN est trop simple (chiffres répétés). Choisissez-en un autre.")
+        steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
+        if steps in ({1}, {-1}):
+            return PasswordCheck(False, "Ce PIN est trop simple (suite de chiffres). Choisissez-en un autre.")
+        return PasswordCheck(True, "OK")
+
+    def has_pin(self) -> bool:
+        return bool(self.db.get_setting("security.pin_hash", ""))
+
+    def pin_created_at(self) -> str:
+        return self.db.get_setting("security.pin_created_at", "")
+
+    def pin_last_used_at(self) -> str:
+        return self.db.get_setting("security.pin_last_used_at", "")
+
+    def set_pin(self, password: str, pin: str) -> None:
+        """Crée ou remplace le PIN ; le mot de passe du profil est exigé."""
+        if not self.verify_master_password(password):
+            raise PermissionError("Mot de passe incorrect.")
+        policy = self.pin_policy(pin)
+        if not policy.ok:
+            raise ValueError(policy.message)
+        salt = secrets.token_bytes(32)
+        digest = self._derive(pin, salt, PIN_ITERATIONS)
+        replaced = self.has_pin()
+        self.db.set_setting("security.pin_iterations", str(PIN_ITERATIONS))
+        self.db.set_setting("security.pin_salt", base64.b64encode(salt).decode("ascii"))
+        self.db.set_setting("security.pin_hash", base64.b64encode(digest).decode("ascii"))
+        self.db.set_setting("security.pin_created_at", self._now_iso())
+        self.db.set_setting("security.pin_last_used_at", "")
+        self.db.set_setting("security.pin_failed_attempts", "0")
+        self.record_event("auth.pin_changed" if replaced else "auth.pin_created", "PIN modifié." if replaced else "PIN créé.")
+
+    def remove_pin(self, reason: str = "PIN supprimé.", event: str = "auth.pin_removed") -> None:
+        had = self.has_pin()
+        for key in ("hash", "salt", "iterations", "created_at", "last_used_at", "failed_attempts"):
+            self.db.set_setting(f"security.pin_{key}", "")
+        if had:
+            self.record_event(event, reason)
+
+    def verify_pin(self, pin: str) -> bool:
+        if not self.has_pin():
+            return False
+        try:
+            iterations = int(self.db.get_setting("security.pin_iterations", str(PIN_ITERATIONS)))
+            salt = base64.b64decode(self.db.get_setting("security.pin_salt", ""))
+            expected = base64.b64decode(self.db.get_setting("security.pin_hash", ""))
+        except Exception:
+            return False
+        return hmac.compare_digest(self._derive(pin or "", salt, iterations), expected)
+
+    def pin_failures(self) -> int:
+        return self._int_setting("security.pin_failed_attempts")
+
+    def register_pin_failure(self) -> int:
+        """Compte une erreur de PIN ; retourne le nombre d'essais restants (0 = PIN désactivé)."""
+        attempts = self.pin_failures() + 1
+        if attempts >= PIN_MAX_FAILURES:
+            self.remove_pin(
+                f"PIN désactivé après {PIN_MAX_FAILURES} erreurs.", "auth.pin_blocked"
+            )
+            return 0
+        self.db.set_setting("security.pin_failed_attempts", str(attempts))
+        return PIN_MAX_FAILURES - attempts
+
+    def record_pin_success(self) -> None:
+        self.db.set_setting("security.pin_failed_attempts", "0")
+        self.db.set_setting("security.pin_last_used_at", self._now_iso())
 
     # ------------------------------------------------------------------
     # Protection contre les essais répétés
