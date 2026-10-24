@@ -1,4 +1,5 @@
 import { WriteOnly } from "../permissions";
+import { FitHeight } from "./FitHeight";
 import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 import type { ReactNode } from "react";
@@ -232,7 +233,7 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, ru
         <ReconciliationKpi detail="Automatiques + manuelles" detailTone="success" label="Rapprochées" tone="green" value={snapshot.summary.matched} />
       </section>
 
-      <section className="reconciliation-workbench">
+      <FitHeight as="section" className="reconciliation-workbench" minHeight={300} mode="box">
         <QueuePanel count={snapshot.transactions.length} subtitle={snapshot.view.transactionsSubtitle} title={snapshot.view.transactionsTitle}>
           {snapshot.transactions.length > 0 ? snapshot.transactions.map((transaction) => (
             <TransactionCard
@@ -276,7 +277,7 @@ export function ReconciliationPage({ accountId, onAccountsChange, refreshKey, ru
           suggestion={selectedSuggestion}
           transaction={selectedTransaction}
         />
-      </section>
+      </FitHeight>
 
       {history && (
         <SideDrawer eyebrow="Rapprochements" onClose={() => setHistory(undefined)} title={`Historique · ${history.title}`}>

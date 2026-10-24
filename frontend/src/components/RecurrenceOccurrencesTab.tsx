@@ -1,4 +1,5 @@
 import { useCanWrite } from "../permissions";
+import { FitHeight } from "./FitHeight";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -208,7 +209,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
           </div>
         )}
 
-        <div className="transactions-table-wrap occurrence-table-wrap">
+        <FitHeight className="transactions-table-wrap occurrence-table-wrap">
           <table className="transactions-table">
             <thead><tr>
               <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select">{canWrite && <input aria-label="Sélectionner toutes les occurrences affichées" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : selectable.map((item) => item.id))} type="checkbox" />}<SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
@@ -244,7 +245,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
               )}
             </tbody>
           </table>
-        </div>
+        </FitHeight>
         <p className="occurrence-hint">Clic droit sur une ligne : modifier, décaler, supprimer ou rétablir. Les règles à l’origine des occurrences sont dans l’onglet « Règles de récurrence ».</p>
       </article>
 

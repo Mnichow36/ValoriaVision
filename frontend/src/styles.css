@@ -684,7 +684,7 @@ button { cursor: pointer; }
 .transactions-page { display: grid; gap: 24px; }
 .transaction-notice { align-items: center; background: var(--s-ecfdf5); border: 1px solid var(--s-bbf7d0); border-radius: 10px; color: var(--t-15803d); display: flex; font-size: 12px; font-weight: 800; gap: 8px; padding: 10px 14px; }
 .transaction-notice span { align-items: center; background: #16a34a; border-radius: 50%; color: #fff; display: inline-flex; height: 18px; justify-content: center; width: 18px; }
-.transactions-journal { min-height: 527px; padding: 20px; }
+.transactions-journal { padding: 20px; }
 .transactions-heading h2 { font-size: 20px; line-height: 1.2; margin: 0 0 18px; }
 .transaction-filters { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(210px, 1.45fr) minmax(150px, .9fr) 146px 146px 132px minmax(115px, .75fr); margin-bottom: 24px; }
 .transaction-filters > input,
@@ -3259,8 +3259,8 @@ button.forecast-kpi { cursor: pointer; }
 .transactions-tab .transactions-tab__badge { background: #2563eb; border-radius: 999px; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; min-width: 20px; padding: 4px 6px; text-align: center; }
 .reconciliation-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; margin-bottom: 18px; }
 .reconciliation-toolbar__filters { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
-.reconciliation-toolbar + .reconciliation-page .reconciliation-workbench { height: calc(100vh - 352px); min-height: 420px; }
-.reconciliation-toolbar + .reconciliation-page .reconciliation-queue__list { max-height: calc(100vh - 464px); min-height: 200px; }
+.reconciliation-toolbar + .reconciliation-page .reconciliation-workbench { height: calc(100vh - 352px); min-height: 300px; }
+.reconciliation-toolbar + .reconciliation-page .reconciliation-queue__list { max-height: none; min-height: 160px; }
 .reconciliation-toolbar__filters select { width: 170px; }
 .reconciliation-toolbar + .reconciliation-page .reconciliation-workbench { grid-template-rows: minmax(0, 1fr); }
 .reconciliation-toolbar + .reconciliation-page .reconciliation-workbench > * { min-height: 0; overflow-y: auto; }
@@ -3848,3 +3848,22 @@ button.forecast-kpi { cursor: pointer; }
 .backup-admin .backup-list-card .backup-note { flex: none; }
 .backup-security-row { align-items: start; display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .backup-security-row .settings-summary-card { min-height: 0; }
+
+/* Général et Mon accès : tiennent dans l'écran sans défilement de page */
+.settings-overview-grid--general { align-items: start; gap: 14px; }
+.settings-general-left { display: grid; gap: 14px; min-width: 0; }
+.settings-overview-grid--general .settings-summary-card { min-height: 0; }
+.settings-general-left .settings-about-card { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.settings-general-left .settings-about-card .panel-heading { flex: 1 1 100%; margin-bottom: 0; }
+.settings-general-left .settings-about-brand { margin-bottom: 0; }
+.settings-general-left .settings-about-studio { border-top: 0; margin-left: auto; padding-top: 0; }
+.settings-overview-grid--3 { align-items: stretch; gap: 14px; }
+.settings-overview-grid--3 .settings-summary-card:not(.settings-session-card) { display: flex; flex-direction: column; }
+.settings-overview-grid--3 .security-card-actions { margin-top: auto; padding-top: 12px; }
+.settings-session-card { align-items: center; display: flex; gap: 16px; grid-column: 1 / -1; }
+.settings-session-card .panel-heading { flex: 1; margin: 0; }
+.settings-session-card .settings-timeout-field, .settings-session-card button { margin: 0; }
+@media (max-height: 820px) {
+  .settings-overview-grid--3 .settings-summary-card, .settings-overview-grid--general .settings-summary-card { padding-bottom: 12px; padding-top: 12px; }
+  .settings-overview-grid--3 .settings-kv-list > div { min-height: 34px; }
+}

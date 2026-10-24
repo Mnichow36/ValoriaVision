@@ -1,4 +1,5 @@
 import { useCanWrite } from "../permissions";
+import { FitHeight } from "./FitHeight";
 import { type FormEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { bulkUpdateTransactions, getRuleSuggestions, cancelReconciliation, createTransaction, createTransactionCategorizationRule, getTransactions, updateTransaction } from "../api/client";
@@ -409,7 +410,7 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
           </div>
         )}
 
-        <div className="transactions-table-wrap">
+        <FitHeight className="transactions-table-wrap">
           <table className="transactions-table">
             <thead><tr>
               <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select">{canWrite && <input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />}<SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
@@ -434,7 +435,7 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
               )}
             </tbody>
           </table>
-        </div>
+        </FitHeight>
       </article>
 
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(undefined)} />}

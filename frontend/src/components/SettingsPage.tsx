@@ -157,7 +157,8 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
       )}
 
       {activeTab === "general" && (
-        <form className="settings-overview-grid" id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveGeneral(); }}>
+        <form className="settings-overview-grid settings-overview-grid--general" id="settings-active-form" onSubmit={(event) => { event.preventDefault(); void saveGeneral(); }}>
+          <div className="settings-general-left">
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Préférences générales</h2><p>Réglages communs utilisés par tous les écrans.</p></div></div>
             <div className="settings-form-grid">
@@ -168,6 +169,12 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
             <div className="settings-theme-row"><div><strong>Apparence</strong><small>Clair, sombre, ou selon le réglage de ton système. Mémorisé sur ce poste.</small></div><ThemeSwitch variant="settings" /></div>
             <WriteOnly><button className="settings-primary" disabled={busy} type="submit">Enregistrer les préférences</button></WriteOnly>
           </article>
+          <article className="card settings-summary-card settings-about-card">
+            <div className="panel-heading"><div><h2>À propos</h2><p>{BRAND_SLOGAN}</p></div></div>
+            <div className="settings-about-brand"><BrandMark size={52} /><div><strong>Valoria Vision</strong><small>Le cockpit financier de votre patrimoine</small></div></div>
+            <div className="settings-about-studio"><DeltaGlyph filled size={28} /><div><small>Développé par</small><strong>{STUDIO_NAME}</strong></div></div>
+          </article>
+          </div>
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Socle local</h2><p>État de la base utilisée par les moteurs Python.</p></div></div>
             <dl className="settings-kv-list">
@@ -176,15 +183,6 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
               <div><dt>Taille de la base</dt><dd>{snapshot.general.databaseSizeKb.toLocaleString("fr-FR")} Ko</dd></div>
               <div><dt>Dernière sauvegarde</dt><dd title={snapshot.general.lastBackup}>{fileName(snapshot.general.lastBackup) || "Aucune"}</dd></div>
             </dl>
-          </article>
-          <article className="card settings-summary-card settings-about-card">
-            <div className="panel-heading"><div><h2>À propos</h2><p>{BRAND_SLOGAN}</p></div></div>
-            <div className="settings-about-brand"><BrandMark size={52} /><div><strong>Valoria Vision</strong><small>Le cockpit financier de votre patrimoine</small></div></div>
-            <div className="settings-about-studio"><DeltaGlyph filled size={28} /><div><small>Développé par</small><strong>{STUDIO_NAME}</strong></div></div>
-          </article>
-          <article className="card settings-summary-card settings-ownership-card">
-            <div className="panel-heading"><div><h2>Architecture sans doublon</h2><p>Chaque fonction conserve un seul moteur métier.</p></div></div>
-            <ul>{snapshot.ownership.map((item) => <li key={item.feature}><strong>{item.feature}</strong><span>{item.mode}</span><small>{item.owner}</small></li>)}</ul>
           </article>
         </form>
       )}
@@ -257,7 +255,7 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
             </div>
           </article>
           )}
-          <article className="card settings-summary-card">
+          <article className="card settings-summary-card settings-session-card">
             <div className="panel-heading"><div><h2>Verrouillage de session</h2><p>Le nouveau délai s’applique au prochain démarrage du moteur local.</p></div></div>
             <label className="settings-timeout-field">Délai avant verrouillage<input max="120" min="1" onChange={(event) => setSessionTimeout(Number(event.target.value))} type="number" value={sessionTimeout} /><span>minutes</span></label>
             <button className="settings-primary" disabled={busy} type="submit">Enregistrer le délai</button>
