@@ -1,3 +1,4 @@
+import { WriteOnly } from "../permissions";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -77,7 +78,7 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
             <strong>Scénarios standards contrôlables</strong>
             <span>Réglez séparément l’impact des recettes et des dépenses prévisionnelles.</span>
           </div>
-          <button className="primary-button" onClick={() => setScenarioEditor("new")} type="button">+ Nouveau scénario</button>
+          <WriteOnly><button className="primary-button" onClick={() => setScenarioEditor("new")} type="button">+ Nouveau scénario</button></WriteOnly>
         </div>
 
         {error && <div className="account-editor-error" role="alert">{error}</div>}
@@ -150,8 +151,8 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
                       <b className={event.sense.includes("Entrée") ? "positive" : "negative"}>
                         {event.sense.includes("Entrée") ? "+ " : "- "}{money.format(Math.abs(event.amount))}
                       </b>
-                      <button className="scenario-icon-button" onClick={() => setEventEditor({ scenario: item, event })} type="button">Modifier</button>
-                      <button
+                      <WriteOnly><button className="scenario-icon-button" onClick={() => setEventEditor({ scenario: item, event })} type="button">Modifier</button></WriteOnly>
+                      <WriteOnly><button
                         className="scenario-icon-button scenario-icon-button--danger"
                         disabled={busyKey === `event-${event.id}`}
                         onClick={() => {
@@ -162,12 +163,12 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
                         type="button"
                       >
                         Supprimer
-                      </button>
+                      </button></WriteOnly>
                     </div>
                   ))}
               </div>
 
-              <footer className="scenario-card__actions">
+              <WriteOnly><footer className="scenario-card__actions">
                 <button onClick={() => setEventEditor({ scenario: item })} type="button">+ Ajouter une hypothèse</button>
                 <button className="secondary-button" onClick={() => setScenarioEditor(item)} type="button">Paramétrer</button>
                 <button
@@ -190,7 +191,7 @@ export function ScenarioManager({ catalog, onChanged, onClose, token }: Scenario
                 >
                   Supprimer
                 </button>
-              </footer>
+              </footer></WriteOnly>
             </article>
           ))}
         </div>

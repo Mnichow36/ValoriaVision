@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { type FormEvent, type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -688,7 +689,8 @@ function ReferenceEditor({ account, onClose, onCompleted, token }: {
 }
 
 function EmptyAccounts({ onCreate }: { onCreate?: () => void }) {
-  return <section className="card account-empty"><strong>Aucun compte pour ce filtre</strong><p>Ajoutez un compte ou choisissez un autre statut.</p>{onCreate && <button onClick={onCreate} type="button">Ajouter un compte</button>}</section>;
+  const canWrite = useCanWrite();
+  return <section className="card account-empty"><strong>Aucun compte pour ce filtre</strong><p>{canWrite ? "Ajoutez un compte ou choisissez un autre statut." : "Choisissez un autre statut."}</p>{onCreate && canWrite && <button onClick={onCreate} type="button">Ajouter un compte</button>}</section>;
 }
 
 const accountTypes = ["Compte courant", "Compte épargne", "Compte investissement", "Compte crédit", "Compte espèces", "Autre"];

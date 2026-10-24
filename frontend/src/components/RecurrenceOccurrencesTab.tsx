@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -48,6 +49,7 @@ function addDays(value: string, days: number): string {
 }
 
 export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChanged: () => void; token: string }) {
+  const canWrite = useCanWrite();
   const [snapshot, setSnapshot] = useState<RecurrenceOccurrencesSnapshot>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -209,7 +211,7 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
         <div className="transactions-table-wrap occurrence-table-wrap">
           <table className="transactions-table">
             <thead><tr>
-              <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select"><input aria-label="Sélectionner toutes les occurrences affichées" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : selectable.map((item) => item.id))} type="checkbox" /><SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
+              <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select">{canWrite && <input aria-label="Sélectionner toutes les occurrences affichées" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : selectable.map((item) => item.id))} type="checkbox" />}<SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
               <th aria-sort={ariaSort(sort, "account")}><SortButton label="Compte" onSort={toggleSort} sort={sort} sortKey="account" /></th>
               <th aria-sort={ariaSort(sort, "label")}><SortButton label="Opération" onSort={toggleSort} sort={sort} sortKey="label" /></th>
               <th aria-sort={ariaSort(sort, "category")}><SortButton label="Catégorie" onSort={toggleSort} sort={sort} sortKey="category" /></th>
@@ -222,11 +224,11 @@ export function RecurrenceOccurrencesTab({ onDataChanged, token }: { onDataChang
                   className={item.status === "cancelled" ? "occurrence-row occurrence-row--deleted" : "occurrence-row"}
                   key={item.id}
                   onContextMenu={(event) => openMenu(event, item)}
-                  onDoubleClick={() => item.canEdit && setDrawer({ kind: "edit", item })}
+                  onDoubleClick={() => canWrite && item.canEdit && setDrawer({ kind: "edit", item })}
                 >
                   <td>
                     <label className="transaction-select">
-                      <input title={item.lockReason || undefined} aria-label={`Sélectionner ${item.label} du ${formatDate(item.date)}`} checked={selectedIds.includes(item.id)} disabled={!item.canShift} onChange={() => setSelectedIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} type="checkbox" />
+                      {canWrite && <input title={item.lockReason || undefined} aria-label={`Sélectionner ${item.label} du ${formatDate(item.date)}`} checked={selectedIds.includes(item.id)} disabled={!item.canShift} onChange={() => setSelectedIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} type="checkbox" />}
                       <span>{formatDate(item.date)}</span>
                     </label>
                     {item.shifted && <small className="occurrence-note">Initialement {formatDate(item.originalDate)}</small>}

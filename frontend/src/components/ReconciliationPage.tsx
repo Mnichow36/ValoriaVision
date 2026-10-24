@@ -1,3 +1,4 @@
+import { WriteOnly } from "../permissions";
 import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 import type { ReactNode } from "react";
@@ -531,11 +532,11 @@ function ProposalPanel({
         </div>
       )}
       {actionFeedback && <p className={`reconciliation-feedback reconciliation-feedback--${actionFeedback.kind}`} role="status">{actionFeedback.text}</p>}
-      <div className="reconciliation-actions">
+      <WriteOnly><div className="reconciliation-actions">
         <button disabled={actionBusy || !suggestion?.proposalId} onClick={onReject} title={suggestion?.proposalId ? "Rejeter cette proposition sans supprimer les données" : "Aucune proposition enregistrée à rejeter"} type="button">Ignorer</button>
         <button aria-pressed={manualMode} className={manualMode ? "reconciliation-actions__manual-active" : ""} disabled={actionBusy} onClick={onToggleManual} type="button">{manualMode ? "Quitter le mode manuel" : "Mode manuel"}</button>
         <button className="reconciliation-actions__primary" disabled={actionBusy} onClick={onValidate} type="button">{actionBusy ? "Traitement…" : manualMode ? "Confirmer l’affectation" : "Valider le rapprochement"}</button>
-      </div>
+      </div></WriteOnly>
     </aside>
   );
 }

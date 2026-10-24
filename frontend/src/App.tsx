@@ -1,3 +1,4 @@
+import { CanWriteProvider, useCanWrite } from "./permissions";
 import { useEffect, useState } from "react";
 
 import { closeSession, getAuthStatus, getDashboard, getHealth, getMe, openSession } from "./api/client";
@@ -237,6 +238,7 @@ export function App() {
     : modules[activeModule];
 
   return (
+    <CanWriteProvider value={me ? me.canWrite : true}>
     <div className="app-shell">
       <Sidebar active={activeModule} onLock={() => void lock()} onNavigate={navigate} onSwitchProfile={() => void lock(true)} profile={profiles.find((p) => p.id === activeProfileId) ?? null} />
       <main className="workspace">
@@ -347,6 +349,7 @@ export function App() {
         </div>
       </main>
     </div>
+    </CanWriteProvider>
   );
 }
 
@@ -403,6 +406,7 @@ function HeaderActions({
   transactionView: TransactionsView;
   onTransactionViewChange: (view: TransactionsView) => void;
 }) {
+  const canWrite = useCanWrite();
   if (activeModule === "dashboard") {
     return (
       <div className="header-actions">
@@ -419,7 +423,7 @@ function HeaderActions({
   if (activeModule === "accounts") {
     return (
       <div className="header-actions">
-        <button onClick={onAddAccount} type="button">Ajouter un compte</button>
+        {canWrite && <button onClick={onAddAccount} type="button">Ajouter un compte</button>}
         <select aria-label="Filtrer les comptes par statut" onChange={(event) => onAccountStatusChange(event.target.value)} value={accountStatusFilter}>
           <option>Tous</option>
           <option>Actif</option>
@@ -434,7 +438,7 @@ function HeaderActions({
       return (
         <div className="header-actions">
           <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Historique</button>
-          <button onClick={onOpenTransactionImport} type="button">Choisir un fichier</button>
+          {canWrite && <button onClick={onOpenTransactionImport} type="button">Choisir un fichier</button>}
         </div>
       );
     }
@@ -442,30 +446,30 @@ function HeaderActions({
       return (
         <div className="header-actions">
           <button className="secondary-button" onClick={() => onTransactionViewChange("journal")} type="button">Transactions</button>
-          <button onClick={onOpenTransactionImport} type="button">Nouvel import</button>
+          {canWrite && <button onClick={onOpenTransactionImport} type="button">Nouvel import</button>}
         </div>
       );
     }
     if (transactionView === "reconciliation") {
       return (
         <div className="header-actions">
-          <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
+          {canWrite && <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>}
         </div>
       );
     }
     if (transactionView === "recurrences" || transactionView === "rules" || transactionView === "suggestions") {
       return (
         <div className="header-actions">
-          {transactionView === "rules" && <button className="secondary-button" onClick={onCreateRecurrenceRule} type="button">Nouvelle récurrence</button>}
-          <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
+          {canWrite && transactionView === "rules" && <button className="secondary-button" onClick={onCreateRecurrenceRule} type="button">Nouvelle récurrence</button>}
+          {canWrite && <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>}
         </div>
       );
     }
     return (
       <div className="header-actions">
-        <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>
-        <button className="secondary-button" onClick={onCreateTransaction} type="button">Nouvelle transaction</button>
-        <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>
+        {canWrite && <button className="secondary-button" onClick={() => onTransactionViewChange("history")} type="button">Annuler un import</button>}
+        {canWrite && <button className="secondary-button" onClick={onCreateTransaction} type="button">Nouvelle transaction</button>}
+        {canWrite && <button onClick={onOpenTransactionImport} type="button">Importer un relevé</button>}
       </div>
     );
   }
@@ -497,13 +501,13 @@ function HeaderActions({
   if (activeModule === "assets") {
     return (
       <div className="header-actions">
-        <button onClick={onAddAsset} type="button">Ajouter un actif</button>
+        {canWrite && <button onClick={onAddAsset} type="button">Ajouter un actif</button>}
       </div>
     );
   }
   if (activeModule === "settings") {
     if (settingsTab === "categories" || settingsTab === "rules") return null;
-    return <div className="header-actions"><button form="settings-active-form" type="submit">Sauvegarder</button></div>;
+    return canWrite ? <div className="header-actions"><button form="settings-active-form" type="submit">Sauvegarder</button></div> : null;
   }
   return null;
 }
@@ -538,6 +542,7 @@ function groupSlices(items: { label: string; value: number }[], palette: string[
 }
 
 function DashboardEmpty({ profileName, onCreateAccount, onImport }: { profileName: string; onCreateAccount: () => void; onImport: () => void }) {
+  const canWrite = useCanWrite();
   return (
     <section className="dashboard-empty card">
       <h2>{profileName ? `Bienvenue, ${profileName}` : "Bienvenue"}</h2>
@@ -547,10 +552,12 @@ function DashboardEmpty({ profileName, onCreateAccount, onImport }: { profileNam
         <li><strong>Importez un relevé</strong> bancaire pour alimenter les transactions.</li>
         <li>Complétez ensuite le <strong>patrimoine</strong>, les <strong>budgets</strong> et les <strong>récurrences</strong>.</li>
       </ol>
-      <div className="dashboard-empty__actions">
-        <button className="settings-primary" onClick={onCreateAccount} type="button">Créer un compte</button>
-        <button className="settings-secondary" onClick={onImport} type="button">Importer un relevé</button>
-      </div>
+      {canWrite && (
+        <div className="dashboard-empty__actions">
+          <button className="settings-primary" onClick={onCreateAccount} type="button">Créer un compte</button>
+          <button className="settings-secondary" onClick={onImport} type="button">Importer un relevé</button>
+        </div>
+      )}
     </section>
   );
 }

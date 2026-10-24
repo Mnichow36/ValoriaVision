@@ -568,7 +568,10 @@ class ScopedSnapshots:
             source.close()
         try:
             copy.row_factory = sqlite3.Row
-            copy.execute("PRAGMA foreign_keys = ON")
+            # Copie jetable : on l'élague table par table, dans n'importe quel ordre.
+            # Les clés étrangères activées feraient échouer la suppression (ex. transactions
+            # liées à un lot d'import ou à un rapprochement) et bloqueraient la connexion.
+            copy.execute("PRAGMA foreign_keys = OFF")
             all_accounts = {int(r[0]) for r in copy.execute("SELECT id FROM accounts")}
             all_assets = {int(r[0]) for r in copy.execute("SELECT id FROM assets")}
             hidden_accounts = sorted(all_accounts - set(scope.accounts)) if scope.accounts is not None else []

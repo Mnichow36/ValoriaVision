@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { deleteRecurrence, getForecast, getScenarioSettings, updateSafetyThreshold } from "../api/client";
@@ -330,6 +331,7 @@ function ForecastDayDetails({
   recurrences: RecurrenceItem[];
   token: string;
 }) {
+  const canWrite = useCanWrite();
   const [deletingId, setDeletingId] = useState<number>();
   const [error, setError] = useState<string>();
   const dailyNet = point.events.reduce((sum, event) => sum + event.amount, 0);
@@ -409,7 +411,7 @@ function ForecastDayDetails({
                             {event.scenario && event.scenario !== "Tous" && <span>{event.scenario}</span>}
                             {event.originalDate && event.originalDate !== event.date && <span>Initialement le {formatDate(event.originalDate)}</span>}
                           </div>
-                          {recurrence && (
+                          {recurrence && canWrite && (
                             <div className="forecast-day-event__actions">
                               <button className="secondary-button" disabled={Boolean(deletingId)} onClick={() => onEdit(recurrence)} type="button">Modifier la règle</button>
                               <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void remove(recurrence)} type="button">

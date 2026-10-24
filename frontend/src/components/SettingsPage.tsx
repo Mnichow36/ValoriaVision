@@ -1,3 +1,4 @@
+import { WriteOnly } from "../permissions";
 import { BRAND_SLOGAN, BrandMark, DeltaGlyph, STUDIO_NAME } from "./Brand";
 import { useEffect, useState } from "react";
 
@@ -164,7 +165,7 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
               <label>Mois de travail<input onChange={(event) => setCurrentMonth(event.target.value)} pattern="\d{4}-(0[1-9]|1[0-2])" placeholder="AAAA-MM" value={currentMonth} /></label>
             </div>
             <div className="settings-theme-row"><div><strong>Apparence</strong><small>Clair, sombre, ou selon le réglage de ton système. Mémorisé sur ce poste.</small></div><ThemeSwitch variant="settings" /></div>
-            <button className="settings-primary" disabled={busy} type="submit">Enregistrer les préférences</button>
+            <WriteOnly><button className="settings-primary" disabled={busy} type="submit">Enregistrer les préférences</button></WriteOnly>
           </article>
           <article className="card settings-summary-card">
             <div className="panel-heading"><div><h2>Socle local</h2><p>État de la base utilisée par les moteurs Python.</p></div></div>

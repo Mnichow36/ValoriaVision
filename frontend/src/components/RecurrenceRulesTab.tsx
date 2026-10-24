@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { deleteRecurrence, getForecast } from "../api/client";
@@ -22,6 +23,7 @@ function signed(value: number): string {
 
 /** Onglet « Règles de récurrence » : les règles à l'origine des occurrences. */
 export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: { createRequestKey: number; onDataChanged: () => void; token: string }) {
+  const canWrite = useCanWrite();
   const [snapshot, setSnapshot] = useState<ForecastSnapshot>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -143,7 +145,7 @@ export function RecurrenceRulesTab({ createRequestKey, onDataChanged, token }: {
             </thead>
             <tbody>
               {rules.map((item) => (
-                <tr key={item.id} onContextMenu={(event) => openMenu(event, item)} onDoubleClick={() => { setEditing(item); setEditorOpen(true); }} title="Double-clic : modifier · clic droit : actions">
+                <tr key={item.id} onContextMenu={(event) => openMenu(event, item)} onDoubleClick={() => { if (canWrite) { setEditing(item); setEditorOpen(true); } }} title={canWrite ? "Double-clic : modifier · clic droit : actions" : undefined}>
                   <td><strong>{item.name}</strong> <small>· {item.bank ? `${item.bank} · ` : ""}{item.accountName}</small></td>
                   <td><span className={`rcr-pill rcr-pill--${kindClass(item.kind)}`}>{kindLabel(item.kind)}</span></td>
                   <td>{item.category}</td>

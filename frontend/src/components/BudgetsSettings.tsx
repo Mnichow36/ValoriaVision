@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import type { MouseEvent } from "react";
 
 import type { BudgetsSnapshot } from "../api/contracts";
@@ -13,6 +14,7 @@ interface BudgetsSettingsProps {
 
 /** Onglet 3 : paramétrage des catégories budgétées et des règles générales. */
 export function BudgetsSettings({ onEdit, onMenu, onRules, onToggle, snapshot }: BudgetsSettingsProps) {
+  const canWrite = useCanWrite();
   const { settings } = snapshot;
   return (
     <div className="bgt-tab bgt-settings">
@@ -56,7 +58,7 @@ export function BudgetsSettings({ onEdit, onMenu, onRules, onToggle, snapshot }:
 
       <aside className="bgt-side">
         <article className="bgt-card bgt-rules">
-          <div className="bgt-card__heading"><h2>Règles générales</h2><button className="bgt-ghost" onClick={onRules} type="button">Modifier</button></div>
+          <div className="bgt-card__heading"><h2>Règles générales</h2>{canWrite && <button className="bgt-ghost" onClick={onRules} type="button">Modifier</button>}</div>
           <dl>
             <div><dt>Seuil d’alerte par défaut</dt><dd>{Math.round(settings.defaultAlertThreshold)} %</dd></div>
             <div><dt>Reconduction mensuelle</dt><dd>Automatique</dd></div>

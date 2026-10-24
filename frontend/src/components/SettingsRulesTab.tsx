@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -82,6 +83,7 @@ interface Props {
 
 /** Paramètres › Règles de catégorisation : tableau, clic droit, volets Modifier / Appliquer. */
 export function SettingsRulesTab({ onChanged, onOpenSuggestions, snapshot, token }: Props) {
+  const canWrite = useCanWrite();
   const rules = snapshot.rules;
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -192,8 +194,8 @@ export function SettingsRulesTab({ onChanged, onOpenSuggestions, snapshot, token
           </div>
         </div>
         <div className="stg-toolbar__right">
-          <button className="stg-secondary" disabled={snapshot.pendingCount === 0 || activeCount === 0} onClick={() => setApplying({ rule: null })} type="button">Appliquer aux opérations en attente · {snapshot.pendingCount}</button>
-          <button className="stg-primary" onClick={() => open("new")} type="button">Nouvelle règle de catégorisation</button>
+          {canWrite && <button className="stg-secondary" disabled={snapshot.pendingCount === 0 || activeCount === 0} onClick={() => setApplying({ rule: null })} type="button">Appliquer aux opérations en attente · {snapshot.pendingCount}</button>}
+          {canWrite && <button className="stg-primary" onClick={() => open("new")} type="button">Nouvelle règle de catégorisation</button>}
         </div>
       </div>
 
@@ -210,7 +212,7 @@ export function SettingsRulesTab({ onChanged, onOpenSuggestions, snapshot, token
           </thead>
           <tbody>
             {visible.map((rule) => (
-              <tr key={rule.id} onContextMenu={(event) => openMenu(event, rule)} onDoubleClick={() => open(rule)} title="Double-clic : modifier · clic droit : actions">
+              <tr key={rule.id} onContextMenu={(event) => openMenu(event, rule)} onDoubleClick={() => { if (canWrite) open(rule); }} title={canWrite ? "Double-clic : modifier · clic droit : actions" : undefined}>
                 <td>{rule.priority}</td>
                 <td><strong>{rule.summary}</strong> <small>· {scopeOf(rule)}</small></td>
                 <td><span className="category-chip">{rule.targetCategory}</span></td>

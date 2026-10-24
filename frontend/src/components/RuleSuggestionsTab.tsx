@@ -1,3 +1,4 @@
+import { WriteOnly } from "../permissions";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { applyRuleSuggestions, dismissRuleSuggestion, getRuleSuggestions, previewRuleSuggestion } from "../api/client";
@@ -117,9 +118,9 @@ export function RuleSuggestionsTab({ categories, onApplied, token }: RuleSuggest
             <option value={0.9}>Fiabilité ≥ 90 %</option>
             <option value={1}>Fiabilité 100 %</option>
           </select>
-          <button className="primary-button" disabled={busy || selected.length === 0} onClick={() => void createChecked()} type="button">
+          <WriteOnly><button className="primary-button" disabled={busy || selected.length === 0} onClick={() => void createChecked()} type="button">
             {busy ? "Création…" : `Créer ${selected.length} règle${selected.length > 1 ? "s" : ""} cochée${selected.length > 1 ? "s" : ""}`}
-          </button>
+          </button></WriteOnly>
         </div>
       </header>
 
@@ -141,7 +142,7 @@ export function RuleSuggestionsTab({ categories, onApplied, token }: RuleSuggest
             <tbody>
               {items.map((item) => (
                 <tr key={item.key} onContextMenu={(event) => openMenu(event, item)}>
-                  <td><input aria-label={`Créer la règle ${item.matchValue}`} checked={checked.includes(item.key)} onChange={() => toggle(item.key)} type="checkbox" /></td>
+                  <td><WriteOnly><input aria-label={`Créer la règle ${item.matchValue}`} checked={checked.includes(item.key)} onChange={() => toggle(item.key)} type="checkbox" /></WriteOnly></td>
                   <td><b>{item.matchValue}</b>{item.transactionType && <small> · {item.transactionType.toLowerCase()}s</small>}</td>
                   <td><span className={item.recommended ? "category-chip" : "category-chip category-chip--warning"}>{item.category}</span></td>
                   <td className={item.recommended ? "rsg-ok" : "rsg-warn"}>{Math.round(item.reliability * 100)} % <small>({item.agreeing}/{item.support})</small></td>

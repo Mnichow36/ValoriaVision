@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 
@@ -26,6 +27,7 @@ const TABS: Array<{ id: BudgetTab; label: string }> = [
 ];
 
 export function BudgetsPage({ month, onMonthChange, onMonthsChange, token }: BudgetsPageProps) {
+  const canWrite = useCanWrite();
   const [snapshot, setSnapshot] = useState<BudgetsSnapshot>();
   const [tab, setTab] = useState<BudgetTab>("tracking");
   const [period, setPeriod] = useState<ComparativePeriod>("year");
@@ -147,7 +149,7 @@ export function BudgetsPage({ month, onMonthChange, onMonthsChange, token }: Bud
             <button aria-selected={tab === item.id} className={tab === item.id ? "bgt-tab-button is-active" : "bgt-tab-button"} key={item.id} onClick={() => setTab(item.id)} role="tab" type="button">{item.label}</button>
           ))}
         </div>
-        {tab !== "settings" && snapshot.annual.categories.length > 0 && (
+        {canWrite && tab !== "settings" && snapshot.annual.categories.length > 0 && (
           <button className="bgt-primary" onClick={() => setDrawer({ kind: "revise", category: reviseTarget() })} type="button">Réviser le budget</button>
         )}
       </div>

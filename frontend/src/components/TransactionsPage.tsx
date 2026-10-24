@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { type FormEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { bulkUpdateTransactions, getRuleSuggestions, cancelReconciliation, createTransaction, createTransactionCategorizationRule, getTransactions, updateTransaction } from "../api/client";
@@ -43,6 +44,7 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
 });
 
 export function TransactionsPage({ accountFocus, createRequestKey, importRequestKey, onDataChanged, onNavigateSettings, onViewChange, preferredImportAccountId, reconciliationBadge = 0, reconciliationRefreshKey = 0, ruleCreateRequestKey, token, view }: TransactionsPageProps) {
+  const canWrite = useCanWrite();
   const [snapshot, setSnapshot] = useState<TransactionsSnapshot>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -410,7 +412,7 @@ export function TransactionsPage({ accountFocus, createRequestKey, importRequest
         <div className="transactions-table-wrap">
           <table className="transactions-table">
             <thead><tr>
-              <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select"><input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" /><SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
+              <th aria-sort={ariaSort(sort, "date")}><label className="transaction-select">{canWrite && <input aria-label="Sélectionner toutes les transactions affichées" checked={allVisibleSelected} onChange={toggleVisible} type="checkbox" />}<SortButton label="Date" onSort={toggleSort} sort={sort} sortKey="date" /></label></th>
               <th aria-sort={ariaSort(sort, "account")}><SortButton label="Compte" onSort={toggleSort} sort={sort} sortKey="account" /></th>
               <th aria-sort={ariaSort(sort, "label")}><SortButton label="Tiers / Libellé" onSort={toggleSort} sort={sort} sortKey="label" /></th>
               <th aria-sort={ariaSort(sort, "category")}><SortButton label="Catégorie" onSort={toggleSort} sort={sort} sortKey="category" /></th>
@@ -554,24 +556,25 @@ function compareTransactions(left: TransactionRow, right: TransactionRow, key: S
 }
 
 function TransactionLine({ onContextMenu, onEdit, onToggle, selected, transaction }: { onContextMenu: (event: MouseEvent) => void; onEdit: () => void; onToggle: () => void; selected: boolean; transaction: TransactionRow }) {
+  const canWrite = useCanWrite();
   const hasDistinctBankLabel = Boolean(transaction.beneficiary)
     && transaction.beneficiary.trim().toLocaleLowerCase("fr") !== transaction.label.trim().toLocaleLowerCase("fr");
   return (
     <tr
-      aria-label={`Modifier la transaction ${transaction.label}`}
+      aria-label={canWrite ? `Modifier la transaction ${transaction.label}` : transaction.label}
       className={selected ? "transaction-row-action transaction-row-action--selected" : "transaction-row-action"}
-      onClick={onEdit}
+      onClick={canWrite ? onEdit : undefined}
       onContextMenu={onContextMenu}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
+        if (canWrite && (event.key === "Enter" || event.key === " ")) {
           event.preventDefault();
           onEdit();
         }
       }}
       tabIndex={0}
-      title="Ouvrir et modifier cette transaction"
+      title={canWrite ? "Ouvrir et modifier cette transaction" : undefined}
     >
-      <td><label className="transaction-select" onClick={(event) => event.stopPropagation()}><input aria-label={`Sélectionner ${transaction.label}`} checked={selected} onChange={onToggle} type="checkbox" />{formatDate(transaction.date)}</label></td>
+      <td>{canWrite ? <label className="transaction-select" onClick={(event) => event.stopPropagation()}><input aria-label={`Sélectionner ${transaction.label}`} checked={selected} onChange={onToggle} type="checkbox" />{formatDate(transaction.date)}</label> : formatDate(transaction.date)}</td>
       <td>{shortAccount(transaction)}</td>
       <td><div className="transaction-counterparty"><strong>{transaction.beneficiary || transaction.label}</strong>{hasDistinctBankLabel && <small title={transaction.label}>{transaction.label}</small>}</div></td>
       <td><span className={`transaction-pill transaction-pill--${categoryTone(transaction.category)}`}>{transaction.category}</span></td>

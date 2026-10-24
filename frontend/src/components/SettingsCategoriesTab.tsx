@@ -1,3 +1,4 @@
+import { useCanWrite } from "../permissions";
 import { useMemo, useState } from "react";
 
 import { createSettingsCategory, deleteSettingsCategory, updateSettingsCategory } from "../api/client";
@@ -34,6 +35,7 @@ interface Props {
 
 /** Paramètres › Catégories : tableau plein écran, actions par clic droit, édition dans un volet latéral. */
 export function SettingsCategoriesTab({ categories, onChanged, onShowOperations, token }: Props) {
+  const canWrite = useCanWrite();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [menu, setMenu] = useState<ContextMenuState>();
@@ -133,7 +135,7 @@ export function SettingsCategoriesTab({ categories, onChanged, onShowOperations,
             ))}
           </div>
         </div>
-        <button className="stg-primary" onClick={() => open("new")} type="button">Nouvelle catégorie</button>
+        {canWrite && <button className="stg-primary" onClick={() => open("new")} type="button">Nouvelle catégorie</button>}
       </div>
 
       <div className="stg-kpis stg-kpis--4">
@@ -150,7 +152,7 @@ export function SettingsCategoriesTab({ categories, onChanged, onShowOperations,
           </thead>
           <tbody>
             {visible.map((category) => (
-              <tr key={category.id} onContextMenu={(event) => openMenu(event, category)} onDoubleClick={() => open(category)} title="Double-clic : modifier · clic droit : actions">
+              <tr key={category.id} onContextMenu={(event) => openMenu(event, category)} onDoubleClick={() => { if (canWrite) open(category); }} title={canWrite ? "Double-clic : modifier · clic droit : actions" : undefined}>
                 <td><span className="stg-dot" style={{ background: category.color }} /><strong>{category.name}</strong>{category.isSystem && <small className="stg-badge">système</small>}</td>
                 <td>{category.direction === "Recette" ? "Revenu" : category.direction}</td>
                 <td className={category.usage.transactions === 0 ? "num stg-zero" : "num"}>{category.usage.transactions}</td>

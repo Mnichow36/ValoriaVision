@@ -135,6 +135,35 @@ class VisibilityTest(AccessControlBase):
         self.assertTrue(all(t["accountId"] in ids for t in transactions) if "accountId" in transactions[0]
                         else all(t["account"] in self.visible_names for t in transactions))
 
+    def test_restricted_profile_can_open_with_imports_on_hidden_accounts(self):
+        """Régression : des transactions liées à un lot d'import d'un compte masqué
+        faisaient échouer l'élagage (clé étrangère) et donc la connexion (HTTP 500)."""
+        hidden = next(i for n, i in self.accounts.items() if n not in self.visible_names)
+        with self.database.connect() as conn:
+            batch_id = conn.execute(
+                "INSERT INTO import_batches(file_name, account_id, imported_count) VALUES ('rel.csv', ?, 1)",
+                (hidden,),
+            ).lastrowid
+            tx_id = conn.execute(
+                "INSERT INTO transactions(account_id, tx_date, label, category, amount, tx_type, status, source, "
+                "signature, import_batch_id) VALUES (?, '2026-01-05', 'CAFE', 'Loisirs', -3, 'Débit', 'Validée', "
+                "'test', 'sig-hidden-1', ?)",
+                (hidden, batch_id),
+            ).lastrowid
+            # Table enfant sans colonne account_id : elle référence la transaction supprimée.
+            rule_id = conn.execute(
+                "INSERT INTO categorization_rules(uuid, name, match_field, match_operator, match_value, target_category_id) "
+                "VALUES ('r-hidden', 'R', 'label', 'contains', 'CAFE', (SELECT MIN(id) FROM categories))"
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO categorization_rule_logs(uuid, rule_id, transaction_id, result_status) "
+                "VALUES ('l-hidden', ?, ?, 'applied')",
+                (rule_id, tx_id),
+            )
+        marie = self.as_user(self.marie, MARIE_PASSWORD)
+        seen = marie.get("/api/v1/transactions").json()["transactions"]
+        self.assertFalse(any(t.get("label") == "CAFE" for t in seen))
+
     def test_hidden_accounts_do_not_weigh_in_the_net_worth(self):
         admin_kpis = self.admin.get("/api/v1/dashboard").json()["kpis"]
         marie = self.as_user(self.marie, MARIE_PASSWORD)
