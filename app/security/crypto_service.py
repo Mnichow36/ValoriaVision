@@ -15,6 +15,8 @@ except Exception:  # pragma: no cover - handled at runtime in app
     Fernet = None
     InvalidToken = Exception
 
+from app.security.keyslots import KeySlotStore
+
 try:
     import keyring
 except Exception:  # pragma: no cover - keyring optional fallback
@@ -32,6 +34,10 @@ class SecurityConfigurationError(RuntimeError):
 
 class SecurityIntegrityError(RuntimeError):
     pass
+
+
+class VaultLockedError(SecurityConfigurationError):
+    """Le coffre est protégé par mot de passe et n'a pas encore été ouvert."""
 
 
 @dataclass
@@ -62,6 +68,44 @@ class CryptoService:
         self.security_dir = data_dir / "security"
         self.security_dir.mkdir(parents=True, exist_ok=True)
         self.local_key_path = self.security_dir / "valoria_local_dev.key"
+        # Mode « protégé » : le mot de passe ouvre une serrure qui donne la clé du coffre.
+        self.slots = KeySlotStore(data_dir / "secure")
+        self._session_key: bytes | None = None
+
+    # -- mode protégé par mot de passe ------------------------------------------------
+    @property
+    def protected(self) -> bool:
+        """Vrai si le coffre s'ouvre par mot de passe (au moins une serrure existe)."""
+        return self.slots.exists
+
+    @property
+    def locked(self) -> bool:
+        return self.protected and self._session_key is None
+
+    def unlock(self, data_key: bytes) -> None:
+        """Garde la clé du coffre en mémoire (jamais sur le disque) pour la session."""
+        if Fernet is not None:
+            Fernet(data_key)  # refuse une clé mal formée avant de s'en servir
+        self._session_key = bytes(data_key)
+
+    def lock(self) -> None:
+        self._session_key = None
+
+    def legacy_key(self) -> bytes | None:
+        """Ancienne clé stockée sur le poste (trousseau ou fichier), sans jamais en créer."""
+        return self._read_key_from_keyring() or self._read_key_from_local_file()
+
+    def purge_legacy_key(self) -> None:
+        """Efface l'ancienne clé du poste : à n'appeler qu'une fois les serrures en place."""
+        if keyring is not None:
+            try:
+                keyring.delete_password(KEYRING_SERVICE, self.keyring_user)
+            except Exception:
+                pass
+        try:
+            self.local_key_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @property
     def available(self) -> bool:
@@ -107,6 +151,11 @@ class CryptoService:
 
     def get_or_create_key(self) -> bytes:
         self._ensure_available()
+        if self._session_key is not None:
+            return self._session_key
+        if self.protected:
+            # Jamais de clé générée ni lue sur le poste : seul le mot de passe ouvre le coffre.
+            raise VaultLockedError("Les données sont verrouillées : ouvrez-les avec votre mot de passe.")
         key = self._read_key_from_keyring()
         if key:
             return key
@@ -122,6 +171,8 @@ class CryptoService:
         return key
 
     def key_storage_label(self) -> str:
+        if self.protected:
+            return "mot de passe (verrouillé)" if self.locked else "mot de passe"
         if self._read_key_from_keyring():
             return "coffre OS / keyring"
         if self._read_key_from_local_file():
@@ -154,6 +205,9 @@ class CryptoService:
             return fernet.decrypt(token)
         except InvalidToken as exc:
             raise SecurityIntegrityError("Clé invalide ou sauvegarde altérée.") from exc
+        except VaultLockedError:
+            # Un coffre verrouillé n'est pas un coffre abîmé : ne jamais le mettre en quarantaine.
+            raise
         except Exception as exc:
             raise SecurityIntegrityError(f"Sauvegarde chiffrée illisible : {exc}") from exc
 
