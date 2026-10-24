@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { PendingRulesApplyResult, PendingRulesPreview, RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, BackupLocation, BackupLocationCheck, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
+import type { PendingRulesApplyResult, PendingRulesPreview, RuleSuggestionApplyItem, RuleSuggestionApplyResult, RuleSuggestionPreviewRow, RuleSuggestionsSnapshot, AccessMatrix, BackupFile, BackupInspection, BackupList, BackupLocation, BackupLocationCheck, Me, Profile, ProfileAccessPayload, ProfileCreatePayload, ProfileUpdatePayload, ProtectionEnableResult, RecoveryRequestResult, SecurityStatus, SecurityEvent, AccountActionResult, AccountPayload, AccountsSnapshot, ApiHealth, AssetsSnapshot, AuthSession, AuthStatus, BankImportCancelResult, BankImportHistory, BankImportPreview, BankImportResult, BudgetActionResult, BudgetsSnapshot, DashboardSnapshot, ForecastSimulationResult, ForecastSnapshot, OccurrenceRescheduleResult, PatrimonialAssetActionResult, PatrimonialAssetPayload, RecurrenceActionResult, RecurrenceOccurrenceActionResult, RecurrenceOccurrencesSnapshot, RecurrencePayload, ReschedulableOccurrencesResult, ReconciliationActionResult, ReconciliationHistory, ReconciliationRulesPayload, ScenarioActionResult, ScenarioEventPayload, ScenarioPayload, ScenarioPresetPayload, ScenarioSettingsSnapshot, ReconciliationSnapshot, SettingsActionResult, SettingsCategoryPayload, SettingsRulePayload, SettingsRulesPreview, SettingsSnapshot, TransactionActionResult, TransactionBulkResult, TransactionCreatePayload, TransactionEditPayload, TransactionsSnapshot } from "./contracts";
 
 const configuredBaseUrl = import.meta.env.VITE_VALORIA_API_URL?.trim();
 interface ApiConnection {
@@ -68,6 +68,16 @@ export function openSession(profileId: string, password: string): Promise<AuthSe
 /** Rouvre une session verrouillée avec le PIN (6 chiffres). */
 export function openSessionWithPin(profileId: string, pin: string): Promise<AuthSession> {
   return request<AuthSession>("/api/v1/auth/unlock-pin", { method: "POST", body: { profile_id: profileId, pin } });
+}
+
+/** Administrateur : verrouille les données par son mot de passe (copie de sécurité créée avant). */
+export function enableProtection(token: string, password: string): Promise<ProtectionEnableResult> {
+  return request<ProtectionEnableResult>("/api/v1/security/protection/enable", { method: "POST", token, body: { password } });
+}
+
+/** Referme complètement les données : base en clair effacée, clé oubliée. */
+export function lockVault(token: string): Promise<{ locked: boolean; plaintextRemoved: boolean }> {
+  return request<{ locked: boolean; plaintextRemoved: boolean }>("/api/v1/security/protection/lock", { method: "POST", token });
 }
 
 export function savePin(token: string, password: string, pin: string): Promise<{ pinConfigured: boolean }> {

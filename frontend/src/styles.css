@@ -3867,3 +3867,39 @@ button.forecast-kpi { cursor: pointer; }
   .settings-overview-grid--3 .settings-summary-card, .settings-overview-grid--general .settings-summary-card { padding-bottom: 12px; padding-top: 12px; }
   .settings-overview-grid--3 .settings-kv-list > div { min-height: 34px; }
 }
+
+/* Protection des données par mot de passe */
+.protection-notice { background: #fff7e6; border: 1px solid #f1d28a; border-radius: 10px; color: #5a4100; font-size: 12px; line-height: 1.5; margin: 10px 0 0; padding: 9px 12px; }
+.protection-notice--info { background: #eef4ff; border-color: #c9d8f5; color: #1e3a8a; }
+.protection-steps { background: #f4f7fe; border: 1px solid #d6deee; border-radius: 10px; font-size: 12.5px; padding: 10px 14px; }
+.protection-steps ol { color: #3d4b6b; line-height: 1.7; margin: 6px 0 0; padding-left: 18px; }
+.local-security-card .security-card-actions { margin-top: 10px; }
+.vault-banner { background: #eef4ff; border: 1px solid #c9d8f5; border-radius: 10px; color: #1e3a8a; font-size: 12.5px; line-height: 1.5; margin: 0 auto 14px; max-width: 640px; padding: 10px 14px; text-align: left; }
+.vault-banner--small { font-size: 12px; margin: 0 0 10px; }
+.vault-chip { background: #e9eef9; border-radius: 999px; color: #3d4b6b; font-size: 11px; font-weight: 800; padding: 2px 10px; }
+.vault-chip--open { background: #d7f3e3; color: #0b5a32; }
+:root[data-theme="dark"] .protection-notice { background: #3a2f12; border-color: #6b5517; color: #f3dca0; }
+:root[data-theme="dark"] .protection-notice--info, :root[data-theme="dark"] .vault-banner { background: #14264a; border-color: #2a4780; color: #bcd0f7; }
+:root[data-theme="dark"] .protection-steps { background: #121b2e; border-color: #26324d; }
+:root[data-theme="dark"] .protection-steps ol { color: #a9b8d6; }
+:root[data-theme="dark"] .vault-chip { background: #1b2742; color: #a9b8d6; }
+:root[data-theme="dark"] .vault-chip--open { background: #123a28; color: #8fe0b2; }
+
+/* Tenir dans l'écran : sélecteur de profils (jusqu'à 5 sur une ligne) et carte Sécurité locale */
+.profile-picker { max-width: 1180px; }
+.local-security-card .settings-kv-list > div { padding-block: 7px; }
+@media (max-height: 860px) {
+  .profile-picker { gap: 14px; }
+  .profile-picker__intro p:not(.eyebrow):not(.auth-slogan) { margin: 0; }
+  .profile-picker__intro .auth-slogan { display: none; }
+  .profile-card { gap: 6px; padding: 16px 14px; }
+  .vault-banner { margin-bottom: 0; padding: 8px 12px; }
+  .local-security-card .settings-kv-list > div { padding-block: 5px; }
+  .local-security-card .protection-notice { margin-top: 6px; padding: 7px 10px; }
+}
+.local-security-card__head { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; }
+.local-security-card__head button { flex: none; white-space: nowrap; }
+.local-security-card .settings-kv-list > div { min-height: 38px; }
+@media (max-height: 860px) { .local-security-card .settings-kv-list > div { min-height: 32px; } }
+.drawer-form .recovery-confirm { align-items: flex-start; display: flex; flex-direction: row; font-weight: 600; gap: 10px; line-height: 1.45; }
+.drawer-form .recovery-confirm input { flex: none; height: auto; margin-top: 2px; width: auto; }

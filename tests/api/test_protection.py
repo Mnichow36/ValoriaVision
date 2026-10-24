@@ -104,6 +104,8 @@ class LockedLifecycleTest(ProtectionBase):
         self.assertTrue(status["dataLocked"])
         self.assertEqual({p["name"] for p in status["profiles"]}, {"Administrateur", "Marie", "Léa"})
         self.assertFalse(self.db_path.exists(), "aucune base vide ne doit être créée")
+        access = {p["name"]: p["vaultAccess"] for p in status["profiles"]}
+        self.assertEqual(access, {"Administrateur": True, "Marie": False, "Léa": False})
 
     def test_wrong_password_never_creates_a_database(self):
         self.lock_everything(self.as_admin())

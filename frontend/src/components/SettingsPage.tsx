@@ -7,6 +7,7 @@ import {
   updateSettingsGeneral,
   getSecurityJournal,
   getSecurityStatus,
+  lockVault,
 } from "../api/client";
 import type {
   Profile,
@@ -14,7 +15,9 @@ import type {
   SecurityStatus,
   SettingsSnapshot,
 } from "../api/contracts";
+import { LocalSecurityCard } from "./LocalSecurityCard";
 import { ChangePasswordDrawer, RecoveryKeyDrawer } from "./PasswordDrawers";
+import { EnableProtectionDrawer } from "./ProtectionDrawers";
 import { DeletePinDrawer, PinDrawer } from "./PinDrawers";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { BackupAdmin } from "./BackupAdmin";
@@ -62,7 +65,16 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
   const [error, setError] = useState("");
   const [journal, setJournal] = useState<SecurityEvent[]>([]);
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
-  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | "pin" | "pin-delete" | null>(null);
+  async function lockDataNow() {
+    try {
+      await lockVault(token);
+      onSessionEnded();
+    } catch (reason: unknown) {
+      setNotice(reason instanceof Error ? reason.message : "Verrouillage impossible.");
+    }
+  }
+
+  const [securityDrawer, setSecurityDrawer] = useState<"password" | "recovery" | "profile" | "pin" | "pin-delete" | "protection" | null>(null);
   const [securityRefresh, setSecurityRefresh] = useState(0);
 
   async function refresh(signal?: AbortSignal) {
@@ -281,17 +293,23 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
           )}
           {securityView === "protection" && isAdmin && (
             <BackupAdmin onNotice={setNotice} onRestored={onSessionEnded} token={token}>
-          <article className="card settings-summary-card">
-            <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
-            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes</dt><dd><span className="status-chip status-chip--success">Phrase secrète</span></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
-          </article>
+          <LocalSecurityCard
+            onEnable={() => setSecurityDrawer("protection")}
+            onLock={() => void lockDataNow()}
+            protectionEnabled={Boolean(securityStatus?.protectionEnabled)}
+            profilesWithAccess={securityStatus?.protectionProfilesWithAccess}
+            recoveryCreatedAt={securityStatus?.recoveryKeyCreatedAt ?? null}
+            security={snapshot.security}
+            totalProfiles={securityStatus?.protectionProfilesTotal}
+          />
             </BackupAdmin>
           )}
           {securityView === "protection" && !isAdmin && (
-          <article className="card settings-summary-card">
-            <div className="panel-heading"><div><h2>Sécurité locale</h2><p>Protection appliquée par les services Python existants.</p></div></div>
-            <dl className="settings-kv-list"><div><dt>Vault chiffré</dt><dd><Status value={snapshot.security.encryptedVault} /></dd></div><div><dt>Sauvegardes</dt><dd><span className="status-chip status-chip--success">Phrase secrète</span></dd></div><div><dt>Mot de passe maître</dt><dd><Status value={snapshot.security.masterPassword} /></dd></div><div><dt>Algorithme</dt><dd>{snapshot.security.algorithm || "Non initialisé"}</dd></div><div><dt>Clé locale</dt><dd>{snapshot.security.keyStorage || "Non renseignée"}</dd></div></dl>
-          </article>
+          <LocalSecurityCard
+            protectionEnabled={Boolean(securityStatus?.protectionEnabled)}
+            recoveryCreatedAt={securityStatus?.recoveryKeyCreatedAt ?? null}
+            security={snapshot.security}
+          />
           )}
         </form>
         </>
@@ -301,6 +319,9 @@ export function SettingsPage({ onNavigate, token, profile, onProfileChanged, onS
       )}
       {securityDrawer === "password" && (
         <ChangePasswordDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} token={token} />
+      )}
+      {securityDrawer === "protection" && (
+        <EnableProtectionDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); }} token={token} />
       )}
       {securityDrawer === "pin" && (
         <PinDrawer onClose={() => setSecurityDrawer(null)} onDone={(text) => { setSecurityDrawer(null); setNotice(text); setSecurityRefresh((n) => n + 1); onProfileChanged(); }} replacing={Boolean(securityStatus?.pinConfigured)} token={token} />

@@ -7,6 +7,7 @@ import type { BackupSource } from "../api/client";
 import type { BackupCounts, BackupInfo, BackupInspection, BackupList, BackupLocation, BackupLocationCheck } from "../api/contracts";
 import { ContextMenu } from "./ContextMenu";
 import type { ContextMenuState } from "./ContextMenu";
+import { FitHeight } from "./FitHeight";
 import { SideDrawer } from "./SideDrawer";
 
 const MIN_PASSPHRASE = 10;
@@ -122,7 +123,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
   }
 
   return (
-    <div className="backup-admin">
+    <FitHeight className="backup-admin" minHeight={440} mode="box">
       <div aria-label="Protection des données" className="backup-tabs" role="tablist">
         <button aria-selected={tab === "backups"} onClick={() => setTab("backups")} role="tab" type="button">Sauvegardes</button>
         <button aria-selected={tab === "security"} onClick={() => setTab("security")} role="tab" type="button">Sécurité et remise à zéro</button>
@@ -186,7 +187,7 @@ export function BackupAdmin({ token, onNotice, onRestored, children }: { token: 
         )}
       </>, document.body)}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
-    </div>
+    </FitHeight>
   );
 }
 

@@ -43,6 +43,8 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
 
   const selected = useMemo(() => profiles.find((p) => p.id === selectedId) ?? null, [profiles, selectedId]);
   const usePin = Boolean(selected?.pinAvailable && !forcePassword);
+  // Données verrouillées par mot de passe : l'API ajoute « vaultAccess » à chaque profil.
+  const dataLocked = profiles.some((p) => p.vaultAccess !== undefined);
 
   useEffect(() => { setWait(retryAfter ?? 0); }, [retryAfter, error]);
   useEffect(() => { setForcePassword(false); }, [selectedId]);
@@ -87,6 +89,7 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
           ) : (
             <>
               <form onSubmit={submit}>
+                {dataLocked && !selected.vaultAccess && <p className="vault-banner vault-banner--small">Les données sont verrouillées : ce profil s’ouvre une fois que l’administrateur a ouvert le coffre.</p>}
                 <label htmlFor="master-password">Mot de passe du profil</label>
                 <input autoComplete="current-password" autoFocus id="master-password" onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
                 {error && <p className="auth-error" role="alert">{error}</p>}
@@ -116,6 +119,9 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
             <p>Une seule base familiale. Votre profil détermine ce que vous voyez et ce que vous pouvez modifier.</p>
             <p className="auth-slogan">{BRAND_SLOGAN}</p>
           </div>
+          {dataLocked && (
+            <p className="vault-banner" role="status"><strong>Les données sont verrouillées.</strong> Le premier mot de passe saisi après le démarrage doit être celui d’un profil qui ouvre le coffre (en général l’administrateur) ; les autres profils suivent ensuite.</p>
+          )}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <div className="profile-grid">
             {profiles.map((profile) => (
@@ -126,6 +132,9 @@ export function AuthScreen({ profiles, preferredProfileId, busy, error, retryAft
                 {profile.kind === "demo"
                   ? <span className="profile-badge profile-badge--info">Mode démonstration</span>
                   : <span className={`profile-badge ${profile.role === "admin" ? "profile-badge--info" : profile.role === "reader" ? "profile-badge--reader" : "profile-badge--ok"}`}>{roleBadge(profile)}</span>}
+                {dataLocked && profile.kind !== "demo" && (
+                  <span className={`vault-chip ${profile.vaultAccess ? "vault-chip--open" : ""}`}>{profile.vaultAccess ? "Ouvre le coffre" : "Après l’administrateur"}</span>
+                )}
               </button>
             ))}
             {profiles.length === 0 && (

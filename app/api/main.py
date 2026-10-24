@@ -607,7 +607,11 @@ def create_app(database: Database | None = None) -> FastAPI:
         ensure_ready()
         if protection.locked:
             # Données verrouillées : l'annuaire en clair suffit à choisir un profil.
-            return protection.read_directory() + demo_profiles()
+            listing = protection.read_directory()
+            for item in listing:
+                owner = UserStore.parse_public_id(item["id"])
+                item["vaultAccess"] = bool(owner is not None and protection.has_password_slot(owner))
+            return listing + demo_profiles()
         return with_pin_flags(users.list_users()) + demo_profiles()
 
     def user_count() -> int:
@@ -1075,6 +1079,7 @@ def create_app(database: Database | None = None) -> FastAPI:
             "pinLastUsedAt": service.pin_last_used_at() or None,
             "protectionEnabled": protection.protected,
             "protectionProfilesWithAccess": len(protection.owners()),
+            "protectionProfilesTotal": users.count(),
         }
 
     @app.post("/api/v1/security/protection/enable")

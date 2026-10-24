@@ -1144,6 +1144,8 @@ export interface Profile {
   pinConfigured?: boolean;
   /** Le PIN peut servir maintenant (session déjà ouverte par mot de passe depuis le lancement). */
   pinAvailable?: boolean;
+  /** Données verrouillées : ce profil possède-t-il déjà sa serrure (il ouvre alors le coffre seul) ? */
+  vaultAccess?: boolean;
   role?: "admin" | "contributor" | "reader";
   roleLabel?: string;
   scopeAccounts?: number;
@@ -1220,6 +1222,17 @@ export interface SecurityStatus {
   pinConfigured: boolean;
   pinCreatedAt: string | null;
   pinLastUsedAt: string | null;
+  /** Les données sont verrouillées par mot de passe (coffre chiffré). */
+  protectionEnabled?: boolean;
+  /** Nombre de profils qui possèdent déjà leur serrure. */
+  protectionProfilesWithAccess?: number;
+  protectionProfilesTotal?: number;
+}
+
+export interface ProtectionEnableResult {
+  enabled: boolean;
+  recoveryKey: string;
+  safetyCopy: string;
 }
 
 export interface RecoveryRequestResult extends AuthSession {
